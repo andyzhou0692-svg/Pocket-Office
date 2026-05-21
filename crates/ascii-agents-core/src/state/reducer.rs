@@ -7,7 +7,7 @@ use crate::AgentId;
 
 /// Which transport produced an event — used for dedup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Source {
+pub enum Transport {
     Hook,
     Jsonl,
 }
@@ -33,13 +33,16 @@ impl Reducer {
         scene: &mut SceneState,
         event: AgentEvent,
         now: Instant,
-        from: Source,
+        from: Transport,
     ) {
         self.gc(now);
         let id = event.agent_id();
 
         // Dedup: drop JSONL events that match a recent Hook event by tool_use_id.
-        if from == Source::Jsonl {
+        // NOTE: CC's hook payloads do NOT carry tool_use_id today (only JSONL does),
+        // so the hook side rarely populates the dedup map. We still try, in case a
+        // future CC version adds it, and to keep the logic correct on both sides.
+        if from == Transport::Jsonl {
             if let Some(tuid) = event_tool_use_id(&event) {
                 if self
                     .recent_hook_tool_uses
@@ -50,8 +53,7 @@ impl Reducer {
             }
         }
 
-        // Record hook-side tool_use ids for the dedup window.
-        if from == Source::Hook {
+        if from == Transport::Hook {
             if let Some(tuid) = event_tool_use_id(&event) {
                 self.recent_hook_tool_uses
                     .insert((id, tuid.to_string()), now);

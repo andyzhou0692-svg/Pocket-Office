@@ -5,7 +5,9 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use ascii_agents_core::source::claude_code::ClaudeCodeSource;
 use ascii_agents_core::state::ActivityState;
-use ascii_agents_core::{AgentEvent, Reducer, SceneState, Source};
+use ascii_agents_core::{
+    AgentEvent, Reducer, SceneState, TaggedReceiver, Transport,
+};
 use tokio::sync::{mpsc, RwLock};
 
 pub fn run(
@@ -32,7 +34,7 @@ async fn run_async(
         src.projects_root = p;
     }
 
-    let (tx, rx) = mpsc::channel::<AgentEvent>(256);
+    let (tx, rx) = mpsc::channel::<(Transport, AgentEvent)>(256);
     let scene: Arc<RwLock<SceneState>> = Arc::new(RwLock::new(SceneState::new(max_desks)));
 
     let scene_for_reducer = scene.clone();
@@ -52,15 +54,14 @@ async fn run_async(
     }
 }
 
-async fn reducer_task(mut rx: mpsc::Receiver<AgentEvent>, scene: Arc<RwLock<SceneState>>) {
+async fn reducer_task(mut rx: TaggedReceiver, scene: Arc<RwLock<SceneState>>) {
     let mut reducer = Reducer::new();
-    while let Some(ev) = rx.recv().await {
+    while let Some((transport, ev)) = rx.recv().await {
         let now = Instant::now();
-        tracing::info!(?ev, "event");
+        tracing::info!(?transport, ?ev, "event");
         let mut s = scene.write().await;
-        reducer.apply(&mut s, ev, now, Source::Hook);
+        reducer.apply(&mut s, ev, now, transport);
     }
-    tokio::time::sleep(Duration::from_secs(60)).await;
 }
 
 async fn headless_loop(scene: Arc<RwLock<SceneState>>) -> Result<()> {

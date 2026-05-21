@@ -2,11 +2,10 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::mpsc;
 
 use crate::source::hook::HookSocketListener;
 use crate::source::jsonl::JsonlWatcher;
-use crate::source::{AgentEvent, Source};
+use crate::source::{Source, TaggedSender};
 
 /// Source that listens for Claude Code activity via hooks (primary) and
 /// transcript JSONL files (fallback).
@@ -31,7 +30,7 @@ impl Source for ClaudeCodeSource {
         "claude-code"
     }
 
-    async fn run(self: Box<Self>, tx: mpsc::Sender<AgentEvent>) -> Result<()> {
+    async fn run(self: Box<Self>, tx: TaggedSender) -> Result<()> {
         let socket = HookSocketListener::bind(self.socket_path.clone()).await?;
         let watcher = JsonlWatcher::new(self.projects_root.clone());
 

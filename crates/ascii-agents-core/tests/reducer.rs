@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use ascii_agents_core::source::{Activity, AgentEvent};
-use ascii_agents_core::state::reducer::{Reducer, Source};
+use ascii_agents_core::state::reducer::{Reducer, Transport};
 use ascii_agents_core::state::{ActivityState, SceneState};
 use ascii_agents_core::AgentId;
 
@@ -16,7 +16,7 @@ fn start(reducer: &mut Reducer, scene: &mut SceneState, id: AgentId) {
             cwd: PathBuf::from("/"),
         },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
 }
 
@@ -35,7 +35,7 @@ fn session_start_creates_idle_slot_at_first_free_desk() {
             cwd: PathBuf::from("/repo"),
         },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
 
     let slot = scene.agents.get(&id).expect("agent inserted");
@@ -60,7 +60,7 @@ fn activity_start_sets_state_active() {
             detail: Some("Edit: foo.rs".into()),
         },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
 
     let slot = scene.agents.get(&id).unwrap();
@@ -88,7 +88,7 @@ fn activity_end_returns_to_idle() {
             detail: None,
         },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
     r.apply(
         &mut scene,
@@ -97,7 +97,7 @@ fn activity_end_returns_to_idle() {
             tool_use_id: Some("t1".into()),
         },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
 
     assert_eq!(scene.agents.get(&id).unwrap().state, ActivityState::Idle);
@@ -117,7 +117,7 @@ fn waiting_sets_state_with_reason() {
             reason: "Bash: rm -rf?".into(),
         },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
 
     match &scene.agents.get(&id).unwrap().state {
@@ -139,7 +139,7 @@ fn session_end_removes_slot_and_frees_desk() {
         &mut scene,
         AgentEvent::SessionEnd { agent_id: a },
         Instant::now(),
-        Source::Hook,
+        Transport::Hook,
     );
 
     assert!(!scene.agents.contains_key(&a));
@@ -163,7 +163,7 @@ fn jsonl_duplicate_of_recent_hook_is_dropped() {
             detail: None,
         },
         t0,
-        Source::Hook,
+        Transport::Hook,
     );
 
     let detail_marker = Some("FROM_JSONL".to_string());
@@ -176,7 +176,7 @@ fn jsonl_duplicate_of_recent_hook_is_dropped() {
             detail: detail_marker.clone(),
         },
         t0 + Duration::from_millis(100),
-        Source::Jsonl,
+        Transport::Jsonl,
     );
 
     let slot = scene.agents.get(&id).unwrap();
@@ -208,7 +208,7 @@ fn jsonl_event_after_dedup_window_is_applied() {
             detail: None,
         },
         t0,
-        Source::Hook,
+        Transport::Hook,
     );
 
     r.apply(
@@ -220,7 +220,7 @@ fn jsonl_event_after_dedup_window_is_applied() {
             detail: None,
         },
         t0 + Duration::from_millis(600),
-        Source::Jsonl,
+        Transport::Jsonl,
     );
 
     let slot = scene.agents.get(&id).unwrap();

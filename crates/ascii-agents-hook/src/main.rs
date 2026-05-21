@@ -1,9 +1,11 @@
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use serde_json::Value;
+
+const WRITE_TIMEOUT: Duration = Duration::from_millis(200);
 
 fn main() -> Result<()> {
     let socket = std::env::var("ASCII_AGENTS_SOCKET")
@@ -27,8 +29,12 @@ fn main() -> Result<()> {
         map.insert("_shim_ts_ms".into(), Value::from(ts as u64));
     }
 
-    // Best-effort send. If the daemon isn't running, exit 0 — never block CC.
-    if let Ok(mut s) = UnixStream::connect(&socket) {
+    // Best-effort send with a hard write timeout so a stuck daemon can never
+    // block CC's subprocess wait. If the daemon isn't running or is slow,
+    // we drop the event and exit 0.
+    if let Ok(s) = UnixStream::connect(&socket) {
+        let _ = s.set_write_timeout(Some(WRITE_TIMEOUT));
+        let mut s = s;
         let mut line = serde_json::to_vec(&payload).unwrap_or_default();
         line.push(b'\n');
         let _ = s.write_all(&line);

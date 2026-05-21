@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use ascii_agents_core::render::test_renderer::TestRenderer;
 use ascii_agents_core::source::Activity;
 use ascii_agents_core::state::ActivityState;
-use ascii_agents_core::{AgentEvent, AgentId, Reducer, Renderer, SceneState, Source};
+use ascii_agents_core::{AgentEvent, AgentId, Reducer, Renderer, SceneState, Transport};
 
 #[test]
 fn scripted_timeline_drives_scene_through_states() {
@@ -23,7 +23,7 @@ fn scripted_timeline_drives_scene_through_states() {
          s: &mut SceneState,
          render: &mut TestRenderer| {
             for ev in events {
-                r.apply(s, ev, now, Source::Hook);
+                r.apply(s, ev, now, Transport::Hook);
             }
             render.render(s).unwrap();
             now += Duration::from_millis(dt_ms);

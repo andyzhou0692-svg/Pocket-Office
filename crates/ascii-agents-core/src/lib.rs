@@ -8,7 +8,7 @@ pub mod state;
 
 pub use id::AgentId;
 pub use render::Renderer;
-pub use source::{Activity, AgentEvent, Source as SourceTrait};
+pub use source::{Activity, AgentEvent, Source, TaggedReceiver, TaggedSender};
 pub use sprite::{Frame, Palette, Pixel, Rgb, RgbBuffer, Sprite};
-pub use state::reducer::{Reducer, Source};
+pub use state::reducer::{Reducer, Transport};
 pub use state::{ActivityState, AgentSlot, SceneState};

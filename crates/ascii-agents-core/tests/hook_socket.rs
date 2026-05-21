@@ -7,13 +7,14 @@ use tokio::sync::mpsc;
 
 use ascii_agents_core::source::hook::HookSocketListener;
 use ascii_agents_core::source::AgentEvent;
+use ascii_agents_core::state::reducer::Transport;
 
 #[tokio::test]
 async fn listener_parses_line_and_emits_event() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("ascii-agents.sock");
 
-    let (tx, mut rx) = mpsc::channel::<AgentEvent>(16);
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(16);
     let listener = HookSocketListener::bind(path.clone()).await.unwrap();
     let handle = tokio::spawn(async move { listener.run(tx).await });
 
@@ -31,10 +32,12 @@ async fn listener_parses_line_and_emits_event() {
     s.write_all(&line).await.unwrap();
     s.shutdown().await.unwrap();
 
-    let ev = tokio::time::timeout(Duration::from_millis(500), rx.recv())
+    let (transport, ev) = tokio::time::timeout(Duration::from_millis(500), rx.recv())
         .await
+        .unwrap()
         .unwrap();
-    assert!(matches!(ev.unwrap(), AgentEvent::SessionStart { .. }));
+    assert_eq!(transport, Transport::Hook);
+    assert!(matches!(ev, AgentEvent::SessionStart { .. }));
 
     handle.abort();
 }
@@ -43,7 +46,7 @@ async fn listener_parses_line_and_emits_event() {
 async fn listener_skips_malformed_line_and_keeps_going() {
     let dir = TempDir::new().unwrap();
     let path = dir.path().join("ascii-agents.sock");
-    let (tx, mut rx) = mpsc::channel::<AgentEvent>(16);
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(16);
     let listener = HookSocketListener::bind(path.clone()).await.unwrap();
     let handle = tokio::spawn(async move { listener.run(tx).await });
     tokio::time::sleep(Duration::from_millis(20)).await;
@@ -62,9 +65,11 @@ async fn listener_skips_malformed_line_and_keeps_going() {
     s.write_all(&line).await.unwrap();
     s.shutdown().await.unwrap();
 
-    let ev = tokio::time::timeout(Duration::from_millis(500), rx.recv())
+    let (transport, ev) = tokio::time::timeout(Duration::from_millis(500), rx.recv())
         .await
+        .unwrap()
         .unwrap();
-    assert!(matches!(ev.unwrap(), AgentEvent::SessionEnd { .. }));
+    assert_eq!(transport, Transport::Hook);
+    assert!(matches!(ev, AgentEvent::SessionEnd { .. }));
     handle.abort();
 }

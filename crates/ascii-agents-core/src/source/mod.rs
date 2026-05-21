@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
 use crate::id::AgentId;
+use crate::state::reducer::Transport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Activity {
@@ -52,10 +53,14 @@ impl AgentEvent {
     }
 }
 
+/// Events sent on a tagged channel so the reducer knows which transport produced them.
+pub type TaggedSender = mpsc::Sender<(Transport, AgentEvent)>;
+pub type TaggedReceiver = mpsc::Receiver<(Transport, AgentEvent)>;
+
 #[async_trait]
 pub trait Source: Send + 'static {
     fn name(&self) -> &str;
-    async fn run(self: Box<Self>, tx: mpsc::Sender<AgentEvent>) -> anyhow::Result<()>;
+    async fn run(self: Box<Self>, tx: TaggedSender) -> anyhow::Result<()>;
 }
 
 pub mod claude_code;

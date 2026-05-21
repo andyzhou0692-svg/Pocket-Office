@@ -5,11 +5,12 @@ use std::time::Duration;
 
 use anyhow::Result;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::source::decoder::{decode_jsonl_line, SOURCE_NAME};
-use crate::source::AgentEvent;
+use crate::source::{AgentEvent, TaggedSender};
+use crate::state::reducer::Transport;
 use crate::AgentId;
 
 pub struct JsonlWatcher {
@@ -21,7 +22,7 @@ impl JsonlWatcher {
         Self { root }
     }
 
-    pub async fn run(self, tx: mpsc::Sender<AgentEvent>) -> Result<()> {
+    pub async fn run(self, tx: TaggedSender) -> Result<()> {
         let cursors: Arc<Mutex<HashMap<PathBuf, u64>>> = Arc::new(Mutex::new(HashMap::new()));
         let seen_sessions: Arc<Mutex<HashMap<PathBuf, bool>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -41,11 +42,7 @@ impl JsonlWatcher {
         let _ = tokio::fs::create_dir_all(&self.root).await;
         watcher.watch(&self.root, RecursiveMode::Recursive)?;
 
-        if let Ok(read) = std::fs::read_dir(&self.root) {
-            for entry in read.flatten() {
-                walk_jsonl(&entry.path(), &cursors, &seen_sessions, &tx).await;
-            }
-        }
+        scan_root(&self.root, &cursors, &seen_sessions, &tx).await;
 
         loop {
             tokio::select! {
@@ -53,13 +50,22 @@ impl JsonlWatcher {
                     walk_jsonl(&path, &cursors, &seen_sessions, &tx).await;
                 }
                 _ = tokio::time::sleep(Duration::from_secs(60)) => {
-                    if let Ok(read) = std::fs::read_dir(&self.root) {
-                        for entry in read.flatten() {
-                            walk_jsonl(&entry.path(), &cursors, &seen_sessions, &tx).await;
-                        }
-                    }
+                    scan_root(&self.root, &cursors, &seen_sessions, &tx).await;
                 }
             }
+        }
+    }
+}
+
+async fn scan_root(
+    root: &Path,
+    cursors: &Arc<Mutex<HashMap<PathBuf, u64>>>,
+    seen: &Arc<Mutex<HashMap<PathBuf, bool>>>,
+    tx: &TaggedSender,
+) {
+    if let Ok(mut read) = tokio::fs::read_dir(root).await {
+        while let Ok(Some(entry)) = read.next_entry().await {
+            walk_jsonl(&entry.path(), cursors, seen, tx).await;
         }
     }
 }
@@ -68,11 +74,15 @@ async fn walk_jsonl(
     path: &Path,
     cursors: &Arc<Mutex<HashMap<PathBuf, u64>>>,
     seen: &Arc<Mutex<HashMap<PathBuf, bool>>>,
-    tx: &mpsc::Sender<AgentEvent>,
+    tx: &TaggedSender,
 ) {
-    if path.is_dir() {
-        if let Ok(read) = std::fs::read_dir(path) {
-            for entry in read.flatten() {
+    let meta = match tokio::fs::metadata(path).await {
+        Ok(m) => m,
+        Err(_) => return,
+    };
+    if meta.is_dir() {
+        if let Ok(mut read) = tokio::fs::read_dir(path).await {
+            while let Ok(Some(entry)) = read.next_entry().await {
                 Box::pin(walk_jsonl(&entry.path(), cursors, seen, tx)).await;
             }
         }
@@ -90,16 +100,25 @@ async fn walk_jsonl(
         }
     };
 
-    let mut cursors_g = cursors.lock().await;
-    let cursor = cursors_g.entry(path.to_path_buf()).or_insert(0);
-    if (*cursor as usize) >= bytes.len() {
-        return;
-    }
-    let cursor_now = *cursor as usize;
-    *cursor = bytes.len() as u64;
-    drop(cursors_g);
+    // Only consume up to the last complete (newline-terminated) line; a partial
+    // tail stays buffered until the next notify event completes it.
+    let safe_end = match bytes.iter().rposition(|&b| b == b'\n') {
+        Some(i) => i + 1,
+        None => 0,
+    };
 
-    let new_bytes = &bytes[cursor_now..];
+    let cursor_now;
+    {
+        let mut cursors_g = cursors.lock().await;
+        let cursor = cursors_g.entry(path.to_path_buf()).or_insert(0);
+        cursor_now = *cursor as usize;
+        if cursor_now >= safe_end {
+            return;
+        }
+        *cursor = safe_end as u64;
+    }
+
+    let new_bytes = &bytes[cursor_now..safe_end];
     let transcript_path_str = path.to_string_lossy().into_owned();
 
     // Emit SessionStart on first sight of this transcript.
@@ -111,13 +130,18 @@ async fn walk_jsonl(
                 .file_stem()
                 .map(|s| s.to_string_lossy().into_owned())
                 .unwrap_or_default();
+            // Try to extract cwd from the first parseable line; harmless if it fails.
+            let cwd = extract_cwd(&bytes[..safe_end]).unwrap_or_default();
             let _ = tx
-                .send(AgentEvent::SessionStart {
-                    agent_id: id,
-                    source: SOURCE_NAME.into(),
-                    session_id,
-                    cwd: PathBuf::new(),
-                })
+                .send((
+                    Transport::Jsonl,
+                    AgentEvent::SessionStart {
+                        agent_id: id,
+                        source: SOURCE_NAME.into(),
+                        session_id,
+                        cwd,
+                    },
+                ))
                 .await;
         }
     }
@@ -143,7 +167,7 @@ async fn walk_jsonl(
         match decode_jsonl_line(&transcript_path_str, v) {
             Ok(events) => {
                 for ev in events {
-                    if tx.send(ev).await.is_err() {
+                    if tx.send((Transport::Jsonl, ev)).await.is_err() {
                         return;
                     }
                 }
@@ -151,4 +175,18 @@ async fn walk_jsonl(
             Err(e) => warn!("decode error in {}: {e}", path.display()),
         }
     }
+}
+
+fn extract_cwd(bytes: &[u8]) -> Option<PathBuf> {
+    for line in bytes.split(|b| *b == b'\n') {
+        if line.is_empty() {
+            continue;
+        }
+        let s = std::str::from_utf8(line).ok()?;
+        let v: serde_json::Value = serde_json::from_str(s).ok()?;
+        if let Some(cwd) = v.get("cwd").and_then(|c| c.as_str()) {
+            return Some(PathBuf::from(cwd));
+        }
+    }
+    None
 }

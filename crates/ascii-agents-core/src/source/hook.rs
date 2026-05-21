@@ -3,11 +3,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::net::{UnixListener, UnixStream};
-use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::source::decoder::decode_hook_payload;
-use crate::source::AgentEvent;
+use crate::source::TaggedSender;
+use crate::state::reducer::Transport;
 
 pub struct HookSocketListener {
     listener: UnixListener,
@@ -17,7 +17,6 @@ pub struct HookSocketListener {
 impl HookSocketListener {
     pub async fn bind(path: impl Into<PathBuf>) -> Result<Self> {
         let path = path.into();
-        // Remove any stale socket file from a previous run.
         if Path::new(&path).exists() {
             let _ = tokio::fs::remove_file(&path).await;
         }
@@ -30,7 +29,7 @@ impl HookSocketListener {
         &self.path
     }
 
-    pub async fn run(self, tx: mpsc::Sender<AgentEvent>) -> Result<()> {
+    pub async fn run(self, tx: TaggedSender) -> Result<()> {
         loop {
             match self.listener.accept().await {
                 Ok((stream, _addr)) => {
@@ -45,7 +44,7 @@ impl HookSocketListener {
     }
 }
 
-async fn handle_conn(stream: UnixStream, tx: mpsc::Sender<AgentEvent>) {
+async fn handle_conn(stream: UnixStream, tx: TaggedSender) {
     let reader = BufReader::new(stream);
     let mut lines = reader.lines();
     loop {
@@ -64,7 +63,7 @@ async fn handle_conn(stream: UnixStream, tx: mpsc::Sender<AgentEvent>) {
                 match decode_hook_payload(v) {
                     Ok(ev) => {
                         debug!("hook event: {ev:?}");
-                        if tx.send(ev).await.is_err() {
+                        if tx.send((Transport::Hook, ev)).await.is_err() {
                             return;
                         }
                     }
