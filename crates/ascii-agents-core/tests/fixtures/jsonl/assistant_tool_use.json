@@ -1,0 +1,14 @@
+{
+  "type": "assistant",
+  "uuid": "a-1",
+  "sessionId": "ses-abc",
+  "cwd": "/repo",
+  "message": {
+    "role": "assistant",
+    "content": [
+      { "type": "text", "text": "I'll write the file." },
+      { "type": "tool_use", "id": "tu_123", "name": "Write",
+        "input": { "file_path": "src/foo.rs", "content": "fn main(){}" } }
+    ]
+  }
+}
