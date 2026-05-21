@@ -138,9 +138,6 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
     const WINDOW_FRAME: Rgb = Rgb(24, 24, 32);
     const WINDOW_GLASS: Rgb = Rgb(120, 160, 200);
     const WINDOW_GLASS_2: Rgb = Rgb(160, 190, 220);
-    const CLOCK_RIM: Rgb = Rgb(200, 200, 210);
-    const CLOCK_FACE: Rgb = Rgb(240, 240, 240);
-    const CLOCK_HAND: Rgb = Rgb(20, 20, 25);
 
     for y in 0..buf_h {
         let band = y / PLANK_H;
@@ -179,10 +176,8 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
         idx += 1;
     }
 
-    // One wall clock roughly center-top.
-    let cx = buf_w / 2 - 2;
-    let cy = 1;
-    paint_clock(buf, cx, cy, CLOCK_RIM, CLOCK_FACE, CLOCK_HAND);
+    // Wall clock — painted by paint_clock() in a separate pass so it can
+    // take `now` and render real hand positions.
 
     // Wall trim line at the bottom of the wall band.
     let trim_y = TOP_WALL_H - 1;
@@ -233,21 +228,81 @@ fn paint_window(
     }
 }
 
-fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, rim: Rgb, face: Rgb, hand: Rgb) {
-    // 5x5 round-ish clock face.
-    let pixels: &[(u16, u16, Rgb)] = &[
-        (1, 0, rim), (2, 0, rim), (3, 0, rim),
-        (0, 1, rim), (1, 1, face), (2, 1, face), (3, 1, face), (4, 1, rim),
-        (0, 2, rim), (1, 2, face), (2, 2, hand), (3, 2, face), (4, 2, rim),
-        (0, 3, rim), (1, 3, face), (2, 3, hand), (3, 3, face), (4, 3, rim),
-        (1, 4, rim), (2, 4, rim), (3, 4, rim),
+/// Live wall clock — reads system local time and renders hour + minute hands.
+/// 5x5 clock face. Hands quantize to 8 cardinal/intercardinal directions
+/// (the most a 5x5 sprite can express).
+fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, now: SystemTime) {
+    const RIM: Rgb = Rgb(200, 200, 210);
+    const FACE: Rgb = Rgb(240, 240, 240);
+    const HAND_HOUR: Rgb = Rgb(20, 20, 25);
+    const HAND_MIN: Rgb = Rgb(60, 60, 80);
+
+    // Face + rim background.
+    let bg: &[(u16, u16, Rgb)] = &[
+        (1, 0, RIM), (2, 0, RIM), (3, 0, RIM),
+        (0, 1, RIM), (1, 1, FACE), (2, 1, FACE), (3, 1, FACE), (4, 1, RIM),
+        (0, 2, RIM), (1, 2, FACE), (2, 2, FACE), (3, 2, FACE), (4, 2, RIM),
+        (0, 3, RIM), (1, 3, FACE), (2, 3, FACE), (3, 3, FACE), (4, 3, RIM),
+        (1, 4, RIM), (2, 4, RIM), (3, 4, RIM),
     ];
-    for (dx, dy, c) in pixels {
+    for (dx, dy, c) in bg {
         let px = x + dx;
         let py = y + dy;
         if px < buf.width && py < buf.height {
             buf.put(px, py, *c);
         }
+    }
+
+    // Decompose `now` into local hour + minute via chrono.
+    let unix_now = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let local = chrono::DateTime::<chrono::Local>::from(
+        std::time::UNIX_EPOCH + unix_now,
+    );
+    use chrono::Timelike;
+    let hour = local.hour() % 12;
+    let minute = local.minute();
+
+    // Fractional positions around the clock (0.0 = 12 o'clock, 0.25 = 3 o'clock).
+    let hour_turns = (hour as f32 + minute as f32 / 60.0) / 12.0;
+    let min_turns = minute as f32 / 60.0;
+
+    let put = |buf: &mut RgbBuffer, ox: i32, oy: i32, color: Rgb| {
+        let px = x as i32 + 2 + ox;
+        let py = y as i32 + 2 + oy;
+        if px >= 0 && py >= 0 && (px as u16) < buf.width && (py as u16) < buf.height {
+            buf.put(px as u16, py as u16, color);
+        }
+    };
+
+    // Center pin (always painted).
+    put(buf, 0, 0, HAND_HOUR);
+
+    // Hour hand: 1 px from center along quantized angle.
+    let (hdx, hdy) = octant_offset(hour_turns);
+    put(buf, hdx, hdy, HAND_HOUR);
+
+    // Minute hand: 2 px from center (longer than hour hand) along its angle.
+    let (mdx, mdy) = octant_offset(min_turns);
+    put(buf, mdx, mdy, HAND_MIN);
+    // (Don't put a 2nd pixel if it falls off the 5x5 — the rim handles it.)
+}
+
+/// Quantize a fractional turn (0.0..1.0, 0.0 = north) to one of 8 octant
+/// (dx, dy) unit offsets.
+fn octant_offset(turn: f32) -> (i32, i32) {
+    let oct = ((turn * 8.0).round() as i32).rem_euclid(8);
+    match oct {
+        0 => (0, -1),
+        1 => (1, -1),
+        2 => (1, 0),
+        3 => (1, 1),
+        4 => (0, 1),
+        5 => (-1, 1),
+        6 => (-1, 0),
+        7 => (-1, -1),
+        _ => (0, 0),
     }
 }
 
@@ -454,6 +509,10 @@ pub fn draw_scene<B: Backend>(
         };
 
         paint_floor_and_walls(buf, buf_w, buf_h);
+        // Live wall clock painted after the wall (so hands sit on top of it)
+        // but before wall decor — the bookshelf etc. shouldn't cover it.
+        let clock_x = buf_w / 2 - 2;
+        paint_clock(buf, clock_x, 1, now);
         paint_wall_decor(buf, &layout, pack);
         paint_lounge_decor(buf, &layout, pack);
 

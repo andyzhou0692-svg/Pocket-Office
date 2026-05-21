@@ -149,13 +149,14 @@ impl Layout {
             Point { x: buf_w * 95 / 100, y: lounge_band.y + lounge_band.height * 80 / 100 },
         ];
 
-        // Wall decor — bookshelf + whiteboard leaning against the back wall,
-        // painted into the TOP_MARGIN_PX zone right below the windows.
-        // (y is the TOP-left of the sprite; sprites are 12 tall, fits in margin.)
-        let wall_y = 14;  // just below the wall trim line (wall is 0..14 px)
+        // Wall decor — bookshelf + whiteboard *leaning against* the back
+        // wall. Top-down view: the back of the furniture is tucked into
+        // the wall sprite, so its top rows overlap the wall band (which is
+        // 0..14 px). Painted AFTER the wall so it sits in front of the
+        // wall trim.
         let wall_decor = vec![
-            (WallDecor::Bookshelf, Point { x: buf_w * 18 / 100, y: wall_y }),
-            (WallDecor::Whiteboard, Point { x: buf_w * 60 / 100, y: wall_y + 2 }),
+            (WallDecor::Bookshelf, Point { x: buf_w * 18 / 100, y: 6 }),
+            (WallDecor::Whiteboard, Point { x: buf_w * 60 / 100, y: 8 }),
         ];
 
         Some(Self {
