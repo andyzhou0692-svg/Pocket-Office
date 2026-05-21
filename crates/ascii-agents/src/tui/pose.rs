@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 use ascii_agents_core::state::{ActivityState, AgentSlot};
 use ascii_agents_core::AgentId;
 
-use crate::tui::layout::{Layout, Point};
+use crate::tui::layout::{Layout, Point, WaypointKind};
 
 /// Base cycle length. Each agent's actual cycle = base + per-agent jitter.
 pub const WANDER_CYCLE_BASE_MS: u64 = 7_000;
@@ -44,7 +44,11 @@ pub enum Pose {
     SeatedIdle,
     SeatedTyping { frame: usize },
     StandingAtDesk,
-    StandingAtWaypoint { wp: usize },
+    /// At a lounge waypoint. Concrete render depends on the kind:
+    ///   Couch    → sit on couch sprite
+    ///   Coffee   → standing + holding-coffee sprite
+    ///   OpenFloor → plain standing
+    AtWaypoint { wp: usize, kind: WaypointKind },
     Walking { from: Point, to: Point, t_x1000: u16, frame: usize },
 }
 
@@ -89,14 +93,14 @@ fn idle_pose(slot: &AgentSlot, desk: Point, layout: &Layout, elapsed_ms: u64) ->
         let span = walk_out_end - seated_end;
         let t = ((phase_t - seated_end) * 1000 / span) as u16;
         let frame = ((elapsed_ms / WALKING_FRAME_MS) as usize) % WALKING_FRAMES;
-        Pose::Walking { from: desk, to: wp, t_x1000: t, frame }
+        Pose::Walking { from: desk, to: wp.pos, t_x1000: t, frame }
     } else if phase_t < at_wp_end {
-        Pose::StandingAtWaypoint { wp: wp_idx }
+        Pose::AtWaypoint { wp: wp_idx, kind: wp.kind }
     } else {
         let span = cycle_ms - at_wp_end;
         let t = ((phase_t - at_wp_end) * 1000 / span) as u16;
         let frame = ((elapsed_ms / WALKING_FRAME_MS) as usize) % WALKING_FRAMES;
-        Pose::Walking { from: wp, to: desk, t_x1000: t, frame }
+        Pose::Walking { from: wp.pos, to: desk, t_x1000: t, frame }
     }
 }
 
@@ -201,8 +205,8 @@ mod tests {
         let (s, now) = slot(ActivityState::Idle, midpoint);
         let l = layout();
         match derive(&s, now, &l).expect("pose") {
-            Pose::StandingAtWaypoint { wp } => assert!(wp < l.waypoints.len()),
-            other => panic!("expected StandingAtWaypoint, got {other:?}"),
+            Pose::AtWaypoint { wp, .. } => assert!(wp < l.waypoints.len()),
+            other => panic!("expected AtWaypoint, got {other:?}"),
         }
     }
 
@@ -279,7 +283,7 @@ mod tests {
         for n in 0..4u64 {
             let t = n * cycle + mid_at_wp;
             let (s, now) = slot(ActivityState::Idle, t);
-            if let Some(Pose::StandingAtWaypoint { wp }) = derive(&s, now, &l) {
+            if let Some(Pose::AtWaypoint { wp, .. }) = derive(&s, now, &l) {
                 chosen.insert(wp);
             }
         }

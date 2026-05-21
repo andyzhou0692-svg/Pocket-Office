@@ -1,0 +1,11 @@
+# 8x8 character sitting on the couch (slumped back, legs forward).
+# Smaller footprint than the standing pose so they fit on a 14-wide couch.
+@frame 0
+. H H H H H .
+H H H H H H H
+H S S e e S H
+. S S S S S .
+. B B B B B .
+B B B B B B B
+B B B B B B B
+. S . . . S .

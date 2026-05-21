@@ -57,3 +57,11 @@ frame_ms = 600
 [animations.coffee]
 frames   = ["coffee.sprite"]
 frame_ms = 600
+
+[animations.sitting_couch]
+frames   = ["sitting_couch.sprite"]
+frame_ms = 600
+
+[animations.holding_coffee]
+frames   = ["holding_coffee.sprite"]
+frame_ms = 600

@@ -13,6 +13,21 @@ pub struct Point {
     pub y: u16,
 }
 
+/// Kind of a lounge waypoint — determines what pose an Idle agent strikes
+/// when they arrive there. Couch = sit, Coffee = drink, OpenFloor = stand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaypointKind {
+    Couch,
+    Coffee,
+    OpenFloor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Waypoint {
+    pub pos: Point,
+    pub kind: WaypointKind,
+}
+
 #[derive(Debug, Clone)]
 pub struct Layout {
     pub buf_w: u16,
@@ -21,19 +36,21 @@ pub struct Layout {
     pub walkway: Rect,
     pub lounge_band: Rect,
     pub home_desks: Vec<Point>,
-    pub waypoints: Vec<Point>,
+    pub waypoints: Vec<Waypoint>,
 }
 
 pub const WAYPOINT_COUNT: usize = 4;
 pub const DESK_W: u16 = 12;
 pub const DESK_H: u16 = 6;
 pub const DESK_GAP_X: u16 = 4;
-pub const DESK_GAP_Y: u16 = 2;
+/// Vertical gap between cubicle rows. Sized to clear the seated sprite's
+/// 8 px head-above-desk so row N+1's desk doesn't paint over row N's character.
+pub const DESK_GAP_Y: u16 = 10;
 /// Vertical reserve above the cubicle band, in buf pixels. The renderer paints
-/// the top wall band into this region; without it the desks butt right up
-/// against the wall trim and the seated character heads disappear into it.
-/// Sized to accommodate a standing character (12 px) without clipping the wall.
-pub const TOP_MARGIN_PX: u16 = 22;
+/// the top wall band (14 px tall, with windows + a clock) into this region.
+/// Sized so a standing character (12 px tall) anchored at desk.y - 12 sits
+/// comfortably below the wall trim line.
+pub const TOP_MARGIN_PX: u16 = 28;
 
 impl Layout {
     /// Returns `None` if the buffer is too small for even one cubicle and the
@@ -87,11 +104,23 @@ impl Layout {
             });
         }
 
-        // Waypoints: 4 fixed positions evenly spaced in the lounge band.
+        // Waypoints: 4 fixed positions across the lounge band. Index 0 sits
+        // on the couch (far left, where paint_lounge_decor draws the couch),
+        // index 3 stands by the coffee station (far right). The middle two
+        // are open-floor spots near the plants.
         let waypoint_y = lounge_band.y + lounge_band.height / 2;
         let stride = buf_w / (WAYPOINT_COUNT as u16 + 1);
-        let waypoints: Vec<Point> = (1..=WAYPOINT_COUNT as u16)
-            .map(|i| Point { x: stride * i, y: waypoint_y })
+        let kinds = [
+            WaypointKind::Couch,
+            WaypointKind::OpenFloor,
+            WaypointKind::OpenFloor,
+            WaypointKind::Coffee,
+        ];
+        let waypoints: Vec<Waypoint> = (1..=WAYPOINT_COUNT as u16)
+            .map(|i| Waypoint {
+                pos: Point { x: stride * i, y: waypoint_y },
+                kind: kinds[(i - 1) as usize],
+            })
             .collect();
 
         Some(Self {
@@ -138,13 +167,16 @@ mod tests {
 
     #[test]
     fn compute_places_exactly_waypoint_count_waypoints_in_lounge() {
-        let l = Layout::compute(120, 80, 1).expect("fits");
+        let l = Layout::compute(120, 96, 1).expect("fits");
         assert_eq!(l.waypoints.len(), WAYPOINT_COUNT);
         for w in &l.waypoints {
-            assert!(w.y >= l.lounge_band.y);
-            assert!(w.y < l.lounge_band.y + l.lounge_band.height);
-            assert!(w.x < l.buf_w);
+            assert!(w.pos.y >= l.lounge_band.y);
+            assert!(w.pos.y < l.lounge_band.y + l.lounge_band.height);
+            assert!(w.pos.x < l.buf_w);
         }
+        // Couch first, coffee last — paint_lounge_decor relies on this.
+        assert_eq!(l.waypoints.first().map(|w| w.kind), Some(WaypointKind::Couch));
+        assert_eq!(l.waypoints.last().map(|w| w.kind), Some(WaypointKind::Coffee));
     }
 
     #[test]

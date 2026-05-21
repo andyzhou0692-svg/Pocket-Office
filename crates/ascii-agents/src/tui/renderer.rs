@@ -110,8 +110,14 @@ fn recolor_frame(frame: &Frame, pal: &Palette, base_pal: &Palette) -> Frame {
 // --- Floor / walls / decor -----------------------------------------------
 fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
     const PLANK_H: u16 = 6;
-    const TOP_WALL_H: u16 = 6;
+    const TOP_WALL_H: u16 = 14;
     const BASEBOARD_H: u16 = 3;
+    const WINDOW_FRAME: Rgb = Rgb(24, 24, 32);
+    const WINDOW_GLASS: Rgb = Rgb(120, 160, 200);
+    const WINDOW_GLASS_2: Rgb = Rgb(160, 190, 220);
+    const CLOCK_RIM: Rgb = Rgb(200, 200, 210);
+    const CLOCK_FACE: Rgb = Rgb(240, 240, 240);
+    const CLOCK_HAND: Rgb = Rgb(20, 20, 25);
 
     for y in 0..buf_h {
         let band = y / PLANK_H;
@@ -134,15 +140,90 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
             buf.put(x, y, WALL);
         }
     }
-    if TOP_WALL_H < buf_h {
+
+    // Window panels every 18 px along the wall, leaving gaps for variation.
+    const WINDOW_W: u16 = 10;
+    const WINDOW_H: u16 = 6;
+    const WINDOW_Y: u16 = 3;
+    let mut x = 4u16;
+    let mut idx: u32 = 0;
+    while x + WINDOW_W + 2 <= buf_w {
+        // Skip every 4th window slot to vary the rhythm.
+        if idx % 4 != 3 {
+            paint_window(buf, x, WINDOW_Y, WINDOW_W, WINDOW_H, WINDOW_FRAME, WINDOW_GLASS, WINDOW_GLASS_2);
+        }
+        x += WINDOW_W + 8;
+        idx += 1;
+    }
+
+    // One wall clock roughly center-top.
+    let cx = buf_w / 2 - 2;
+    let cy = 1;
+    paint_clock(buf, cx, cy, CLOCK_RIM, CLOCK_FACE, CLOCK_HAND);
+
+    // Wall trim line at the bottom of the wall band.
+    let trim_y = TOP_WALL_H - 1;
+    if trim_y < buf_h {
         for x in 0..buf_w {
-            buf.put(x, TOP_WALL_H, WALL_TRIM);
+            buf.put(x, trim_y, WALL_TRIM);
         }
     }
+
     let base_y = buf_h.saturating_sub(BASEBOARD_H);
     for y in base_y..buf_h {
         for x in 0..buf_w {
             buf.put(x, y, BASEBOARD);
+        }
+    }
+}
+
+fn paint_window(
+    buf: &mut RgbBuffer,
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+    frame: Rgb,
+    glass_a: Rgb,
+    glass_b: Rgb,
+) {
+    // Solid frame
+    for dy in 0..h {
+        for dx in 0..w {
+            let px = x + dx;
+            let py = y + dy;
+            if px >= buf.width || py >= buf.height {
+                continue;
+            }
+            let on_edge = dx == 0 || dx == w - 1 || dy == 0 || dy == h - 1;
+            // Mullion in the middle horizontally and vertically.
+            let on_mullion = dx == w / 2 || dy == h / 2;
+            let color = if on_edge || on_mullion {
+                frame
+            } else if (dx + dy) % 2 == 0 {
+                glass_a
+            } else {
+                glass_b
+            };
+            buf.put(px, py, color);
+        }
+    }
+}
+
+fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, rim: Rgb, face: Rgb, hand: Rgb) {
+    // 5x5 round-ish clock face.
+    let pixels: &[(u16, u16, Rgb)] = &[
+        (1, 0, rim), (2, 0, rim), (3, 0, rim),
+        (0, 1, rim), (1, 1, face), (2, 1, face), (3, 1, face), (4, 1, rim),
+        (0, 2, rim), (1, 2, face), (2, 2, hand), (3, 2, face), (4, 2, rim),
+        (0, 3, rim), (1, 3, face), (2, 3, hand), (3, 3, face), (4, 3, rim),
+        (1, 4, rim), (2, 4, rim), (3, 4, rim),
+    ];
+    for (dx, dy, c) in pixels {
+        let px = x + dx;
+        let py = y + dy;
+        if px < buf.width && py < buf.height {
+            buf.put(px, py, *c);
         }
     }
 }
@@ -167,28 +248,31 @@ fn paint_rug(buf: &mut RgbBuffer, x: u16, y: u16, w: u16, h: u16, color: Rgb) {
 }
 
 fn paint_lounge_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack) {
-    if let Some(couch) = pack.animation("couch").and_then(|a| a.frames.first()) {
-        let cx = layout.lounge_band.x + 2;
-        let cy = layout.lounge_band.y + (layout.lounge_band.height.saturating_sub(couch.height)) / 2;
-        blit_frame(couch, cx, cy, buf);
-    }
-    if let Some(coffee) = pack.animation("coffee").and_then(|a| a.frames.first()) {
-        let cx = layout
-            .lounge_band
-            .x
-            .saturating_add(layout.lounge_band.width)
-            .saturating_sub(coffee.width + 4);
-        let cy = layout.lounge_band.y + (layout.lounge_band.height.saturating_sub(coffee.height)) / 2;
-        blit_frame(coffee, cx, cy, buf);
-    }
-    if let Some(plant) = pack.animation("plant").and_then(|a| a.frames.first()) {
-        for (i, wp) in layout.waypoints.iter().enumerate() {
-            if i == 0 || i == layout.waypoints.len() - 1 {
-                continue;
+    use crate::tui::layout::WaypointKind;
+
+    for wp in &layout.waypoints {
+        match wp.kind {
+            WaypointKind::Couch => {
+                if let Some(f) = pack.animation("couch").and_then(|a| a.frames.first()) {
+                    let cx = wp.pos.x.saturating_sub(f.width / 2);
+                    let cy = wp.pos.y.saturating_sub(f.height / 2);
+                    blit_frame(f, cx, cy, buf);
+                }
             }
-            let px = wp.x.saturating_sub(plant.width / 2);
-            let py = wp.y.saturating_sub(plant.height / 2);
-            blit_frame(plant, px, py, buf);
+            WaypointKind::Coffee => {
+                if let Some(f) = pack.animation("coffee").and_then(|a| a.frames.first()) {
+                    let cx = wp.pos.x.saturating_sub(f.width / 2);
+                    let cy = wp.pos.y.saturating_sub(f.height / 2);
+                    blit_frame(f, cx, cy, buf);
+                }
+            }
+            WaypointKind::OpenFloor => {
+                if let Some(f) = pack.animation("plant").and_then(|a| a.frames.first()) {
+                    let px = wp.pos.x.saturating_sub(f.width / 2);
+                    let py = wp.pos.y.saturating_sub(f.height / 2);
+                    blit_frame(f, px, py, buf);
+                }
+            }
         }
     }
 }
@@ -219,6 +303,15 @@ fn waypoint_anchor(wp: Point) -> Point {
     Point {
         x: wp.x.saturating_sub(3),
         y: wp.y.saturating_sub(12),
+    }
+}
+
+/// Anchor for the seated-on-couch pose. Sits the character on the couch
+/// surface (couch is ~5px tall) so the body overlaps the cushion.
+fn couch_seat_anchor(wp: Point) -> Point {
+    Point {
+        x: wp.x.saturating_sub(3),
+        y: wp.y.saturating_sub(4),
     }
 }
 
@@ -363,16 +456,20 @@ pub fn draw_scene<B: Backend>(
                         paint_waiting_bubble(buf, anchor);
                     }
                 }
-                Pose::StandingAtWaypoint { wp } => {
-                    if let Some(wp_pt) = layout.waypoints.get(wp) {
-                        paint_character_at(
-                            buf,
-                            "standing",
-                            0,
-                            waypoint_anchor(*wp_pt),
-                            agent,
-                            pack,
-                        );
+                Pose::AtWaypoint { wp, kind } => {
+                    if let Some(wp_obj) = layout.waypoints.get(wp) {
+                        let (anim_name, anchor) = match kind {
+                            crate::tui::layout::WaypointKind::Couch => {
+                                ("sitting_couch", couch_seat_anchor(wp_obj.pos))
+                            }
+                            crate::tui::layout::WaypointKind::Coffee => {
+                                ("holding_coffee", waypoint_anchor(wp_obj.pos))
+                            }
+                            crate::tui::layout::WaypointKind::OpenFloor => {
+                                ("standing", waypoint_anchor(wp_obj.pos))
+                            }
+                        };
+                        paint_character_at(buf, anim_name, 0, anchor, agent, pack);
                     }
                 }
                 Pose::Walking { from, to, t_x1000, frame } => {
