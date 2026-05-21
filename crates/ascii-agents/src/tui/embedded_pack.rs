@@ -15,8 +15,11 @@ pub fn load_default_pack() -> Result<Pack> {
     let plant      = include_str!("../../../../assets/sprites/default/plant.sprite");
     let couch      = include_str!("../../../../assets/sprites/default/couch.sprite");
     let coffee     = include_str!("../../../../assets/sprites/default/coffee.sprite");
-    let sitting    = include_str!("../../../../assets/sprites/default/sitting_couch.sprite");
-    let holding    = include_str!("../../../../assets/sprites/default/holding_coffee.sprite");
+    let sitting      = include_str!("../../../../assets/sprites/default/sitting_couch.sprite");
+    let holding      = include_str!("../../../../assets/sprites/default/holding_coffee.sprite");
+    let water_cooler = include_str!("../../../../assets/sprites/default/water_cooler.sprite");
+    let whiteboard   = include_str!("../../../../assets/sprites/default/whiteboard.sprite");
+    let bookshelf    = include_str!("../../../../assets/sprites/default/bookshelf.sprite");
 
     load_pack_from_strings(
         pack_toml,
@@ -33,6 +36,9 @@ pub fn load_default_pack() -> Result<Pack> {
             ("coffee.sprite", coffee),
             ("sitting_couch.sprite", sitting),
             ("holding_coffee.sprite", holding),
+            ("water_cooler.sprite", water_cooler),
+            ("whiteboard.sprite", whiteboard),
+            ("bookshelf.sprite", bookshelf),
         ],
     )
 }

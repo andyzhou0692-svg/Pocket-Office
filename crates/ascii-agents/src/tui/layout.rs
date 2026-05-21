@@ -14,12 +14,14 @@ pub struct Point {
 }
 
 /// Kind of a lounge waypoint — determines what pose an Idle agent strikes
-/// when they arrive there. Currently only destinations an agent would
-/// actually walk to (couch break, coffee break). Plants are pure decor.
+/// when they arrive there. Plants are pure decor, not waypoints.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaypointKind {
     Couch,
     Coffee,
+    WaterCooler,
+    StandupSpot,
+    Bookshelf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,7 +44,7 @@ pub struct Layout {
     pub plants: Vec<Point>,
 }
 
-pub const WAYPOINT_COUNT: usize = 2;
+pub const WAYPOINT_COUNT: usize = 5;
 pub const DESK_W: u16 = 12;
 pub const DESK_H: u16 = 6;
 pub const DESK_GAP_X: u16 = 2;
@@ -107,19 +109,26 @@ impl Layout {
             });
         }
 
-        // Two waypoints: couch on the left third, coffee on the right third.
-        // The plant decor sits in the middle gaps and on the far edges.
+        // Five waypoints evenly spread across the lounge band.
         let waypoint_y = lounge_band.y + lounge_band.height / 2;
-        let waypoints = vec![
-            Waypoint {
-                pos: Point { x: buf_w / 3, y: waypoint_y },
-                kind: WaypointKind::Couch,
-            },
-            Waypoint {
-                pos: Point { x: buf_w * 2 / 3, y: waypoint_y },
-                kind: WaypointKind::Coffee,
-            },
+        let wp_kinds = [
+            WaypointKind::Couch,
+            WaypointKind::Bookshelf,
+            WaypointKind::WaterCooler,
+            WaypointKind::StandupSpot,
+            WaypointKind::Coffee,
         ];
+        let waypoints: Vec<Waypoint> = wp_kinds
+            .iter()
+            .enumerate()
+            .map(|(i, &kind)| Waypoint {
+                pos: Point {
+                    x: buf_w * (i as u16 + 1) / (WAYPOINT_COUNT as u16 + 1),
+                    y: waypoint_y,
+                },
+                kind,
+            })
+            .collect();
 
         // Plants flank the lounge zone — one at each corner of the lounge
         // band and one in the middle between couch and coffee.
@@ -177,8 +186,12 @@ mod tests {
     fn compute_places_couch_and_coffee_waypoints() {
         let l = Layout::compute(120, 96, 1).expect("fits");
         assert_eq!(l.waypoints.len(), WAYPOINT_COUNT);
+        // Order: Couch, Bookshelf, WaterCooler, StandupSpot, Coffee
         assert_eq!(l.waypoints[0].kind, WaypointKind::Couch);
-        assert_eq!(l.waypoints[1].kind, WaypointKind::Coffee);
+        assert_eq!(l.waypoints[1].kind, WaypointKind::Bookshelf);
+        assert_eq!(l.waypoints[2].kind, WaypointKind::WaterCooler);
+        assert_eq!(l.waypoints[3].kind, WaypointKind::StandupSpot);
+        assert_eq!(l.waypoints[4].kind, WaypointKind::Coffee);
         for w in &l.waypoints {
             assert!(w.pos.y >= l.lounge_band.y);
             assert!(w.pos.y < l.lounge_band.y + l.lounge_band.height);

@@ -39,19 +39,34 @@ pub fn cycle_ms_for(agent_id: AgentId) -> u64 {
     WANDER_CYCLE_BASE_MS + (agent_id.raw() >> 16) % WANDER_CYCLE_RANGE_MS
 }
 
-/// Probability (out of 10) that an agent takes a wander trip on a given
-/// cycle. The rest of the time they stay seated at their desk. 3/10 means
-/// roughly one trip every ~3 cycles ≈ every 30s of idle time per agent —
-/// office-realistic "coffee break" cadence.
-const TRIP_CHANCE_NUM: u64 = 3;
-const TRIP_CHANCE_DEN: u64 = 10;
+/// Per-agent wander personality derived from the agent's id hash.
+/// Controls how often the agent leaves their desk and whether they prefer
+/// aimless wandering vs heading to a named lounge waypoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Personality {
+    /// Probability (in percent) that this agent takes a trip on any given
+    /// cycle. Range: 10..=50. Restless agents wander more.
+    pub trip_chance_pct: u8,
+    /// Probability (in percent) that a trip is aimless wander vs heading to
+    /// a lounge waypoint. Range: 0..=70.
+    pub aimless_pref_pct: u8,
+}
+
+pub fn personality_for(agent_id: AgentId) -> Personality {
+    let h = agent_id.raw();
+    Personality {
+        trip_chance_pct: (10 + (h % 41)) as u8,    // 10..=50
+        aimless_pref_pct: ((h >> 8) % 71) as u8,    // 0..=70
+    }
+}
 
 /// Deterministic per-(agent, cycle) decision: does this agent take a
-/// wander trip on this cycle, or stay seated? Mixed with a knuth-style
-/// constant so adjacent cycles don't share the same bit pattern.
+/// wander trip on this cycle, or stay seated? Trip frequency is driven by
+/// per-agent Personality so different agents wander at different rates.
 pub fn takes_trip(agent_id: AgentId, cycle_n: u64) -> bool {
+    let p = personality_for(agent_id);
     let mix = agent_id.raw() ^ cycle_n.wrapping_mul(0x9e37_79b9_7f4a_7c15);
-    (mix % TRIP_CHANCE_DEN) < TRIP_CHANCE_NUM
+    (mix % 100) < p.trip_chance_pct as u64
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,9 +77,12 @@ pub enum Pose {
     /// At a lounge waypoint. Concrete render depends on the kind:
     ///   Couch    → sit on couch sprite
     ///   Coffee   → standing + holding-coffee sprite
-    ///   OpenFloor → plain standing
+    ///   Others   → plain standing
     AtWaypoint { wp: usize, kind: WaypointKind },
     Walking { from: Point, to: Point, t_x1000: u16, frame: usize },
+    /// Standing at a random walkway point (not at any waypoint). The dest field
+    /// is the buf-pixel target the agent walked to. Used by aimless wander.
+    AimlessAt { dest: Point },
 }
 
 /// Returns `None` if the slot's desk_index is out of range for `layout`.
@@ -91,22 +109,39 @@ fn idle_pose(slot: &AgentSlot, desk: Point, layout: &Layout, elapsed_ms: u64) ->
     let cycle_n = elapsed_ms / cycle_ms;
     let phase_t = elapsed_ms % cycle_ms;
 
-    // Most cycles: stay seated. Only roll a wander trip ~30% of cycles, so
-    // the office reads as "people at their desks" with occasional movement.
     if !takes_trip(slot.agent_id, cycle_n) || layout.waypoints.is_empty() {
         return Pose::SeatedIdle;
     }
 
-    // XOR cycle_n so a tripping agent picks a (typically) different
-    // destination each loop. Choices are couch vs coffee with the current
-    // 2-waypoint layout.
-    let wp_idx =
-        ((slot.agent_id.raw() ^ cycle_n) as usize) % layout.waypoints.len();
-    let wp = layout.waypoints[wp_idx];
+    // Per-cycle "trip type" roll. Personality.aimless_pref_pct shifts the
+    // mix between lounge waypoint and aimless wander.
+    let personality = personality_for(slot.agent_id);
+    let type_mix = slot.agent_id.raw()
+        ^ cycle_n.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    let aimless = (type_mix % 100) < personality.aimless_pref_pct as u64;
 
+    // Phase boundaries.
     let seated_end = cycle_ms * PHASE_SEATED_FRAC / 1000;
     let walk_out_end = cycle_ms * PHASE_WALK_OUT_FRAC / 1000;
     let at_wp_end = cycle_ms * PHASE_AT_WAYPOINT_FRAC / 1000;
+
+    // Destination: lounge waypoint OR aimless point.
+    let (dest, at_dest_pose): (Point, Pose) = if aimless {
+        // Aimless point: random spot in the walkway, deterministic per-cycle.
+        let walkway = &layout.walkway;
+        let rand = (slot.agent_id.raw() ^ cycle_n.wrapping_mul(0xd1b5_4a32_d192_ed03)) as u32;
+        let dx = (rand as u16) % walkway.width.max(1);
+        let dy = walkway.height / 2;
+        let p = Point {
+            x: walkway.x + dx,
+            y: walkway.y + dy,
+        };
+        (p, Pose::AimlessAt { dest: p })
+    } else {
+        let wp_idx = ((slot.agent_id.raw() ^ cycle_n) as usize) % layout.waypoints.len();
+        let wp = layout.waypoints[wp_idx];
+        (wp.pos, Pose::AtWaypoint { wp: wp_idx, kind: wp.kind })
+    };
 
     if phase_t < seated_end {
         Pose::SeatedIdle
@@ -114,14 +149,14 @@ fn idle_pose(slot: &AgentSlot, desk: Point, layout: &Layout, elapsed_ms: u64) ->
         let span = walk_out_end - seated_end;
         let t = ((phase_t - seated_end) * 1000 / span) as u16;
         let frame = ((elapsed_ms / WALKING_FRAME_MS) as usize) % WALKING_FRAMES;
-        Pose::Walking { from: desk, to: wp.pos, t_x1000: t, frame }
+        Pose::Walking { from: desk, to: dest, t_x1000: t, frame }
     } else if phase_t < at_wp_end {
-        Pose::AtWaypoint { wp: wp_idx, kind: wp.kind }
+        at_dest_pose
     } else {
         let span = cycle_ms - at_wp_end;
         let t = ((phase_t - at_wp_end) * 1000 / span) as u16;
         let frame = ((elapsed_ms / WALKING_FRAME_MS) as usize) % WALKING_FRAMES;
-        Pose::Walking { from: wp.pos, to: desk, t_x1000: t, frame }
+        Pose::Walking { from: dest, to: desk, t_x1000: t, frame }
     }
 }
 
@@ -238,9 +273,12 @@ mod tests {
         let midpoint = trip_n * cycle + walk_out_end + (at_wp_end - walk_out_end) / 2;
         let (s, now) = slot(ActivityState::Idle, midpoint);
         let l = layout();
+        // Trip cycles land at either a named waypoint or an aimless point,
+        // depending on per-agent personality.
         match derive(&s, now, &l).expect("pose") {
             Pose::AtWaypoint { wp, .. } => assert!(wp < l.waypoints.len()),
-            other => panic!("expected AtWaypoint, got {other:?}"),
+            Pose::AimlessAt { .. } => {}
+            other => panic!("expected AtWaypoint or AimlessAt, got {other:?}"),
         }
     }
 
@@ -264,12 +302,28 @@ mod tests {
     fn takes_trip_fires_roughly_30_percent_of_cycles() {
         let id = AgentId::from_transcript_path("/p/sample.jsonl");
         let trips = (0u64..1000).filter(|n| takes_trip(id, *n)).count();
-        // Allow wide tolerance — we're checking the math is reasonable,
-        // not asserting a perfect distribution.
+        // Per-agent trip chance varies 10..=50%, so across 1000 cycles the
+        // count is bounded by those extremes with reasonable tolerance.
         assert!(
-            (200..=400).contains(&trips),
-            "expected ~300 trips out of 1000, got {trips}"
+            (50..=550).contains(&trips),
+            "expected 50..=550 trips out of 1000 (personality-driven), got {trips}"
         );
+    }
+
+    #[test]
+    fn personality_varies_across_agents() {
+        let ps: Vec<Personality> = (0..20)
+            .map(|i| personality_for(
+                AgentId::from_transcript_path(&format!("/p/{i}.jsonl"))
+            ))
+            .collect();
+        let trip_chances: std::collections::HashSet<u8> =
+            ps.iter().map(|p| p.trip_chance_pct).collect();
+        assert!(trip_chances.len() >= 5, "expected variance in trip_chance_pct");
+        for p in &ps {
+            assert!((10..=50).contains(&p.trip_chance_pct));
+            assert!(p.aimless_pref_pct <= 70);
+        }
     }
 
     #[test]
@@ -347,19 +401,26 @@ mod tests {
         let (_, walk_out_end, at_wp_end, _) = phases(test_slot.agent_id);
         let mid_at_wp = walk_out_end + (at_wp_end - walk_out_end) / 2;
 
-        // Capture the waypoint chosen across many cycles. Only trip cycles
-        // produce AtWaypoint so we scan widely.
-        let mut chosen = std::collections::HashSet::new();
+        // Capture destinations chosen across many cycles. Trip cycles produce
+        // either AtWaypoint or AimlessAt — both contribute to destination
+        // variety, so we count distinct destination x coords.
+        let mut dest_xs = std::collections::HashSet::new();
         for n in 0..50u64 {
             let t = n * cycle + mid_at_wp;
             let (s, now) = slot(ActivityState::Idle, t);
-            if let Some(Pose::AtWaypoint { wp, .. }) = derive(&s, now, &l) {
-                chosen.insert(wp);
+            match derive(&s, now, &l) {
+                Some(Pose::AtWaypoint { wp, .. }) => {
+                    dest_xs.insert(l.waypoints[wp].pos.x);
+                }
+                Some(Pose::AimlessAt { dest }) => {
+                    dest_xs.insert(dest.x);
+                }
+                _ => {}
             }
         }
         assert!(
-            chosen.len() >= 2,
-            "waypoint should vary across cycles, got {chosen:?}"
+            dest_xs.len() >= 2,
+            "destination should vary across cycles, got {dest_xs:?}"
         );
     }
 }

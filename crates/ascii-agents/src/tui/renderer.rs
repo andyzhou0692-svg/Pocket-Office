@@ -250,11 +250,14 @@ fn paint_rug(buf: &mut RgbBuffer, x: u16, y: u16, w: u16, h: u16, color: Rgb) {
 fn paint_lounge_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack) {
     use crate::tui::layout::WaypointKind;
 
-    // Couch + coffee station get painted at their waypoint positions.
+    // All waypoint furniture gets painted centered on the waypoint position.
     for wp in &layout.waypoints {
         let anim_name = match wp.kind {
             WaypointKind::Couch => "couch",
             WaypointKind::Coffee => "coffee",
+            WaypointKind::WaterCooler => "water_cooler",
+            WaypointKind::StandupSpot => "whiteboard",
+            WaypointKind::Bookshelf => "bookshelf",
         };
         if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
             let cx = wp.pos.x.saturating_sub(f.width / 2);
@@ -462,9 +465,17 @@ pub fn draw_scene<B: Backend>(
                             crate::tui::layout::WaypointKind::Coffee => {
                                 ("holding_coffee", waypoint_anchor(wp_obj.pos))
                             }
+                            crate::tui::layout::WaypointKind::WaterCooler
+                            | crate::tui::layout::WaypointKind::StandupSpot
+                            | crate::tui::layout::WaypointKind::Bookshelf => {
+                                ("standing", waypoint_anchor(wp_obj.pos))
+                            }
                         };
                         paint_character_at(buf, anim_name, 0, anchor, agent, pack);
                     }
+                }
+                Pose::AimlessAt { dest } => {
+                    paint_character_at(buf, "standing", 0, waypoint_anchor(dest), agent, pack);
                 }
                 Pose::Walking { from, to, t_x1000, frame } => {
                     let pos = walking_position(from, to, t_x1000);

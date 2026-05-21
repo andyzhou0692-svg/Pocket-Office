@@ -62,6 +62,7 @@ fn default_pack_loads_with_required_animations() {
     for name in &[
         "seated", "typing", "standing", "walking",
         "desk", "plant", "couch", "coffee",
+        "water_cooler", "whiteboard", "bookshelf",
     ] {
         assert!(pack.animation(name).is_some(), "missing animation: {name}");
     }
