@@ -56,7 +56,9 @@ fn main() -> Result<()> {
 fn sample_scene(now: Instant) -> SceneState {
     let mut s = SceneState::new(12);
     let agents = [
-        ("idle", ActivityState::Idle, Duration::from_millis(0)),
+        // 'state_started_at' is set to `now - offset` so we can place each
+        // agent at different points in the wander cycle.
+        ("seated", ActivityState::Idle, Duration::from_millis(10_000)),
         (
             "typing-rs",
             ActivityState::Active {
@@ -66,7 +68,8 @@ fn sample_scene(now: Instant) -> SceneState {
             },
             Duration::from_millis(60),
         ),
-        ("idle2", ActivityState::Idle, Duration::from_millis(0)),
+        // Mid walk-out — should be partly toward wander spot.
+        ("walk-out", ActivityState::Idle, Duration::from_millis(1200)),
         (
             "waiting",
             ActivityState::Waiting {
@@ -74,8 +77,8 @@ fn sample_scene(now: Instant) -> SceneState {
             },
             Duration::from_millis(0),
         ),
-        // Just finished a task — within the 3s walking window.
-        ("just-done", ActivityState::Idle, Duration::from_millis(400)),
+        // Standing at the wander spot.
+        ("at-spot", ActivityState::Idle, Duration::from_millis(3000)),
         (
             "typing-py",
             ActivityState::Active {
@@ -85,7 +88,8 @@ fn sample_scene(now: Instant) -> SceneState {
             },
             Duration::from_millis(280),
         ),
-        ("idle4", ActivityState::Idle, Duration::from_millis(0)),
+        // Walking back to seat.
+        ("walk-back", ActivityState::Idle, Duration::from_millis(5000)),
     ];
     for (i, (key, state, offset)) in agents.iter().enumerate() {
         let id = AgentId::from_transcript_path(&format!("/demo/{key}.jsonl"));

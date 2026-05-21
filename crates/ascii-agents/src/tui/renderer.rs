@@ -69,6 +69,55 @@ fn agent_shirt(seed: u64) -> Rgb {
     SHIRT_PRESETS[(seed as usize) % SHIRT_PRESETS.len()]
 }
 
+const WANDER_WALK_OUT_MS: u64 = 2000;
+const WANDER_IDLE_MS: u64 = 2000;
+const WANDER_WALK_BACK_MS: u64 = 2000;
+const WANDER_TOTAL_MS: u64 = WANDER_WALK_OUT_MS + WANDER_IDLE_MS + WANDER_WALK_BACK_MS;
+
+/// Per-agent deterministic wander offset: returns (dx, dy, in_wander, is_walking).
+/// Only fires when the slot has been Idle for less than WANDER_TOTAL_MS.
+fn wander_offset(
+    slot: &ascii_agents_core::state::AgentSlot,
+    now: std::time::Instant,
+) -> (i32, i32, bool, bool) {
+    if !matches!(slot.state, ActivityState::Idle) {
+        return (0, 0, false, false);
+    }
+    let elapsed_ms = now
+        .saturating_duration_since(slot.state_started_at)
+        .as_millis() as u64;
+    if elapsed_ms >= WANDER_TOTAL_MS {
+        return (0, 0, false, false);
+    }
+
+    let h = slot.agent_id.raw();
+    // Direction: -1 or +1 based on a bit of the hash.
+    let sign: i32 = if (h >> 4) & 1 == 0 { -1 } else { 1 };
+    // Magnitude: 5..10 px sideways.
+    let mag: i32 = 5 + ((h >> 5) % 6) as i32;
+    let target_dx = sign * mag;
+    // Forward (toward camera) 4..8 px.
+    let target_dy = 4 + ((h >> 8) % 5) as i32;
+
+    if elapsed_ms < WANDER_WALK_OUT_MS {
+        // Walking out: interpolate 0 → target.
+        let p = elapsed_ms as f32 / WANDER_WALK_OUT_MS as f32;
+        let dx = (target_dx as f32 * p) as i32;
+        let dy = (target_dy as f32 * p) as i32;
+        (dx, dy, true, true)
+    } else if elapsed_ms < WANDER_WALK_OUT_MS + WANDER_IDLE_MS {
+        // Standing at wander spot.
+        (target_dx, target_dy, true, false)
+    } else {
+        // Walking back: interpolate target → 0.
+        let phase_elapsed = elapsed_ms - WANDER_WALK_OUT_MS - WANDER_IDLE_MS;
+        let p = phase_elapsed as f32 / WANDER_WALK_BACK_MS as f32;
+        let dx = (target_dx as f32 * (1.0 - p)) as i32;
+        let dy = (target_dy as f32 * (1.0 - p)) as i32;
+        (dx, dy, true, true)
+    }
+}
+
 const SCREEN_IDLE: Rgb = Rgb(70, 110, 140);
 const SCREEN_TYPING: Rgb = Rgb(80, 220, 110);
 const SCREEN_WAITING: Rgb = Rgb(240, 200, 60);
@@ -330,20 +379,25 @@ pub fn draw_scene<B: Backend>(
             // 1. Chair (8 wide), centered behind character.
             blit_static(&mut buf, "chair", slot_x + 4, stack_top);
 
-            // 2. Character animation (10 wide, 12 tall).
-            // "Just finished" walk: if Idle was entered in the last
-            // WALK_AFTER_TASK seconds, play the walking animation with a
-            // small horizontal bob, signaling "task done, taking a breath."
-            let walk_window = std::time::Duration::from_secs(3);
-            let in_post_task_walk = matches!(slot.state, ActivityState::Idle)
-                && now.saturating_duration_since(slot.state_started_at) < walk_window;
+            // 2. Character animation with positional wander.
+            // After a task finishes the character takes a break: walks to a
+            // wander spot offset from their desk, idles there briefly, then
+            // walks back. All renderer-derived from time-since-idle.
+            let (offset_x, offset_y, in_wander, is_walking) =
+                wander_offset(slot, now);
 
-            let anim_name = match &slot.state {
-                _ if in_post_task_walk => "walking",
-                ActivityState::Idle => "idle",
-                ActivityState::Active { .. } => "typing",
-                ActivityState::Waiting { .. } => "waiting",
+            let anim_name: &str = if in_wander && is_walking {
+                "walking"
+            } else if in_wander {
+                "idle"
+            } else {
+                match slot.state {
+                    ActivityState::Idle => "idle",
+                    ActivityState::Active { .. } => "typing",
+                    ActivityState::Waiting { .. } => "waiting",
+                }
             };
+
             if let Some(anim) = pack.animation(anim_name).or_else(|| pack.animation("idle")) {
                 let idx = frame_index_at(
                     slot.state_started_at,
@@ -353,23 +407,20 @@ pub fn draw_scene<B: Backend>(
                 );
                 let frame = &anim.frames[idx];
                 let frame_rc = recolor_frame(frame, &pack.palette, shirt, hair);
-                let char_y = if matches!(slot.state, ActivityState::Waiting { .. }) {
-                    // Waiting sprite is 14 tall (raised arm above head) — shift up.
-                    stack_top.saturating_add(1)
-                } else if in_post_task_walk {
-                    // Stand up out of chair while walking.
-                    stack_top + 1
+
+                let base_x = slot_x as i32 + 3;
+                // Waiting sprite is 14 tall (raised arm) — shift up.
+                let base_y = if matches!(slot.state, ActivityState::Waiting { .. }) {
+                    stack_top.saturating_add(1) as i32
+                } else if in_wander {
+                    // Stand out of chair while wandering.
+                    (stack_top + 1) as i32
                 } else {
-                    stack_top + 3
+                    (stack_top + 3) as i32
                 };
-                let char_x = if in_post_task_walk {
-                    // Oscillate ±2 px around the slot center.
-                    let ms = now.saturating_duration_since(slot.state_started_at).as_millis() as i32;
-                    let bob = ((ms / 200) % 4) - 2; // -2, -1, 0, 1 ... loops
-                    (slot_x as i32 + 3 + bob).max(0) as u16
-                } else {
-                    slot_x + 3
-                };
+
+                let char_x = (base_x + offset_x).max(0) as u16;
+                let char_y = (base_y + offset_y).max(0) as u16;
                 blit_frame(&frame_rc, char_x, char_y, &mut buf);
             }
 
