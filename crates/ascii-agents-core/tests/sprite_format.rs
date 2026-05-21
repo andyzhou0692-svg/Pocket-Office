@@ -59,13 +59,20 @@ fn missing_animation_returns_none() {
 #[test]
 fn default_pack_loads_with_required_animations() {
     let pack = load_pack(Path::new("../../assets/sprites/default")).unwrap();
-    for name in &["idle", "typing", "waiting", "desk"] {
+    for name in &[
+        "seated", "typing", "standing", "walking",
+        "desk", "plant", "couch", "coffee",
+    ] {
         assert!(pack.animation(name).is_some(), "missing animation: {name}");
     }
-    let typing = pack.animation("typing").unwrap();
-    assert_eq!(typing.frames.len(), 3);
-    assert_eq!(typing.frame_ms, 140);
-    // Top-down character sprite is 12x14.
-    assert_eq!(typing.frames[0].width, 12);
-    assert_eq!(typing.frames[0].height, 14);
+    let seated = pack.animation("seated").unwrap();
+    assert_eq!(seated.frames[0].width, 8);
+    assert_eq!(seated.frames[0].height, 10);
+
+    let standing = pack.animation("standing").unwrap();
+    assert_eq!(standing.frames[0].width, 6);
+    assert_eq!(standing.frames[0].height, 12);
+
+    let walking = pack.animation("walking").unwrap();
+    assert_eq!(walking.frames.len(), 2);
 }
