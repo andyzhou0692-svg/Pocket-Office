@@ -1,0 +1,7 @@
+# 4x2 px, two frames
+@frame 0
+A . B .
+. B . A
+@frame 1
+B . A .
+. A . B

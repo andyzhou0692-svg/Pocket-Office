@@ -1,0 +1,23 @@
+[pack]
+name    = "default"
+version = "1"
+
+[palette]
+"." = "transparent"
+"H" = "#2a1a0e"
+"S" = "#f4c79a"
+"e" = "#1a1a1a"
+"m" = "#a04040"
+"B" = "#2e62cf"
+
+[animations.idle]
+frames   = ["idle.sprite"]
+frame_ms = 500
+
+[animations.typing]
+frames   = ["typing_0.sprite", "typing_1.sprite", "typing_2.sprite"]
+frame_ms = 120
+
+[animations.waiting]
+frames   = ["waiting.sprite"]
+frame_ms = 400
