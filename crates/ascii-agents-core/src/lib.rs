@@ -1,11 +1,13 @@
 //! ascii-agents-core: headless logic for the ascii-agents TUI.
 
 pub mod id;
+pub mod render;
 pub mod source;
 pub mod sprite;
 pub mod state;
 
 pub use id::AgentId;
+pub use render::Renderer;
 pub use source::{Activity, AgentEvent, Source as SourceTrait};
 pub use sprite::{Frame, Palette, Pixel, Rgb, RgbBuffer, Sprite};
 pub use state::reducer::{Reducer, Source};
