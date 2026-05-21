@@ -10,8 +10,8 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     let (log_level, cmd) = Cli::parse().cmd_or_default();
-    let filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level));
+    let make_filter =
+        || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level));
 
     // Log routing:
     //   `run` in TUI mode (headless=false) → file at $ASCII_AGENTS_LOG /
@@ -21,24 +21,41 @@ fn main() -> Result<()> {
     //   everything else (install-hooks, uninstall-hooks, --headless) →
     //     stderr as before.
     let tui_active = matches!(&cmd, Cmd::Run { headless, .. } if !*headless);
+    let mut log_to_stderr = !tui_active;
     if tui_active {
-        if let Ok(path) = log_file_path() {
-            if let Some(parent) = path.parent() {
-                let _ = std::fs::create_dir_all(parent);
+        match log_file_path() {
+            Ok(path) => {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                match OpenOptions::new().create(true).append(true).open(&path) {
+                    Ok(f) => {
+                        let writer = Arc::new(Mutex::new(f));
+                        tracing_subscriber::fmt()
+                            .with_env_filter(make_filter())
+                            .with_ansi(false)
+                            .with_writer(move || MutexFileWriter(writer.clone()))
+                            .init();
+                        eprintln!("logging to {}", path.display());
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "warn: could not open log file {}: {e}; falling back to stderr",
+                            path.display()
+                        );
+                        log_to_stderr = true;
+                    }
+                }
             }
-            if let Ok(f) = OpenOptions::new().create(true).append(true).open(&path) {
-                let writer = Arc::new(Mutex::new(f));
-                tracing_subscriber::fmt()
-                    .with_env_filter(filter)
-                    .with_ansi(false)
-                    .with_writer(move || MutexFileWriter(writer.clone()))
-                    .init();
-                eprintln!("logging to {}", path.display());
+            Err(e) => {
+                eprintln!("warn: no log file path ({e}); falling back to stderr");
+                log_to_stderr = true;
             }
         }
-    } else {
+    }
+    if log_to_stderr {
         tracing_subscriber::fmt()
-            .with_env_filter(filter)
+            .with_env_filter(make_filter())
             .with_writer(std::io::stderr)
             .init();
     }

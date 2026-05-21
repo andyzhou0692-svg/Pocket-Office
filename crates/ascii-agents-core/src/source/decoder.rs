@@ -88,9 +88,11 @@ fn describe_tool_target(tool: &str, input: Option<&Value>) -> String {
     let Some(s) = input.get(key).and_then(|v| v.as_str()) else {
         return String::new();
     };
-    let mut s = s.to_string();
-    if s.len() > 40 {
-        s.truncate(40);
+    // Truncate by CHARS, not bytes — s.truncate(40) panics if byte 40 lands
+    // mid-UTF-8 sequence (e.g. a path containing CJK characters or emoji).
+    let total_chars = s.chars().count();
+    let mut s: String = s.chars().take(40).collect();
+    if total_chars > 40 {
         s.push('…');
     }
     format!(": {s}")

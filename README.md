@@ -58,13 +58,15 @@ claude
 
 A character should appear at desk 0 within a second. When CC starts a tool call, the character switches to the typing animation. When it asks for permission, a yellow `┌─?─┐` speech bubble appears.
 
-When done:
+**`q` / Esc / Ctrl-C quits the TUI.**
+
+Hooks stay installed across TUI sessions — you only run `install-hooks` once. When the TUI isn't running, the shim's socket connect fails silently and CC continues normally (zero overhead, the shim always exits 0). Run `ascii-agents` again any time you want to watch.
+
+Only run `uninstall-hooks` if you want to **permanently remove** the integration from `~/.claude/settings.json`:
 
 ```bash
 ./target/release/ascii-agents uninstall-hooks
 ```
-
-`q` / Esc / Ctrl-C quits the TUI.
 
 ### Headless / scripting
 

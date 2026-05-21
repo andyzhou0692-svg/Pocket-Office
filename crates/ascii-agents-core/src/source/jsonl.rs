@@ -104,12 +104,40 @@ async fn walk_jsonl(
         }
     };
 
+    // Cap on how many unprocessed bytes we'll tolerate without a newline.
+    // Protects against an attacker (or buggy writer) emitting a giant single
+    // line — without this cap, every notify event re-reads the entire pending
+    // tail, growing without bound.
+    const MAX_PENDING_BYTES: u64 = 1 << 20; // 1 MiB
+
     let cursor_now: u64 = {
         let cursors_g = cursors.lock().await;
         *cursors_g.get(path).unwrap_or(&0)
     };
-    if cursor_now >= file_len {
-        // Nothing new (possibly a truncation that we'll detect next call).
+    if cursor_now > file_len {
+        // File shrank (truncation / rotation). Reset cursor; treat as fresh.
+        warn!(
+            "{} truncated below cursor ({} < {}), resetting cursor",
+            path.display(),
+            file_len,
+            cursor_now
+        );
+        cursors.lock().await.insert(path.to_path_buf(), 0);
+        return;
+    }
+    if cursor_now == file_len {
+        return; // nothing new
+    }
+    if file_len - cursor_now > MAX_PENDING_BYTES {
+        warn!(
+            "{} has > {} pending bytes with no newline; skipping to end",
+            path.display(),
+            MAX_PENDING_BYTES
+        );
+        cursors
+            .lock()
+            .await
+            .insert(path.to_path_buf(), file_len);
         return;
     }
 

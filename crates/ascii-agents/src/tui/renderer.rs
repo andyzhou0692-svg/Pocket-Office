@@ -216,7 +216,8 @@ impl Layout {
         let floor_h = buf_h.saturating_sub(floor_start);
         let cols_per_row = (buf_w.saturating_sub(slot_left_padding)) / slot_w;
         let rows_per_screen = std::cmp::max(1u16, floor_h / row_h);
-        let grid_h = rows_per_screen * stack_h + rows_per_screen.saturating_sub(1) * row_gap;
+        // grid_h = N row stacks + (N-1) gaps between them.
+        let grid_h = rows_per_screen * row_h - row_gap;
         let grid_top = floor_start + floor_h.saturating_sub(grid_h) / 2;
         let max_slots = rows_per_screen * cols_per_row;
         Layout {
@@ -424,15 +425,13 @@ pub fn draw_scene<B: Backend>(
             }
         };
 
-        let slot_origin = |i: u16| -> (u16, u16) { layout.slot_origin(i) };
-
         let max_slots = layout.max_slots;
         for slot in &agents {
             let i = slot.desk_index as u16;
             if i >= max_slots {
                 continue;
             }
-            let (slot_x, stack_top) = slot_origin(i);
+            let (slot_x, stack_top) = layout.slot_origin(i);
             let shirt = agent_shirt(slot.agent_id.raw());
             let hair = agent_hair(slot.agent_id.raw());
 
@@ -448,7 +447,7 @@ pub fn draw_scene<B: Backend>(
             let (offset_x, offset_y, in_wander, is_walking) =
                 wander_offset(slot, now);
 
-            let anim_name: &str = if in_wander && is_walking {
+            let anim_name: &'static str = if in_wander && is_walking {
                 "walking"
             } else if in_wander {
                 "idle"
@@ -508,7 +507,7 @@ pub fn draw_scene<B: Backend>(
             if occupied {
                 continue;
             }
-            let (slot_x, slot_y) = slot_origin(i);
+            let (slot_x, slot_y) = layout.slot_origin(i);
             // Plant sits on a desk surface — same desk row as a normal slot.
             blit_static(&mut buf, "desk", slot_x, slot_y + 4 + 12, true);
             blit_static(&mut buf, "plant", slot_x + 5, slot_y + 4 + 8, true);
@@ -558,7 +557,7 @@ pub fn draw_scene<B: Backend>(
             if i >= max_slots {
                 continue;
             }
-            let (sx, sy) = slot_origin(i);
+            let (sx, sy) = layout.slot_origin(i);
             let slot_x = scene_rect.x + sx;
             // Label sits just below the desk row of this slot, in cell coords
             // (each cell = 2 px, so divide by 2).

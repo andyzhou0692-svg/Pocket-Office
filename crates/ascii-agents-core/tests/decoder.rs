@@ -108,6 +108,31 @@ fn jsonl_tool_result_is_activity_end() {
 }
 
 #[test]
+fn decode_hook_payload_with_multibyte_tool_input_does_not_panic() {
+    // Regression: describe_tool_target used to call String::truncate(40),
+    // which panics if byte 40 lands mid-UTF-8-character (e.g. Chinese path).
+    let payload = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "session_id": "ses-zh",
+        "transcript_path": "/tmp/zh.jsonl",
+        "cwd": "/tmp",
+        "tool_name": "Bash",
+        "tool_input": {
+            "command": "echo 这是一个非常长的中文命令需要被截断这是一个非常长的中文命令需要被截断"
+        }
+    });
+    let ev = decode_hook_payload(payload).unwrap();
+    match ev {
+        AgentEvent::ActivityStart { detail, .. } => {
+            let d = detail.expect("detail set");
+            assert!(d.contains("Bash"), "got: {d}");
+            // Should end with ellipsis if truncated; either way no panic.
+        }
+        other => panic!("expected ActivityStart, got {other:?}"),
+    }
+}
+
+#[test]
 fn jsonl_plain_user_message_yields_no_events() {
     let transcript = "/Users/me/.claude/projects/x/ses-abc.jsonl";
     let events = decode_jsonl_line(transcript, load_jsonl("user_message")).unwrap();
