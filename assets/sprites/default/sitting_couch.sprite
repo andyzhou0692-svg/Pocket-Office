@@ -1,11 +1,13 @@
-# 8x8 character sitting on the couch (slumped back, legs forward).
-# Smaller footprint than the standing pose so they fit on a 14-wide couch.
+# 9x8 character sitting on the couch. Same face layout (8 wide, eyes
+# separated by 2 skin pixels) as standing/seated so eyes don't merge at
+# half-block scale. Legs split so it reads as "seated" from top-down.
 @frame 0
-. H H H H H .
-H H H H H H H
-H S S e e S H
-. S S S S S .
-. B B B B B .
-B B B B B B B
-B B B B B B B
-. S . . . S .
+. n H H H H n .
+n H H H H H H n
+H S e S S e S H
+. S S S m S S .
+. n S S S S n .
+B B B B B B B B
+B B B B B B B B
+. B B . . B B .
+. S S . . S S .

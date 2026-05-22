@@ -398,10 +398,11 @@ fn waypoint_anchor(wp: Point) -> Point {
 }
 
 /// Anchor for the seated-on-couch pose. Sits the character on the couch
-/// surface (couch is ~5px tall) so the body overlaps the cushion.
+/// surface (couch is ~5px tall) so the body overlaps the cushion. Sprite is
+/// 8 wide → centered on the waypoint by offsetting x by 4.
 fn couch_seat_anchor(wp: Point) -> Point {
     Point {
-        x: wp.x.saturating_sub(3),
+        x: wp.x.saturating_sub(4),
         y: wp.y.saturating_sub(4),
     }
 }
@@ -504,7 +505,16 @@ pub fn draw_scene<B: Backend>(
         let buf_h = scene_rect.height * 2;
         buf.ensure_size(buf_w, buf_h, BG);
 
-        let Some(layout) = Layout::compute(buf_w, buf_h, agents.len()) else {
+        // Size the cubicle grid to fit each agent's actual desk_index, not
+        // just the count of live agents. After SessionEnd, desk_indexes can
+        // be sparse (e.g. {0,1,3,4} with 4 agents) — sizing to .len() would
+        // truncate the agent at the highest index.
+        let needed_desks = agents
+            .iter()
+            .map(|a| a.desk_index + 1)
+            .max()
+            .unwrap_or(0);
+        let Some(layout) = Layout::compute(buf_w, buf_h, needed_desks) else {
             return;
         };
 
@@ -516,10 +526,13 @@ pub fn draw_scene<B: Backend>(
         paint_wall_decor(buf, &layout, pack);
         paint_lounge_decor(buf, &layout, pack);
 
-        // Pass 1: rugs + desks.
+        // Pass 1: rugs + desks. Each agent's home desk is at
+        // home_desks[agent.desk_index] — NOT at the agent's BTreeMap position.
+        // Iterating by agent (and looking up the desk) keeps rugs, desks,
+        // characters, and labels co-located.
         let desk_anim = pack.animation("desk");
-        for (i, desk) in layout.home_desks.iter().enumerate() {
-            let agent = &agents[i];
+        for agent in &agents {
+            let Some(desk) = layout.home_desks.get(agent.desk_index) else { continue };
             let rug = RUG_PALETTE[(agent.agent_id.raw() as usize / 11) % RUG_PALETTE.len()];
             paint_rug(
                 buf,
@@ -535,18 +548,18 @@ pub fn draw_scene<B: Backend>(
         }
 
         // Pass 2: characters by pose.
-        for (i, desk) in layout.home_desks.iter().enumerate() {
-            let agent = &agents[i];
+        for agent in &agents {
+            let Some(desk) = layout.home_desks.get(agent.desk_index).copied() else { continue };
             let Some(p) = pose::derive(agent, now, &layout) else { continue };
             match p {
                 Pose::SeatedIdle => {
-                    paint_character_at(buf, "seated", 0, seated_anchor(*desk), agent, pack);
+                    paint_character_at(buf, "seated", 0, seated_anchor(desk), agent, pack);
                 }
                 Pose::SeatedTyping { frame } => {
-                    paint_character_at(buf, "typing", frame, seated_anchor(*desk), agent, pack);
+                    paint_character_at(buf, "typing", frame, seated_anchor(desk), agent, pack);
                 }
                 Pose::StandingAtDesk => {
-                    let anchor = standing_at_desk_anchor(*desk);
+                    let anchor = standing_at_desk_anchor(desk);
                     paint_character_at(buf, "standing", 0, anchor, agent, pack);
                     if matches!(agent.state, ActivityState::Waiting { .. }) {
                         paint_waiting_bubble(buf, anchor);
@@ -602,9 +615,9 @@ pub fn draw_scene<B: Backend>(
             }
         }
 
-        // Labels above each home desk.
-        for (i, desk) in layout.home_desks.iter().enumerate() {
-            let agent = &agents[i];
+        // Labels above each home desk. Same indexing fix as the passes above.
+        for agent in &agents {
+            let Some(desk) = layout.home_desks.get(agent.desk_index) else { continue };
             let lx = scene_rect.x + desk.x;
             let ly = scene_rect.y + (desk.y / 2).saturating_sub(1);
             let para = Paragraph::new(Span::styled(
