@@ -742,6 +742,42 @@ fn paint_character_at(
     blit_frame(&final_frame, anchor.x, anchor.y, buf);
 }
 
+/// Elliptical drop-shadow blended toward black at the floor level.
+/// Grounds floating sprites so they look like they're standing/sitting
+/// on the floor instead of hovering in mid-air. `strength` 0..1 controls
+/// the darken amount at the center; falls off quadratically to 0 at edge.
+fn paint_shadow(buf: &mut RgbBuffer, cx: u16, cy: u16, half_w: u16, half_h: u16, strength: f32) {
+    const SHADOW: Rgb = Rgb(8, 8, 14);
+    if half_w == 0 || half_h == 0 || strength <= 0.0 {
+        return;
+    }
+    let min_x = cx.saturating_sub(half_w);
+    let max_x = (cx + half_w).min(buf.width);
+    let min_y = cy.saturating_sub(half_h);
+    let max_y = (cy + half_h).min(buf.height);
+    for y in min_y..max_y {
+        for x in min_x..max_x {
+            let nx = (x as f32 - cx as f32) / half_w as f32;
+            let ny = (y as f32 - cy as f32) / half_h as f32;
+            let r2 = nx * nx + ny * ny;
+            if r2 > 1.0 {
+                continue;
+            }
+            let t = (1.0 - r2) * strength;
+            let cur = buf.get(x, y);
+            buf.put(
+                x,
+                y,
+                Rgb(
+                    blend(cur.0, SHADOW.0, t),
+                    blend(cur.1, SHADOW.1, t),
+                    blend(cur.2, SHADOW.2, t),
+                ),
+            );
+        }
+    }
+}
+
 /// Office chair painted BEHIND the character — a darkened version of the
 /// agent's shirt color, so the character's transparent edge pixels reveal
 /// the chair as a "halo" of upholstery. Brings back the per-agent color
@@ -918,6 +954,32 @@ pub fn draw_scene<B: Backend>(
         paint_clock(buf, clock_x, 1, now);
         paint_wall_decor(buf, &layout, pack);
         paint_lounge_decor(buf, &layout, pack);
+
+        // Shadow pass — soft floor shadows under desks + lounge furniture
+        // so nothing floats. Painted AFTER decor (so they don't get
+        // covered) and BEFORE characters (chairs/characters paint on
+        // top). Strength is a function of daylight so noon shadows are
+        // crisp and night shadows are subtle.
+        let shadow_strength = 0.5 - 0.3 * look.darkness;
+        for desk in &layout.home_desks {
+            paint_shadow(
+                buf,
+                desk.x + DESK_W / 2,
+                desk.y + 7,
+                DESK_W / 2 + 1,
+                3,
+                shadow_strength,
+            );
+        }
+        for wp in &layout.waypoints {
+            paint_shadow(buf, wp.pos.x, wp.pos.y + 2, 7, 2, shadow_strength);
+        }
+        for (_, p) in &layout.plants {
+            paint_shadow(buf, p.x, p.y + 3, 3, 1, shadow_strength);
+        }
+        if let Some(lamp) = layout.floor_lamp {
+            paint_shadow(buf, lamp.x, lamp.y + 5, 2, 1, shadow_strength);
+        }
 
         // Pass 1: characters by pose. Painted BEFORE the desk so the desk
         // can occlude the character's lower body — from a top-down POV the
