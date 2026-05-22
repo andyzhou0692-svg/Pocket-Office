@@ -93,10 +93,10 @@ pub const DESK_H: u16 = 6;
 /// Hard cap on how many cubicles get painted regardless of how high
 /// `max_desks` is set. Past this count, agents overflow to floor seats.
 /// Keeps the cubicle band from getting wall-to-wall crowded.
-pub const MAX_VISIBLE_DESKS: usize = 6;
+pub const MAX_VISIBLE_DESKS: usize = 8;
 /// Horizontal gap between cubicles. Wider than the previous 2 px so neighbor
 /// desks read as distinct cubicles rather than a single long brown bar.
-pub const DESK_GAP_X: u16 = 10;
+pub const DESK_GAP_X: u16 = 7;
 /// Vertical gap between cubicle rows. Sized to clear the seated sprite's
 /// 8 px head-above-desk so row N+1's desk doesn't paint over row N's character.
 /// Tightened from 10 → 8 to fit more rows in the cubicle band.
@@ -123,7 +123,9 @@ impl Layout {
         // top-right = cubicles, bottom-right = lounge. All four share the
         // back wall (city-view windows) at the top.
         let usable_h = buf_h - TOP_MARGIN_PX;
-        let mid_x = buf_w * 42 / 100; // left side a bit narrower than right
+        // Left side narrower so the right (cubicles + lounge) gets more
+        // horizontal room — enough for 3 cubicle columns.
+        let mid_x = buf_w * 28 / 100;
         let mid_y_split = TOP_MARGIN_PX + usable_h / 2;
 
         let meeting_room = Some(Rect {
@@ -142,8 +144,8 @@ impl Layout {
         // Right side: cubicles on top, small walkway, lounge on bottom.
         let right_x = mid_x + 2; // leave 2 px for the dividing wall
         let right_w = buf_w.saturating_sub(right_x);
-        let cubicle_h = usable_h * 60 / 100;
-        let walkway_h = usable_h * 8 / 100;
+        let cubicle_h = usable_h * 68 / 100;
+        let walkway_h = usable_h * 6 / 100;
         let lounge_h = usable_h - cubicle_h - walkway_h;
         let cubicle_band = Rect {
             x: right_x,
@@ -317,21 +319,30 @@ impl Layout {
             }),
         ];
 
-        // Floor overflow seats: scatter slots across the walkway band for
-        // agents past desk capacity. Count = num_agents - home_desks.len()
-        // (capped at a reasonable max so we don't pack the floor solid).
-        let overflow_count = num_agents.saturating_sub(home_desks.len()).min(8);
-        let floor_seats: Vec<Point> = (0..overflow_count as u16)
-            .map(|i| {
-                let cols = 4u16;
-                let r = i / cols;
-                let c = i % cols;
-                Point {
-                    x: 8 + c * ((buf_w.saturating_sub(16)) / cols.max(1)),
-                    y: walkway.y + 1 + r * 8,
-                }
-            })
-            .collect();
+        // Floor overflow seats: agents past the cubicle + sofa capacity
+        // sit on the floor. Two in the open pantry room (foreground spots
+        // where they're clearly visible), then more in the right-side
+        // lounge if needed. Total capped at 8.
+        let used_before_floor = home_desks.len() + meeting_sofas.len();
+        let overflow_count = num_agents.saturating_sub(used_before_floor).min(8);
+        let mut floor_seats: Vec<Point> = Vec::with_capacity(overflow_count);
+        if let Some(pr) = pantry_room {
+            for slot in 0..overflow_count.min(2) {
+                floor_seats.push(Point {
+                    x: pr.x + pr.width * (25 + slot as u16 * 40) / 100,
+                    y: pr.y + pr.height * 60 / 100,
+                });
+            }
+        }
+        let remaining = overflow_count.saturating_sub(floor_seats.len());
+        for slot in 0..remaining {
+            let c = (slot as u16) % 3;
+            let r = (slot as u16) / 3;
+            floor_seats.push(Point {
+                x: lounge_band.x + lounge_band.width * (15 + c * 30) / 100,
+                y: lounge_band.y + 4 + r * 12,
+            });
+        }
 
         Some(Self {
             buf_w,

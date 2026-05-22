@@ -972,7 +972,16 @@ fn paint_shadow(buf: &mut RgbBuffer, cx: u16, cy: u16, half_w: u16, half_h: u16,
 fn character_anchor(agent: &AgentSlot, layout: &Layout, now: SystemTime) -> Option<Point> {
     use crate::tui::layout::WaypointKind;
     if agent.desk_index >= layout.home_desks.len() {
-        let floor_idx = agent.desk_index - layout.home_desks.len();
+        let overflow_idx = agent.desk_index - layout.home_desks.len();
+        let sofa_count = layout.meeting_sofas.len();
+        if overflow_idx < sofa_count {
+            let sofa = layout.meeting_sofas[overflow_idx];
+            return Some(Point {
+                x: sofa.x.saturating_sub(4),
+                y: sofa.y.saturating_sub(2),
+            });
+        }
+        let floor_idx = overflow_idx - sofa_count;
         let seat = layout.floor_seats.get(floor_idx).copied()?;
         return Some(Point {
             x: seat.x.saturating_sub(4),
@@ -1349,12 +1358,27 @@ pub fn draw_scene<B: Backend>(
         // gives a stable rank per (wp_idx) across frames.
         let mut wp_rank: HashMap<usize, usize> = HashMap::new();
         for agent in &agents {
-            // Floor overflow: agents past the cubicle cap render as
-            // cross-legged-with-laptop at one of the walkway floor seats.
-            // Entry/exit animations don't apply to floor agents (no
-            // dedicated door routing yet — they pop in/out).
+            // Overflow seating: past cubicle capacity, next agents take
+            // meeting-room sofas, then floor seats. Entry/exit animations
+            // don't apply to these — they pop in/out.
             if agent.desk_index >= layout.home_desks.len() {
-                let floor_idx = agent.desk_index - layout.home_desks.len();
+                let overflow_idx = agent.desk_index - layout.home_desks.len();
+                let sofa_count = layout.meeting_sofas.len();
+                if overflow_idx < sofa_count {
+                    let sofa = layout.meeting_sofas[overflow_idx];
+                    let anchor = with_breath(
+                        Point { x: sofa.x.saturating_sub(4), y: sofa.y.saturating_sub(2) },
+                        agent.agent_id,
+                        now,
+                    );
+                    let anim = match &agent.state {
+                        ActivityState::Active { .. } => "sitting_couch",
+                        _ => "sitting_couch_sleeping",
+                    };
+                    paint_character_at(buf, anim, 0, anchor, agent, pack, false, cache);
+                    continue;
+                }
+                let floor_idx = overflow_idx - sofa_count;
                 let Some(seat) = layout.floor_seats.get(floor_idx).copied() else { continue };
                 let anchor = with_breath(
                     Point { x: seat.x.saturating_sub(4), y: seat.y.saturating_sub(2) },
