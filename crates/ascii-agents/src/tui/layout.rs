@@ -29,6 +29,8 @@ pub enum WaypointKind {
 pub enum WallDecor {
     Bookshelf,
     Whiteboard,
+    BulletinBoard,
+    ExitSign,
 }
 
 /// Variety of potted plants — each renders a different sprite. Spread
@@ -175,13 +177,19 @@ impl Layout {
             })
             .collect();
 
-        // Plants scattered in the lounge — mix of types so it doesn't read
-        // as one ficus copy-pasted.
+        // Plants scattered through the lounge AND walkway — mix of types
+        // so it doesn't read as one ficus copy-pasted. Density bumped to
+        // fight the "office feels empty" complaint.
         let plants: Vec<(PlantKind, Point)> = vec![
             (PlantKind::Ficus,     Point { x: buf_w * 35 / 100, y: lounge_band.y + lounge_band.height * 55 / 100 }),
             (PlantKind::Tall,      Point { x: buf_w * 10 / 100, y: lounge_band.y + lounge_band.height * 35 / 100 }),
             (PlantKind::Flower,    Point { x: buf_w * 70 / 100, y: lounge_band.y + lounge_band.height * 60 / 100 }),
             (PlantKind::Succulent, Point { x: buf_w * 95 / 100, y: lounge_band.y + lounge_band.height * 80 / 100 }),
+            (PlantKind::Tall,      Point { x: buf_w * 50 / 100, y: lounge_band.y + lounge_band.height * 80 / 100 }),
+            (PlantKind::Succulent, Point { x: buf_w * 5  / 100, y: lounge_band.y + lounge_band.height * 75 / 100 }),
+            (PlantKind::Flower,    Point { x: buf_w * 25 / 100, y: lounge_band.y + lounge_band.height * 85 / 100 }),
+            (PlantKind::Tall,      Point { x: buf_w * 8  / 100, y: walkway.y + 2 }),
+            (PlantKind::Ficus,     Point { x: buf_w * 45 / 100, y: walkway.y + 2 }),
         ];
 
         // Floor lamp in the right side of the lounge — adds a warm bulb
@@ -210,10 +218,17 @@ impl Layout {
         // 0..14 px). Painted AFTER the wall so it sits in front of the
         // wall trim.
         // Bookshelf stays leaning against the back wall — wall-mounted by
-        // nature. Whiteboard is a portable on-wheels stand: position it in
-        // the walkway band so it reads as "rolled out for standup".
+        // nature. Bulletin board between bookshelf and the windows. Exit
+        // sign right above the door for safety-code realism. Whiteboard
+        // is a portable on-wheels stand: position it in the walkway band
+        // so it reads as "rolled out for standup".
         let wall_decor = vec![
             (WallDecor::Bookshelf, Point { x: buf_w * 18 / 100, y: 6 }),
+            (WallDecor::BulletinBoard, Point { x: buf_w * 42 / 100, y: 8 }),
+            (WallDecor::ExitSign, Point {
+                x: buf_w.saturating_sub(9),
+                y: TOP_MARGIN_PX.saturating_sub(13),
+            }),
             (WallDecor::Whiteboard, Point {
                 x: buf_w * 80 / 100,
                 y: walkway.y.saturating_sub(4),
@@ -302,15 +317,15 @@ mod tests {
     }
 
     #[test]
-    fn compute_places_plants_in_lounge() {
+    fn compute_places_plants_in_lounge_and_walkway() {
         let l = Layout::compute(120, 96, 1).expect("fits");
         assert!(!l.plants.is_empty(), "expected at least one plant");
+        // Each plant lives in the walkway or lounge band (below cubicles).
         for (_, p) in &l.plants {
-            assert!(p.y >= l.lounge_band.y);
+            assert!(p.y >= l.walkway.y, "plant above walkway: {p:?}");
             assert!(p.y < l.lounge_band.y + l.lounge_band.height);
             assert!(p.x < l.buf_w);
         }
-        // Plant variety: more than one kind in the lounge.
         let kinds: std::collections::HashSet<_> =
             l.plants.iter().map(|(k, _)| *k).collect();
         assert!(kinds.len() >= 2, "expected plant variety, got {kinds:?}");

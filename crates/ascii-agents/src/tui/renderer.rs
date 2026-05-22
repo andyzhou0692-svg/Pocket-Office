@@ -26,7 +26,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Terminal;
 
-use crate::tui::layout::{Layout, Point, DESK_W};
+use crate::tui::layout::{Layout, Point, DESK_H, DESK_W};
 use crate::tui::pose::{self, Pose};
 
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
@@ -242,7 +242,9 @@ fn city_dot_twinkle(window_idx: u16, dx: u16, dy: u16, now: SystemTime) -> bool 
     let dot_seed = (window_idx as u64).wrapping_mul(31)
         ^ (dx as u64).wrapping_mul(131)
         ^ (dy as u64).wrapping_mul(521);
-    let cycle_ms = 600 + (dot_seed % 800);
+    // Per-dot cycle 3-7 s — slow enough that the eye doesn't perceive
+    // constant flickering, fast enough that the skyline still "lives".
+    let cycle_ms = 3000 + (dot_seed % 4000);
     let phase = now_ms / cycle_ms;
     let hash = dot_seed
         .wrapping_add(phase)
@@ -698,6 +700,8 @@ fn paint_wall_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack) {
     for (kind, pos) in &layout.wall_decor {
         let anim_name = match kind {
             WallDecor::Bookshelf => "bookshelf",
+            WallDecor::BulletinBoard => "bulletin_board",
+            WallDecor::ExitSign => "exit_sign",
             WallDecor::Whiteboard => "whiteboard",
         };
         if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
@@ -1054,19 +1058,8 @@ pub fn draw_scene<B: Backend>(
     term.draw(|f| {
         let size = f.area();
 
-        let title = Paragraph::new(Line::from(vec![
-            Span::raw(" ascii-agents — "),
-            Span::raw(format!(
-                "{} session{} ",
-                agents.len(),
-                if agents.len() == 1 { "" } else { "s" }
-            )),
-        ]));
-        f.render_widget(
-            title,
-            Rect { x: size.x, y: size.y, width: size.width, height: 1 },
-        );
-
+        // Title bar dropped — session count now rendered as a notice on
+        // the bulletin board inside the office (see Pass 4 below).
         let footer = Paragraph::new(Span::raw(" [q] quit "))
             .style(Style::default().fg(Color::DarkGray));
         f.render_widget(
@@ -1081,9 +1074,9 @@ pub fn draw_scene<B: Backend>(
 
         let scene_rect = Rect {
             x: size.x,
-            y: size.y + 1,
+            y: size.y,
             width: size.width,
-            height: size.height.saturating_sub(2),
+            height: size.height.saturating_sub(1),
         };
         if scene_rect.width < 20 || scene_rect.height < 12 {
             return;
@@ -1254,10 +1247,34 @@ pub fn draw_scene<B: Backend>(
         // standing on the desk top". The screen glow sits on top of
         // everything, so it's a fully visible "this workstation is active"
         // cue. Trash bin tucked next to each desk for cubicle realism.
+        const DIVIDER: Rgb = Rgb(72, 82, 104);
         let desk_anim = pack.animation("desk");
         let bin_anim = pack.animation("trash_bin");
-        for agent in &agents {
+        let cab_anim = pack.animation("filing_cabinet");
+        for (i, agent) in agents.iter().enumerate() {
             let Some(desk) = layout.home_desks.get(agent.desk_index) else { continue };
+            // Cubicle divider on the right side of each desk — short
+            // vertical fabric panel reading as a cube wall in top-down.
+            let div_x = desk.x + DESK_W + 2;
+            for dy in 0..(DESK_H + 4) {
+                for dx in 0..2 {
+                    let px = div_x + dx;
+                    let py = desk.y.saturating_sub(1) + dy;
+                    if px < buf_w && py < buf_h {
+                        buf.put(px, py, DIVIDER);
+                    }
+                }
+            }
+            // Filing cabinet next to every other desk (left side).
+            if i % 2 == 0 {
+                if let Some(cab) = cab_anim.and_then(|a| a.frames.first()) {
+                    let cab_x = desk.x.saturating_sub(cab.width + 1);
+                    let cab_y = desk.y;
+                    if cab_y + cab.height <= buf_h {
+                        blit_frame(cab, cab_x, cab_y, buf);
+                    }
+                }
+            }
             if let Some(frame) = desk_anim.and_then(|a| a.frames.first()) {
                 blit_frame(frame, desk.x, desk.y, buf);
             }
@@ -1329,6 +1346,30 @@ pub fn draw_scene<B: Backend>(
             f.render_widget(
                 para,
                 Rect { x: lx, y: ly, width: DESK_W + 4, height: 1 },
+            );
+        }
+
+        // Bulletin board notice — replaces the old top title bar. Shows
+        // the live session count as a "today's standup" sticky on the
+        // corkboard. Position derived from the same wall_decor entry the
+        // sprite was painted from, converted to terminal cell coords.
+        use crate::tui::layout::WallDecor;
+        if let Some((_, bb_pos)) = layout
+            .wall_decor
+            .iter()
+            .find(|(k, _)| *k == WallDecor::BulletinBoard)
+        {
+            let cell_x = scene_rect.x + bb_pos.x;
+            let cell_y = scene_rect.y + (bb_pos.y / 2).saturating_sub(1);
+            let n = agents.iter().filter(|a| a.exiting_at.is_none()).count();
+            let label = format!("{} live", n);
+            let notice = Paragraph::new(Span::styled(
+                label,
+                Style::default().fg(Color::Yellow),
+            ));
+            f.render_widget(
+                notice,
+                Rect { x: cell_x, y: cell_y, width: 8, height: 1 },
             );
         }
     })?;

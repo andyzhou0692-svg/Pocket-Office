@@ -1,0 +1,8 @@
+# 10x6 corkboard with scattered Post-it squares (red/yellow/blue/green).
+@frame 0
+n n n n n n n n n n
+n r r y y . b b . n
+n r r y y . b b . n
+n . . l l y y . . n
+n . . l l y y . . n
+n n n n n n n n n n

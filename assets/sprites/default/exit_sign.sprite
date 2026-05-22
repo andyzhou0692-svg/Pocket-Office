@@ -1,0 +1,5 @@
+# 5x3 small red-framed exit sign with yellow lit interior.
+@frame 0
+r r r r r
+r y y y r
+r r r r r
