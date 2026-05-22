@@ -397,18 +397,6 @@ fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, now: SystemTime) {
         }
     }
 
-    // Tick marks at 12 / 3 / 6 / 9 o'clock — dark dots inset from the rim
-    // so the eye reads the clock as actually having an orientation.
-    const TICK: Rgb = Rgb(60, 60, 70);
-    let ticks: &[(u16, u16)] = &[(2, 1), (3, 2), (2, 3), (1, 2)];
-    for (tx, ty) in ticks {
-        let px = x + tx;
-        let py = y + ty;
-        if px < buf.width && py < buf.height {
-            buf.put(px, py, TICK);
-        }
-    }
-
     // Decompose `now` into local hour + minute via chrono.
     let unix_now = now
         .duration_since(std::time::UNIX_EPOCH)
