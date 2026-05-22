@@ -1132,54 +1132,6 @@ fn paint_coffee_steam(buf: &mut RgbBuffer, base: Point, now: SystemTime) {
     }
 }
 
-/// Fading footprint trail behind a walking character. Samples 5 past
-/// positions along the current segment (at t-50, t-100, ..., t-250 ms)
-/// and paints a 1-px dot at each in the agent's shirt color with linear
-/// alpha falloff. Adds visible motion reads without per-agent
-/// per-frame position history (positions are recomputed from the
-/// segment + t_x1000, so the trail is "free" memory-wise).
-///
-/// Trail goes BEHIND the walker — for forward-motion at t=600/1000,
-/// the trail samples are at t=550, 500, 450, 400, 350.
-fn paint_walker_trail(
-    buf: &mut RgbBuffer,
-    agent: &AgentSlot,
-    pack: &Pack,
-    from: Point,
-    to: Point,
-    t_x1000: u16,
-) {
-    // Stride in t-units per trail step. 50 ≈ 5% of the current segment;
-    // 5 steps × 50 = 250 covers a quarter-segment of trail.
-    const STRIDE: u16 = 50;
-    const STEPS: u16 = 5;
-    // Trail color = agent shirt. Falls back to a warm grey if the
-    // palette has no shirt entry.
-    let pal = agent_palette(&pack.palette, agent);
-    let shirt = pal.get('B').flatten().unwrap_or(Rgb(180, 140, 110));
-    for i in 1..=STEPS {
-        let past_t = t_x1000.saturating_sub(i * STRIDE);
-        let pos = walking_position(from, to, past_t);
-        let fx = pos.x;
-        let fy = pos.y + 4; // foot height — just below sprite bottom
-        if fx >= buf.width || fy >= buf.height {
-            continue;
-        }
-        // Alpha fade: i=1 → 0.55, i=2 → 0.44, ... i=5 → 0.11.
-        let alpha = 0.55 - 0.11 * (i as f32 - 1.0);
-        let cur = buf.get(fx, fy);
-        buf.put(
-            fx,
-            fy,
-            Rgb(
-                blend(cur.0, shirt.0, alpha),
-                blend(cur.1, shirt.1, alpha),
-                blend(cur.2, shirt.2, alpha),
-            ),
-        );
-    }
-}
-
 /// Small dust puff at the trailing foot of a walking character.
 fn paint_walking_dust(buf: &mut RgbBuffer, walker_anchor: Point, frame_idx: usize) {
     const DUST: Rgb = Rgb(150, 120, 85);
@@ -1272,7 +1224,7 @@ enum DrawableKind<'a> {
         chair_behind: bool,
         sleep_z_seed: Option<u64>,
         waiting_bubble: bool,
-        walker_extras: Option<WalkerExtras>,
+        walking_dust_frame: Option<usize>,
     },
     /// Lounge couch (mirror_vertical'd — back at bottom, seat at top).
     WaypointCouch {
@@ -1315,13 +1267,6 @@ enum DrawableKind<'a> {
         flip: bool,
         frame_idx: usize,
     },
-}
-
-struct WalkerExtras {
-    from: Point,
-    to: Point,
-    t_x1000: u16,
-    dust_frame: usize,
 }
 
 /// Returns the cat's current position + flip + frame_idx, or `None` if
@@ -1418,14 +1363,13 @@ fn paint_drawable(
             chair_behind,
             sleep_z_seed,
             waiting_bubble,
-            walker_extras,
+            walking_dust_frame,
         } => {
             if *chair_behind {
                 paint_chair_behind(buf, *anchor, agent, pack);
             }
-            if let Some(w) = walker_extras {
-                paint_walker_trail(buf, agent, pack, w.from, w.to, w.t_x1000);
-                paint_walking_dust(buf, *anchor, w.dust_frame);
+            if let Some(dust_frame) = walking_dust_frame {
+                paint_walking_dust(buf, *anchor, *dust_frame);
             }
             paint_character_at(
                 buf, anim_name, *frame_idx, *anchor, agent, pack, *flip_x, cache,
@@ -1941,7 +1885,7 @@ pub fn render_to_rgb_buffer(
                         chair_behind: false,
                         sleep_z_seed: None,
                         waiting_bubble: false,
-                        walker_extras: None,
+                        walking_dust_frame: None,
                     },
                 });
                 continue;
@@ -1974,7 +1918,7 @@ pub fn render_to_rgb_buffer(
                     chair_behind: false,
                     sleep_z_seed: None,
                     waiting_bubble: false,
-                    walker_extras: None,
+                    walking_dust_frame: None,
                 },
             });
             continue;
@@ -2000,7 +1944,7 @@ pub fn render_to_rgb_buffer(
                         chair_behind: true,
                         sleep_z_seed: Some(agent.agent_id.raw()),
                         waiting_bubble: false,
-                        walker_extras: None,
+                        walking_dust_frame: None,
                     },
                 });
             }
@@ -2017,7 +1961,7 @@ pub fn render_to_rgb_buffer(
                         chair_behind: true,
                         sleep_z_seed: None,
                         waiting_bubble: false,
-                        walker_extras: None,
+                        walking_dust_frame: None,
                     },
                 });
             }
@@ -2035,7 +1979,7 @@ pub fn render_to_rgb_buffer(
                         chair_behind: false,
                         sleep_z_seed: None,
                         waiting_bubble: is_waiting,
-                        walker_extras: None,
+                        walking_dust_frame: None,
                     },
                 });
             }
@@ -2071,7 +2015,7 @@ pub fn render_to_rgb_buffer(
                             chair_behind: false,
                             sleep_z_seed: None,
                             waiting_bubble: false,
-                            walker_extras: None,
+                            walking_dust_frame: None,
                         },
                     });
                 }
@@ -2089,7 +2033,7 @@ pub fn render_to_rgb_buffer(
                         chair_behind: false,
                         sleep_z_seed: None,
                         waiting_bubble: false,
-                        walker_extras: None,
+                        walking_dust_frame: None,
                     },
                 });
             }
@@ -2119,12 +2063,7 @@ pub fn render_to_rgb_buffer(
                         chair_behind: false,
                         sleep_z_seed: None,
                         waiting_bubble: false,
-                        walker_extras: Some(WalkerExtras {
-                            from,
-                            to,
-                            t_x1000,
-                            dust_frame: frame,
-                        }),
+                        walking_dust_frame: Some(frame),
                     },
                 });
             }
