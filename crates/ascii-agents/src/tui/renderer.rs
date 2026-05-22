@@ -139,7 +139,7 @@ fn recolor_frame(frame: &Frame, pal: &Palette, base_pal: &Palette) -> Frame {
 }
 
 // --- Floor / walls / decor -----------------------------------------------
-fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
+fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16, now: SystemTime) {
     // Smaller planks (4 px tall × 10 px wide) read as tile/parquet rather
     // than the previous oversized 6×16 boards that dominated the scene.
     const PLANK_H: u16 = 4;
@@ -147,8 +147,11 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
     const TOP_WALL_H: u16 = 14;
     const BASEBOARD_H: u16 = 3;
     const WINDOW_FRAME: Rgb = Rgb(24, 24, 32);
-    const WINDOW_GLASS: Rgb = Rgb(120, 160, 200);
-    const WINDOW_GLASS_2: Rgb = Rgb(160, 190, 220);
+    // Glass + spill scale with local hour — dark windows at night, full
+    // daylight 8..18, smooth ramps at dawn/dusk.
+    let look = time_of_day_look(now);
+    let window_glass = look.glass_a;
+    let window_glass_2 = look.glass_b;
 
     for y in 0..buf_h {
         let band = y / PLANK_H;
@@ -181,9 +184,18 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
     while x + WINDOW_W + 2 <= buf_w {
         // Skip every 4th window slot to vary the rhythm.
         if idx % 4 != 3 {
-            paint_window(buf, x, WINDOW_Y, WINDOW_W, WINDOW_H, WINDOW_FRAME, WINDOW_GLASS, WINDOW_GLASS_2);
-            // Sunlight trapezoid spilling onto the floor below the window.
-            paint_window_light_spill(buf, x, WINDOW_W, TOP_WALL_H);
+            paint_window(buf, x, WINDOW_Y, WINDOW_W, WINDOW_H, WINDOW_FRAME, window_glass, window_glass_2);
+            // Sunlight trapezoid — only when the sun is actually up.
+            if look.spill_strength > 0.0 {
+                paint_window_light_spill(
+                    buf,
+                    x,
+                    WINDOW_W,
+                    TOP_WALL_H,
+                    look.spill_strength,
+                    look.spill_slant,
+                );
+            }
         }
         x += WINDOW_W + 8;
         idx += 1;
@@ -210,20 +222,33 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16) {
 
 /// Warm sunlight tint spilling onto the floor below a window. Trapezoid
 /// shape (widens by 1 px every 2 rows) blended with the existing floor so
-/// it reads as "light through window" not "yellow rectangle".
-fn paint_window_light_spill(buf: &mut RgbBuffer, window_x: u16, window_w: u16, top_y: u16) {
+/// it reads as "light through window" not "yellow rectangle". `intensity`
+/// (0..1) scales with daylight — zero at night so no spill paints.
+/// `slant_per_row` shifts the spill horizontally per row going down —
+/// positive = rightward (morning sun in the east casts light right), negative
+/// = leftward (evening sun in the west casts light left).
+fn paint_window_light_spill(
+    buf: &mut RgbBuffer,
+    window_x: u16,
+    window_w: u16,
+    top_y: u16,
+    intensity: f32,
+    slant_per_row: f32,
+) {
     const WARM: Rgb = Rgb(255, 230, 160);
     const DEPTH: u16 = 12;
-    const FADE_START: f32 = 0.32;
+    let fade_start = 0.32 * intensity;
     for dy in 0..DEPTH {
         let widen = (dy / 2).min(3);
-        let start_x = window_x.saturating_sub(widen);
-        let end_x = (window_x + window_w + widen).min(buf.width);
+        let shift = (slant_per_row * dy as f32).round() as i32;
+        let base_x = (window_x as i32 + shift).max(0) as u16;
+        let start_x = base_x.saturating_sub(widen);
+        let end_x = (base_x + window_w + widen).min(buf.width);
         let y = top_y + dy;
         if y >= buf.height {
             break;
         }
-        let strength = FADE_START * (1.0 - dy as f32 / DEPTH as f32);
+        let strength = fade_start * (1.0 - dy as f32 / DEPTH as f32);
         for x in start_x..end_x {
             let cur = buf.get(x, y);
             buf.put(
@@ -237,6 +262,77 @@ fn paint_window_light_spill(buf: &mut RgbBuffer, window_x: u16, window_w: u16, t
             );
         }
     }
+}
+
+/// Window glass color + spill intensity + spill slant for the current local
+/// hour. `spill_slant` is x-shift per row going down: positive = rightward
+/// (morning sun in the east), negative = leftward (evening sun in the west).
+struct TimeOfDayLook {
+    glass_a: Rgb,
+    glass_b: Rgb,
+    spill_strength: f32,
+    spill_slant: f32,
+}
+
+fn time_of_day_look(now: SystemTime) -> TimeOfDayLook {
+    use chrono::Timelike;
+    let unix_now = now.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+    let local = chrono::DateTime::<chrono::Local>::from(std::time::UNIX_EPOCH + unix_now);
+    let h = local.hour() as f32 + local.minute() as f32 / 60.0;
+
+    // Daylight intensity: full from 8 to 17, smooth ramp 5..8 and 17..20.
+    let day = if h < 5.0 || h >= 20.0 {
+        0.0
+    } else if h < 8.0 {
+        (h - 5.0) / 3.0
+    } else if h < 17.0 {
+        1.0
+    } else {
+        1.0 - (h - 17.0) / 3.0
+    };
+
+    // Twilight bell at dawn (~6.5) and dusk (~18.5) — adds orange/pink
+    // tint that the cyan↔dark-blue base doesn't capture.
+    let twilight =
+        bell(h, 6.5, 1.5).max(bell(h, 18.5, 1.5));
+
+    const DAY_A: Rgb = Rgb(120, 160, 200);
+    const DAY_B: Rgb = Rgb(160, 190, 220);
+    const NIGHT_A: Rgb = Rgb(18, 26, 52);
+    const NIGHT_B: Rgb = Rgb(28, 36, 70);
+    const TWILIGHT_A: Rgb = Rgb(220, 130, 80);
+    const TWILIGHT_B: Rgb = Rgb(240, 170, 110);
+
+    let glass_a = lerp_rgb(lerp_rgb(NIGHT_A, DAY_A, day), TWILIGHT_A, twilight * 0.5);
+    let glass_b = lerp_rgb(lerp_rgb(NIGHT_B, DAY_B, day), TWILIGHT_B, twilight * 0.5);
+
+    // Spill slant: ±0.7 px per row at peak hours (6am leftmost, 6pm
+    // rightmost), zero at noon. Conventional read: morning sun on the east
+    // (right of image) casts light westward (leftward shift); evening sun
+    // on the west casts eastward (rightward shift).
+    let slant = if h < 12.0 {
+        -((12.0 - h) / 6.0).clamp(0.0, 1.0) * 0.7
+    } else {
+        ((h - 12.0) / 6.0).clamp(0.0, 1.0) * 0.7
+    };
+
+    TimeOfDayLook {
+        glass_a,
+        glass_b,
+        spill_strength: day,
+        spill_slant: slant,
+    }
+}
+
+fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    Rgb(blend(a.0, b.0, t), blend(a.1, b.1, t), blend(a.2, b.2, t))
+}
+
+/// Bell curve centered at `c` with half-width `w` (so the bell is 0 at
+/// `c ± w` and 1 at `c`). Used for dawn/dusk twilight tint.
+fn bell(x: f32, c: f32, w: f32) -> f32 {
+    let d = (x - c) / w;
+    (1.0 - d * d).max(0.0)
 }
 
 fn blend(a: u8, b: u8, t: f32) -> u8 {
@@ -662,7 +758,7 @@ pub fn draw_scene<B: Backend>(
             return;
         };
 
-        paint_floor_and_walls(buf, buf_w, buf_h);
+        paint_floor_and_walls(buf, buf_w, buf_h, now);
         // Live wall clock painted after the wall (so hands sit on top of it)
         // but before wall decor — the bookshelf etc. shouldn't cover it.
         let clock_x = buf_w / 2 - 2;
