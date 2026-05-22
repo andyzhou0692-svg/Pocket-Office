@@ -1,9 +1,10 @@
-# 16x8 top-down desk with monitor (with screen reflection), keyboard, mouse.
-# Top edge of desk shows monitor stand silhouette.
+# 16x8 top-down desk with monitor (dark idle screen), keyboard, mouse.
+# Screen uses `j` (dark) so the bright lime screen-glow overlay reads as
+# "monitor lit up — workstation is active" by contrast.
 @frame 0
 D D D M M M M M M M M D D D D D
-D D D M c c c c c c M D D D D D
-D D D M c c c c c c M D D D D D
+D D D M j j j j j j M D D D D D
+D D D M j j j j j j M D D D D D
 D D D D n n n n n n D D D D D D
 d d d d d d d d d d d d d d d d
 D k k k k k k k k k D D D K D D

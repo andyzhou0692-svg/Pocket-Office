@@ -458,19 +458,35 @@ fn paint_character_at(
 }
 
 /// "Active" screen glow painted on top of the desk sprite while an agent is
-/// in `ActivityState::Active`. Reads instantly from across the screen as
-/// "this workstation is busy", which the typing-frame animation alone is too
-/// small (8 px head) to convey.
+/// in `ActivityState::Active`. Covers the full monitor footprint (rows 0-3,
+/// cols 3-10 of desk.sprite — frame + screen + stand silhouette) so the
+/// glow is at least 2 terminal cells tall after half-block compression,
+/// instead of a thin line that the eye averages away.
 fn paint_screen_glow(buf: &mut RgbBuffer, desk_x: u16, desk_y: u16) {
+    const FRAME_LIT: Rgb = Rgb(180, 200, 200);
     const GLOW: Rgb = Rgb(140, 240, 170);
-    for dy in 1..=2 {
-        for dx in 4..=9 {
-            let px = desk_x + dx;
-            let py = desk_y + dy;
-            if px < buf.width && py < buf.height {
-                buf.put(px, py, GLOW);
-            }
+    const GLOW_BRIGHT: Rgb = Rgb(220, 255, 230);
+    let put = |buf: &mut RgbBuffer, dx: u16, dy: u16, c: Rgb| {
+        let px = desk_x + dx;
+        let py = desk_y + dy;
+        if px < buf.width && py < buf.height {
+            buf.put(px, py, c);
         }
+    };
+    // Frame lit up — top row of monitor (cols 3-10 in desk sprite).
+    for dx in 3..=10 {
+        put(buf, dx, 0, FRAME_LIT);
+    }
+    // Screen interior — rows 1-2, cols 4-9. Bright top / glow bottom so the
+    // two pixel rows do not average to the same half-block color.
+    for dx in 4..=9 {
+        put(buf, dx, 1, GLOW_BRIGHT);
+        put(buf, dx, 2, GLOW);
+    }
+    // Monitor stand silhouette (row 3) gets a faint reflected tint so the
+    // glow appears to spill onto the desk surface.
+    for dx in 4..=9 {
+        put(buf, dx, 3, FRAME_LIT);
     }
 }
 

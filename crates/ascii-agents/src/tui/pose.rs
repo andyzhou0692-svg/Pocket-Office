@@ -69,6 +69,23 @@ pub fn takes_trip(agent_id: AgentId, cycle_n: u64) -> bool {
     (mix % 100) < p.trip_chance_pct as u64
 }
 
+/// Per-(agent, cycle) decision: when the agent takes a trip, is it an
+/// aimless wander (random walkway point) or a directed visit to a named
+/// waypoint? Used by `idle_pose` AND by the snapshot example to find
+/// agent_ids whose cycle deterministically lands at a target waypoint.
+pub fn is_aimless_cycle(agent_id: AgentId, cycle_n: u64) -> bool {
+    let p = personality_for(agent_id);
+    let type_mix = agent_id.raw() ^ cycle_n.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    (type_mix % 100) < p.aimless_pref_pct as u64
+}
+
+/// Per-(agent, cycle) waypoint index. Only meaningful when `takes_trip` is
+/// true AND `is_aimless_cycle` is false. Returns 0 if `num_waypoints` is 0.
+pub fn waypoint_index_for_cycle(agent_id: AgentId, cycle_n: u64, num_waypoints: usize) -> usize {
+    if num_waypoints == 0 { return 0; }
+    ((agent_id.raw() ^ cycle_n) as usize) % num_waypoints
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pose {
     SeatedIdle,
@@ -115,10 +132,7 @@ fn idle_pose(slot: &AgentSlot, desk: Point, layout: &Layout, elapsed_ms: u64) ->
 
     // Per-cycle "trip type" roll. Personality.aimless_pref_pct shifts the
     // mix between lounge waypoint and aimless wander.
-    let personality = personality_for(slot.agent_id);
-    let type_mix = slot.agent_id.raw()
-        ^ cycle_n.wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    let aimless = (type_mix % 100) < personality.aimless_pref_pct as u64;
+    let aimless = is_aimless_cycle(slot.agent_id, cycle_n);
 
     // Phase boundaries.
     let seated_end = cycle_ms * PHASE_SEATED_FRAC / 1000;
@@ -138,7 +152,7 @@ fn idle_pose(slot: &AgentSlot, desk: Point, layout: &Layout, elapsed_ms: u64) ->
         };
         (p, Pose::AimlessAt { dest: p })
     } else {
-        let wp_idx = ((slot.agent_id.raw() ^ cycle_n) as usize) % layout.waypoints.len();
+        let wp_idx = waypoint_index_for_cycle(slot.agent_id, cycle_n, layout.waypoints.len());
         let wp = layout.waypoints[wp_idx];
         (wp.pos, Pose::AtWaypoint { wp: wp_idx, kind: wp.kind })
     };
