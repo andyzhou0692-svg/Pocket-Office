@@ -675,145 +675,6 @@ fn octant_offset(turn: f32) -> (i32, i32) {
     }
 }
 
-fn paint_lounge_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack, now: SystemTime) {
-    // Plants — pure decor, scattered around the lounge. Each plant picks
-    // a sprite per kind so the lounge has variety instead of one repeated
-    // ficus.
-    use crate::tui::layout::PlantKind;
-    for (kind, p) in &layout.plants {
-        let anim_name = match kind {
-            PlantKind::Ficus => "plant",
-            PlantKind::Tall => "plant_tall",
-            PlantKind::Flower => "plant_flower",
-            PlantKind::Succulent => "plant_succulent",
-        };
-        if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
-            let px = p.x.saturating_sub(f.width / 2);
-            let py = p.y.saturating_sub(f.height / 2);
-            blit_frame(f, px, py, buf);
-        }
-    }
-
-    // Floor lamp in the lounge corner.
-    if let Some(lamp_pos) = layout.floor_lamp {
-        if let Some(f) = pack.animation("floor_lamp").and_then(|a| a.frames.first()) {
-            let px = lamp_pos.x.saturating_sub(f.width / 2);
-            let py = lamp_pos.y.saturating_sub(f.height / 2);
-            blit_frame(f, px, py, buf);
-        }
-    }
-
-    // Wandering office cat — bounces between the left and right ends of
-    // the lounge band on a 30 s cycle, with brief pauses at each end.
-    // Pure whimsy, fills floor space.
-    paint_wandering_cat(buf, layout, pack, now);
-}
-
-/// Waypoint furniture (couch + pantry counter) painted AFTER characters in
-/// Pass 1 — so a visitor seated on the couch or standing at the counter
-/// has their lower body occluded by the furniture sprite. Top-down 3/4
-/// semantics: head + shoulders visible above the back rest / counter
-/// edge, body hidden behind it. Same trick as desks, but in a separate
-/// pass because the couch / counter need to occlude waypoint VISITORS,
-/// not desk-seated workers.
-fn paint_waypoint_furniture(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack, now: SystemTime) {
-    use crate::tui::layout::WaypointKind;
-    for wp in &layout.waypoints {
-        let anim_name = match wp.kind {
-            WaypointKind::Couch => "couch",
-            WaypointKind::Pantry => "pantry",
-        };
-        if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
-            let cx = wp.pos.x.saturating_sub(f.width / 2);
-            let cy = wp.pos.y.saturating_sub(f.height / 2);
-            if wp.kind == WaypointKind::Couch {
-                let flipped = f.mirror_vertical();
-                blit_frame(&flipped, cx, cy, buf);
-            } else {
-                blit_frame(f, cx, cy, buf);
-            }
-        }
-        // Coffee steam wisps emit OVER the counter — paint them last so
-        // the animation reads as steam rising up from the machine.
-        if wp.kind == WaypointKind::Pantry {
-            paint_coffee_steam(
-                buf,
-                Point {
-                    x: wp.pos.x + 4,
-                    y: wp.pos.y.saturating_sub(2),
-                },
-                now,
-            );
-        }
-    }
-}
-
-/// Office cat that paces between the lounge band's left and right edges
-/// on a 30 s cycle (12 s walk + 3 s pause + 12 s walk back + 3 s pause).
-/// Sprite mirrors horizontally for the return leg.
-fn paint_wandering_cat(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack, now: SystemTime) {
-    let Some(anim) = pack.animation("cat_walk") else {
-        return;
-    };
-    if anim.frames.is_empty() {
-        return;
-    }
-    let elapsed_ms = now
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-    const CYCLE_MS: u64 = 30_000;
-    let phase = elapsed_ms % CYCLE_MS;
-    let frac = phase as f32 / CYCLE_MS as f32;
-    let (t, flip) = if frac < 0.4 {
-        (frac / 0.4, false)
-    } else if frac < 0.5 {
-        (1.0, false)
-    } else if frac < 0.9 {
-        (1.0 - (frac - 0.5) / 0.4, true)
-    } else {
-        (0.0, true)
-    };
-    // Cat now paces the full-width corridor instead of the old lounge_band.
-    let corridor = match layout.corridor {
-        Some(c) => c,
-        None => return,
-    };
-    let left_x = corridor.x + corridor.width * 8 / 100;
-    let right_x = corridor.x + corridor.width * 92 / 100;
-    let cx = left_x + ((right_x - left_x) as f32 * t) as u16;
-    let cy = corridor.y + corridor.height / 2;
-    let frame_idx = (elapsed_ms / 220) as usize % anim.frames.len();
-    let Some(frame) = anim.frames.get(frame_idx) else {
-        return;
-    };
-    let final_frame = if flip {
-        frame.mirror_horizontal()
-    } else {
-        frame.clone()
-    };
-    let px = cx.saturating_sub(final_frame.width / 2);
-    let py = cy.saturating_sub(final_frame.height / 2);
-    blit_frame(&final_frame, px, py, buf);
-}
-
-/// Wall-leaning furniture (bookshelf + whiteboard). Painted *after* the
-/// wall band so it sits in front of the wall trim, leaning against it.
-fn paint_wall_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack) {
-    use crate::tui::layout::WallDecor;
-    for (kind, pos) in &layout.wall_decor {
-        let anim_name = match kind {
-            WallDecor::Bookshelf => "bookshelf",
-            WallDecor::BulletinBoard => "bulletin_board",
-            WallDecor::ExitSign => "exit_sign",
-            WallDecor::Whiteboard => "whiteboard",
-        };
-        if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
-            blit_frame(f, pos.x, pos.y, buf);
-        }
-    }
-}
-
 // --- Character placement --------------------------------------------------
 fn seated_anchor(desk: Point) -> Point {
     Point {
@@ -1367,6 +1228,320 @@ fn paint_waiting_bubble(buf: &mut RgbBuffer, anchor: Point) {
         }
     }
 }
+// ============================================================================
+// Y-sorted drawable enum (painter's algorithm)
+// ============================================================================
+//
+// Top-down depth: every mid-ground entity carries an `anchor_y` = the
+// y-pixel row where it touches the floor (front-facing bottom edge for
+// items with thickness). Drawables sort ascending by `anchor_y` and
+// paint in order. Larger `anchor_y` = closer to camera = paints last
+// (on top). Solves the classic "character standing south of a desk
+// should appear in front of it" problem without per-pair special cases.
+//
+// What stays OUTSIDE the sort:
+//   - Background (floor / walls / lighting / corridor / room walls /
+//     entry mat / clock / shadows). All depth-independent.
+//   - Per-character attached effects (chair-behind, sleep_z,
+//     waiting_bubble, walker trail/dust, coffee steam, screen glow)
+//     paint AS PART of their parent `Drawable` — they ride along with
+//     the entity in z-order, not as a global foreground pass.
+
+struct Drawable<'a> {
+    anchor_y: u16,
+    kind: DrawableKind<'a>,
+}
+
+enum DrawableKind<'a> {
+    /// Whole cubicle as one z-unit: divider + filing cabinet (every
+    /// other desk) + desk sprite + trash bin + screen-glow if the
+    /// occupant is Active. Bundled so the cubicle paints atomically at
+    /// the desk's bottom-edge row.
+    DeskCubicle {
+        desk: Point,
+        is_last_col: bool,
+        has_cabinet: bool,
+        occupant_active: bool,
+    },
+    Character {
+        agent: &'a AgentSlot,
+        anim_name: &'static str,
+        frame_idx: usize,
+        anchor: Point,
+        flip_x: bool,
+        chair_behind: bool,
+        sleep_z_seed: Option<u64>,
+        waiting_bubble: bool,
+        walker_extras: Option<WalkerExtras>,
+    },
+    /// Lounge couch (mirror_vertical'd — back at bottom, seat at top).
+    WaypointCouch {
+        pos: Point,
+    },
+    /// Pantry counter (with coffee steam attached so steam rides above
+    /// the counter in z-order).
+    WaypointPantry {
+        pos: Point,
+    },
+    MeetingSofa {
+        pos: Point,
+        mirrored: bool,
+    },
+    MeetingTable {
+        pos: Point,
+    },
+    PantryTable {
+        pos: Point,
+    },
+    PantryChair {
+        pos: Point,
+    },
+    Plant {
+        kind: crate::tui::layout::PlantKind,
+        pos: Point,
+    },
+    FloorLamp {
+        pos: Point,
+    },
+    Door {
+        pos: Point,
+    },
+    WallDecor {
+        kind: crate::tui::layout::WallDecor,
+        pos: Point,
+    },
+    Cat {
+        pos: Point,
+        flip: bool,
+        frame_idx: usize,
+    },
+}
+
+struct WalkerExtras {
+    from: Point,
+    to: Point,
+    t_x1000: u16,
+    dust_frame: usize,
+}
+
+/// Returns the cat's current position + flip + frame_idx, or `None` if
+/// the corridor isn't available. Pulled out of `paint_wandering_cat` so
+/// the y-sort can place the cat with everything else.
+fn cat_position(layout: &Layout, pack: &Pack, now: SystemTime) -> Option<(Point, bool, usize)> {
+    let anim = pack.animation("cat_walk")?;
+    if anim.frames.is_empty() {
+        return None;
+    }
+    let elapsed_ms = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    const CYCLE_MS: u64 = 30_000;
+    let phase = elapsed_ms % CYCLE_MS;
+    let frac = phase as f32 / CYCLE_MS as f32;
+    let (t, flip) = if frac < 0.4 {
+        (frac / 0.4, false)
+    } else if frac < 0.5 {
+        (1.0, false)
+    } else if frac < 0.9 {
+        (1.0 - (frac - 0.5) / 0.4, true)
+    } else {
+        (0.0, true)
+    };
+    let corridor = layout.corridor?;
+    let left_x = corridor.x + corridor.width * 8 / 100;
+    let right_x = corridor.x + corridor.width * 92 / 100;
+    let cx = left_x + ((right_x - left_x) as f32 * t) as u16;
+    let cy = corridor.y + corridor.height / 2;
+    let frame_idx = (elapsed_ms / 220) as usize % anim.frames.len();
+    Some((Point { x: cx, y: cy }, flip, frame_idx))
+}
+
+/// Dispatch one Drawable's paint. Effects attached to characters paint
+/// inline so they ride along with the character in z-order.
+fn paint_drawable(
+    d: &Drawable<'_>,
+    buf: &mut RgbBuffer,
+    pack: &Pack,
+    cache: &mut FrameCache,
+    now: SystemTime,
+) {
+    match &d.kind {
+        DrawableKind::DeskCubicle {
+            desk,
+            is_last_col,
+            has_cabinet,
+            occupant_active,
+        } => {
+            const DIVIDER: Rgb = Rgb(72, 82, 104);
+            if !is_last_col {
+                let div_x = desk.x + DESK_W + 3;
+                for dy in 0..(DESK_H + 1) {
+                    let py = desk.y.saturating_sub(1) + dy;
+                    if div_x < buf.width && py < buf.height {
+                        buf.put(div_x, py, DIVIDER);
+                    }
+                }
+            }
+            if *has_cabinet {
+                if let Some(cab) = pack
+                    .animation("filing_cabinet")
+                    .and_then(|a| a.frames.first())
+                {
+                    let cab_x = desk.x.saturating_sub(cab.width + 1);
+                    let cab_y = desk.y;
+                    if cab_y + cab.height <= buf.height {
+                        blit_frame(cab, cab_x, cab_y, buf);
+                    }
+                }
+            }
+            if let Some(frame) = pack.animation("desk").and_then(|a| a.frames.first()) {
+                blit_frame(frame, desk.x, desk.y, buf);
+            }
+            if let Some(bin) = pack.animation("trash_bin").and_then(|a| a.frames.first()) {
+                let bin_x = desk.x + DESK_W;
+                let bin_y = desk.y + 4;
+                if bin_x + bin.width <= buf.width && bin_y + bin.height <= buf.height {
+                    blit_frame(bin, bin_x, bin_y, buf);
+                }
+            }
+            if *occupant_active {
+                paint_screen_glow(buf, desk.x, desk.y, now);
+            }
+        }
+        DrawableKind::Character {
+            agent,
+            anim_name,
+            frame_idx,
+            anchor,
+            flip_x,
+            chair_behind,
+            sleep_z_seed,
+            waiting_bubble,
+            walker_extras,
+        } => {
+            if *chair_behind {
+                paint_chair_behind(buf, *anchor, agent, pack);
+            }
+            if let Some(w) = walker_extras {
+                paint_walker_trail(buf, agent, pack, w.from, w.to, w.t_x1000);
+                paint_walking_dust(buf, *anchor, w.dust_frame);
+            }
+            paint_character_at(
+                buf, anim_name, *frame_idx, *anchor, agent, pack, *flip_x, cache,
+            );
+            if let Some(seed) = sleep_z_seed {
+                paint_sleep_z(buf, *anchor, now, *seed);
+            }
+            if *waiting_bubble {
+                paint_waiting_bubble(buf, *anchor);
+            }
+        }
+        DrawableKind::WaypointCouch { pos } => {
+            if let Some(f) = pack.animation("couch").and_then(|a| a.frames.first()) {
+                let cx = pos.x.saturating_sub(f.width / 2);
+                let cy = pos.y.saturating_sub(f.height / 2);
+                let flipped = f.mirror_vertical();
+                blit_frame(&flipped, cx, cy, buf);
+            }
+        }
+        DrawableKind::WaypointPantry { pos } => {
+            if let Some(f) = pack.animation("pantry").and_then(|a| a.frames.first()) {
+                let cx = pos.x.saturating_sub(f.width / 2);
+                let cy = pos.y.saturating_sub(f.height / 2);
+                blit_frame(f, cx, cy, buf);
+            }
+            paint_coffee_steam(
+                buf,
+                Point {
+                    x: pos.x + 4,
+                    y: pos.y.saturating_sub(2),
+                },
+                now,
+            );
+        }
+        DrawableKind::MeetingSofa { pos, mirrored } => {
+            if let Some(f) = pack.animation("couch").and_then(|a| a.frames.first()) {
+                let sx = pos.x.saturating_sub(f.width / 2);
+                let sy = pos.y.saturating_sub(f.height / 2);
+                if *mirrored {
+                    let flipped = f.mirror_vertical();
+                    blit_frame(&flipped, sx, sy, buf);
+                } else {
+                    blit_frame(f, sx, sy, buf);
+                }
+            }
+        }
+        DrawableKind::MeetingTable { pos } => {
+            paint_coffee_table(buf, pos.x, pos.y, 11, 5);
+        }
+        DrawableKind::PantryTable { pos } => {
+            paint_pantry_table(buf, pos.x, pos.y);
+        }
+        DrawableKind::PantryChair { pos } => {
+            paint_pantry_chair(buf, pos.x, pos.y);
+        }
+        DrawableKind::Plant { kind, pos } => {
+            use crate::tui::layout::PlantKind;
+            let anim_name = match kind {
+                PlantKind::Ficus => "plant",
+                PlantKind::Tall => "plant_tall",
+                PlantKind::Flower => "plant_flower",
+                PlantKind::Succulent => "plant_succulent",
+            };
+            if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
+                let px = pos.x.saturating_sub(f.width / 2);
+                let py = pos.y.saturating_sub(f.height / 2);
+                blit_frame(f, px, py, buf);
+            }
+        }
+        DrawableKind::FloorLamp { pos } => {
+            if let Some(f) = pack.animation("floor_lamp").and_then(|a| a.frames.first()) {
+                let px = pos.x.saturating_sub(f.width / 2);
+                let py = pos.y.saturating_sub(f.height / 2);
+                blit_frame(f, px, py, buf);
+            }
+        }
+        DrawableKind::Door { pos } => {
+            if let Some(f) = pack.animation("door").and_then(|a| a.frames.first()) {
+                blit_frame(f, pos.x, pos.y, buf);
+            }
+        }
+        DrawableKind::WallDecor { kind, pos } => {
+            use crate::tui::layout::WallDecor;
+            let anim_name = match kind {
+                WallDecor::Bookshelf => "bookshelf",
+                WallDecor::BulletinBoard => "bulletin_board",
+                WallDecor::ExitSign => "exit_sign",
+                WallDecor::Whiteboard => "whiteboard",
+            };
+            if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
+                blit_frame(f, pos.x, pos.y, buf);
+            }
+        }
+        DrawableKind::Cat {
+            pos,
+            flip,
+            frame_idx,
+        } => {
+            let Some(anim) = pack.animation("cat_walk") else {
+                return;
+            };
+            let Some(frame) = anim.frames.get(*frame_idx) else {
+                return;
+            };
+            let final_frame = if *flip {
+                frame.mirror_horizontal()
+            } else {
+                frame.clone()
+            };
+            let px = pos.x.saturating_sub(final_frame.width / 2);
+            let py = pos.y.saturating_sub(final_frame.height / 2);
+            blit_frame(&final_frame, px, py, buf);
+        }
+    }
+}
+
 /// Pure pixel painting — no ratatui types, no terminal I/O. The signature
 /// is what any future non-terminal renderer (web canvas, PNG export, GIF
 /// capture) would call. Lives behind the `Renderer` trait in core if you
@@ -1507,24 +1682,22 @@ pub fn render_to_rgb_buffer(
         paint_pantry_chair(buf, chair.x, chair.y);
     }
 
-    paint_wall_decor(buf, layout, pack);
+    // Entry mat on the floor just inside the door — defines the arrival
+    // zone and breaks up the empty wood strip there. The door SPRITE
+    // itself is now a y-sorted Drawable (so a walker passing south of
+    // the doorway can occlude it correctly); only the floor mat stays in
+    // the background pass.
     if let Some(door_pos) = layout.door {
-        if let Some(frame) = pack.animation("door").and_then(|a| a.frames.first()) {
-            blit_frame(frame, door_pos.x, door_pos.y, buf);
-        }
-        // Entry mat on the floor just inside the door. Defines the
-        // arrival zone and breaks up the empty wood strip there.
         let mat_x = door_pos.x.saturating_sub(2);
         let mat_y = 15;
         paint_entry_mat(buf, mat_x, mat_y, 10, 2);
     }
-    paint_lounge_decor(buf, layout, pack, now);
 
     // Shadow pass — soft floor shadows under desks + lounge furniture
-    // so nothing floats. Painted AFTER decor (so they don't get
-    // covered) and BEFORE characters (chairs/characters paint on
-    // top). Strength is a function of daylight so noon shadows are
-    // crisp and night shadows are subtle.
+    // so nothing floats. Painted BEFORE the y-sorted entity pass so
+    // every entity sits on top of its own shadow. Strength is a
+    // function of daylight so noon shadows are crisp and night shadows
+    // are subtle.
     let shadow_strength = 0.5 - 0.3 * look.darkness;
     for desk in &layout.home_desks {
         paint_shadow(
@@ -1557,7 +1730,6 @@ pub fn render_to_rgb_buffer(
     // cache hits.
     overlay.clear();
     for agent in &agents {
-        // Static overflow seating (sofa workstation / floor seat).
         if agent.desk_index >= layout.home_desks.len() {
             let overflow_idx = agent.desk_index - layout.home_desks.len();
             let sofa_count = layout.meeting_sofas.len();
@@ -1573,8 +1745,6 @@ pub fn render_to_rgb_buffer(
             overlay.add(pos.x.saturating_sub(4), pos.y.saturating_sub(6), 8, 12);
             continue;
         }
-        // Waypoint visitors (Couch / Coffee / Pantry) — block the
-        // standing area so a passing walker routes around them.
         let Some(pose) = pose::derive(agent, now, layout) else {
             continue;
         };
@@ -1583,52 +1753,197 @@ pub fn render_to_rgb_buffer(
                 overlay.add(w.pos.x.saturating_sub(4), w.pos.y.saturating_sub(6), 8, 12);
             }
         }
-        // Walking / AimlessAt / Seated / Standing — skipped here.
     }
 
-    // Pass 1: characters by pose. Painted BEFORE the desk so the desk
-    // can occlude the character's lower body — from a top-down POV the
-    // viewer sees head + shoulders sticking up above the desk back
-    // edge, and the body is hidden behind the desk. Each agent's home
-    // desk is at home_desks[agent.desk_index] — NOT at the agent's
-    // BTreeMap position.
+    // --- Build the y-sortable middle pass -------------------------------
     //
-    // Waypoint de-collision: when multiple Idle agents pick the same
-    // wander destination in the same cycle, fan them out spatially so
-    // they don't stack into a single sprite. BTreeMap iteration order
-    // gives a stable rank per (wp_idx) across frames.
+    // Every entity gets an `anchor_y` representing its front-facing /
+    // floor-touching row. Sort ascending and paint in order so things
+    // closer to the camera (larger anchor_y) appear in front. This is
+    // the painter's algorithm applied to a top-down 2D scene.
+    let mut drawables: Vec<Drawable<'_>> = Vec::new();
+
+    // Desk cubicles (each carries its divider + cabinet + bin + screen
+    // glow). Sprite is 16×8, so the actual bottom edge is desk.y + 8 —
+    // just past the seated character's feet (desk.y + 4), which keeps
+    // the seated worker visually behind the desk like it always was.
+    for (i, &desk) in layout.home_desks.iter().enumerate() {
+        let is_last_col =
+            desk.x + DESK_W + 2 + DESK_W >= layout.cubicle_band.x + layout.cubicle_band.width;
+        let occupant_active = agents.iter().any(|a| {
+            a.desk_index == i
+                && a.exiting_at.is_none()
+                && matches!(a.state, ActivityState::Active { .. })
+        });
+        drawables.push(Drawable {
+            anchor_y: desk.y + 8,
+            kind: DrawableKind::DeskCubicle {
+                desk,
+                is_last_col,
+                has_cabinet: i % 2 == 0,
+                occupant_active,
+            },
+        });
+    }
+
+    // Meeting sofas (couch sprite 14×5, centered → bottom = sofa.y + 2).
+    for (i, &sofa) in layout.meeting_sofas.iter().enumerate() {
+        let mirrored = i > 0;
+        drawables.push(Drawable {
+            anchor_y: sofa.y + 2,
+            kind: DrawableKind::MeetingSofa {
+                pos: sofa,
+                mirrored,
+            },
+        });
+    }
+    // Meeting table (drawn 11×5 centered).
+    if let Some(table) = layout.meeting_table {
+        drawables.push(Drawable {
+            anchor_y: table.y + 2,
+            kind: DrawableKind::MeetingTable { pos: table },
+        });
+    }
+
+    // Pantry bistro table (7×4 centered).
+    if let Some(table) = layout.pantry_table {
+        drawables.push(Drawable {
+            anchor_y: table.y + 2,
+            kind: DrawableKind::PantryTable { pos: table },
+        });
+    }
+    // Pantry stools (2×2 anchored at center → bottom = pos.y).
+    for chair in &layout.pantry_chairs {
+        drawables.push(Drawable {
+            anchor_y: chair.y,
+            kind: DrawableKind::PantryChair { pos: *chair },
+        });
+    }
+
+    // Waypoint furniture — couch (14×5) and pantry counter (20×8),
+    // both centered on the waypoint position.
+    for wp in &layout.waypoints {
+        use crate::tui::layout::WaypointKind;
+        match wp.kind {
+            WaypointKind::Couch => drawables.push(Drawable {
+                anchor_y: wp.pos.y + 2,
+                kind: DrawableKind::WaypointCouch { pos: wp.pos },
+            }),
+            WaypointKind::Pantry => drawables.push(Drawable {
+                anchor_y: wp.pos.y + 4,
+                kind: DrawableKind::WaypointPantry { pos: wp.pos },
+            }),
+        }
+    }
+
+    // Plants — height varies by sprite, anchor = pos.y + h/2 (center
+    // pos convention).
+    for (kind, p) in &layout.plants {
+        use crate::tui::layout::PlantKind;
+        let h: u16 = match kind {
+            PlantKind::Ficus => 7,
+            PlantKind::Tall => 9,
+            PlantKind::Flower => 6,
+            PlantKind::Succulent => 4,
+        };
+        drawables.push(Drawable {
+            anchor_y: p.y + h / 2,
+            kind: DrawableKind::Plant {
+                kind: *kind,
+                pos: *p,
+            },
+        });
+    }
+
+    // Floor lamp (4×10 centered).
+    if let Some(lamp) = layout.floor_lamp {
+        drawables.push(Drawable {
+            anchor_y: lamp.y + 5,
+            kind: DrawableKind::FloorLamp { pos: lamp },
+        });
+    }
+
+    // Door (6×12, top-left anchored).
+    if let Some(door_pos) = layout.door {
+        drawables.push(Drawable {
+            anchor_y: door_pos.y + 12,
+            kind: DrawableKind::Door { pos: door_pos },
+        });
+    }
+
+    // Wall decor — hung on walls (top-left anchored), bottom = pos.y + h.
+    for (kind, pos) in &layout.wall_decor {
+        use crate::tui::layout::WallDecor;
+        let h: u16 = match kind {
+            WallDecor::Bookshelf => 12,
+            WallDecor::BulletinBoard => 6,
+            WallDecor::ExitSign => 3,
+            WallDecor::Whiteboard => 11,
+        };
+        drawables.push(Drawable {
+            anchor_y: pos.y + h,
+            kind: DrawableKind::WallDecor {
+                kind: *kind,
+                pos: *pos,
+            },
+        });
+    }
+
+    // Wandering cat (6×4 centered).
+    if let Some((pos, flip, frame_idx)) = cat_position(layout, pack, now) {
+        drawables.push(Drawable {
+            anchor_y: pos.y + 2,
+            kind: DrawableKind::Cat {
+                pos,
+                flip,
+                frame_idx,
+            },
+        });
+    }
+
+    // Characters. Anchor = feet (anchor.y + sprite_height). Decollision
+    // rank for crowded waypoints — stable across frames thanks to
+    // BTreeMap iteration order.
     let mut wp_rank: HashMap<usize, usize> = HashMap::new();
     for agent in &agents {
-        // Overflow seating: past cubicle capacity, next agents take
-        // meeting-room sofas, then floor seats. Entry/exit animations
-        // don't apply to these — they pop in/out.
+        // Overflow seating — past cubicle capacity, agents take meeting-
+        // room sofas then floor seats. Entry/exit animations don't
+        // apply; they pop in/out.
         if agent.desk_index >= layout.home_desks.len() {
             let overflow_idx = agent.desk_index - layout.home_desks.len();
             let sofa_count = layout.meeting_sofas.len();
             if overflow_idx < sofa_count {
                 let sofa = layout.meeting_sofas[overflow_idx];
-                // Top sofa (idx 0) — forward-facing sitter on a couch
-                // with back at TOP. Bottom sofa (idx 1+, sprite is
-                // mirror_vertical'd with back at BOTTOM) — back-facing
-                // sitter so the two meeting-room agents visually face
-                // each other across the conference table.
                 let is_mirrored_sofa = overflow_idx > 0;
-                let (anim, anchor_y) = if is_mirrored_sofa {
-                    ("back_couch", sofa.y.saturating_sub(7))
+                let (anim_name, base_anchor_y, sprite_h) = if is_mirrored_sofa {
+                    ("back_couch", sofa.y.saturating_sub(7), 9u16)
                 } else if matches!(agent.state, ActivityState::Active { .. }) {
-                    ("sitting_couch", sofa.y.saturating_sub(2))
+                    ("sitting_couch", sofa.y.saturating_sub(2), 12u16)
                 } else {
-                    ("sitting_couch_sleeping", sofa.y.saturating_sub(2))
+                    ("sitting_couch_sleeping", sofa.y.saturating_sub(2), 12u16)
                 };
                 let anchor = with_breath(
                     Point {
                         x: sofa.x.saturating_sub(4),
-                        y: anchor_y,
+                        y: base_anchor_y,
                     },
                     agent.agent_id,
                     now,
                 );
-                paint_character_at(buf, anim, 0, anchor, agent, pack, false, cache);
+                drawables.push(Drawable {
+                    anchor_y: anchor.y + sprite_h,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name,
+                        frame_idx: 0,
+                        anchor,
+                        flip_x: false,
+                        chair_behind: false,
+                        sleep_z_seed: None,
+                        waiting_bubble: false,
+                        walker_extras: None,
+                    },
+                });
                 continue;
             }
             let floor_idx = overflow_idx - sofa_count;
@@ -1643,11 +1958,25 @@ pub fn render_to_rgb_buffer(
                 agent.agent_id,
                 now,
             );
-            let anim = match &agent.state {
-                ActivityState::Active { .. } => "seated_floor",
-                _ => "seated_floor_sleeping",
+            let anim_name = if matches!(agent.state, ActivityState::Active { .. }) {
+                "seated_floor"
+            } else {
+                "seated_floor_sleeping"
             };
-            paint_character_at(buf, anim, 0, anchor, agent, pack, false, cache);
+            drawables.push(Drawable {
+                anchor_y: anchor.y + 12,
+                kind: DrawableKind::Character {
+                    agent,
+                    anim_name,
+                    frame_idx: 0,
+                    anchor,
+                    flip_x: false,
+                    chair_behind: false,
+                    sleep_z_seed: None,
+                    waiting_bubble: false,
+                    walker_extras: None,
+                },
+            });
             continue;
         }
         let Some(desk) = layout.home_desks.get(agent.desk_index).copied() else {
@@ -1660,39 +1989,67 @@ pub fn render_to_rgb_buffer(
         match p {
             Pose::SeatedIdle => {
                 let anchor = with_breath(seated_anchor(desk), agent.agent_id, now);
-                paint_chair_behind(buf, anchor, agent, pack);
-                paint_character_at(buf, "seated_sleeping", 0, anchor, agent, pack, false, cache);
-                paint_sleep_z(buf, anchor, now, agent.agent_id.raw());
+                drawables.push(Drawable {
+                    anchor_y: anchor.y + 12,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name: "seated_sleeping",
+                        frame_idx: 0,
+                        anchor,
+                        flip_x: false,
+                        chair_behind: true,
+                        sleep_z_seed: Some(agent.agent_id.raw()),
+                        waiting_bubble: false,
+                        walker_extras: None,
+                    },
+                });
             }
             Pose::SeatedTyping { frame } => {
                 let anchor = with_breath(seated_anchor(desk), agent.agent_id, now);
-                paint_chair_behind(buf, anchor, agent, pack);
-                paint_character_at(buf, "typing", frame, anchor, agent, pack, false, cache);
+                drawables.push(Drawable {
+                    anchor_y: anchor.y + 12,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name: "typing",
+                        frame_idx: frame,
+                        anchor,
+                        flip_x: false,
+                        chair_behind: true,
+                        sleep_z_seed: None,
+                        waiting_bubble: false,
+                        walker_extras: None,
+                    },
+                });
             }
             Pose::StandingAtDesk => {
                 let anchor = with_breath(standing_at_desk_anchor(desk), agent.agent_id, now);
-                paint_character_at(buf, "standing", 0, anchor, agent, pack, false, cache);
-                if matches!(agent.state, ActivityState::Waiting { .. }) {
-                    paint_waiting_bubble(buf, anchor);
-                }
+                let is_waiting = matches!(agent.state, ActivityState::Waiting { .. });
+                drawables.push(Drawable {
+                    anchor_y: anchor.y + 12,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name: "standing",
+                        frame_idx: 0,
+                        anchor,
+                        flip_x: false,
+                        chair_behind: false,
+                        sleep_z_seed: None,
+                        waiting_bubble: is_waiting,
+                        walker_extras: None,
+                    },
+                });
             }
             Pose::AtWaypoint { wp, kind } => {
                 if let Some(wp_obj) = layout.waypoints.get(wp) {
                     let rank = *wp_rank.entry(wp).or_insert(0);
                     wp_rank.insert(wp, rank + 1);
                     let dx = waypoint_rank_offset_x(kind, rank);
-                    // Couch sitter faces UP toward the city-view windows
-                    // (back-view sprite, no face) since the couch is now
-                    // mirror_vertical'd with back at the bottom.
-                    let (anim_name, anchor_base) = match kind {
+                    let (anim_name, anchor_base, sprite_h) = match kind {
                         crate::tui::layout::WaypointKind::Couch => {
-                            ("back_couch", back_couch_anchor(wp_obj.pos))
+                            ("back_couch", back_couch_anchor(wp_obj.pos), 9u16)
                         }
-                        // Pantry visitors hold a coffee — the pantry sprite
-                        // has the coffee machine on its counter and emits
-                        // steam, so the visit doubles as "coffee break".
                         crate::tui::layout::WaypointKind::Pantry => {
-                            ("holding_coffee", waypoint_anchor(wp_obj.pos))
+                            ("holding_coffee", waypoint_anchor(wp_obj.pos), 12u16)
                         }
                     };
                     let anchor = with_breath(
@@ -1703,12 +2060,38 @@ pub fn render_to_rgb_buffer(
                         agent.agent_id,
                         now,
                     );
-                    paint_character_at(buf, anim_name, 0, anchor, agent, pack, false, cache);
+                    drawables.push(Drawable {
+                        anchor_y: anchor.y + sprite_h,
+                        kind: DrawableKind::Character {
+                            agent,
+                            anim_name,
+                            frame_idx: 0,
+                            anchor,
+                            flip_x: false,
+                            chair_behind: false,
+                            sleep_z_seed: None,
+                            waiting_bubble: false,
+                            walker_extras: None,
+                        },
+                    });
                 }
             }
             Pose::AimlessAt { dest } => {
                 let anchor = with_breath(waypoint_anchor(dest), agent.agent_id, now);
-                paint_character_at(buf, "standing", 0, anchor, agent, pack, false, cache);
+                drawables.push(Drawable {
+                    anchor_y: anchor.y + 12,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name: "standing",
+                        frame_idx: 0,
+                        anchor,
+                        flip_x: false,
+                        chair_behind: false,
+                        sleep_z_seed: None,
+                        waiting_bubble: false,
+                        walker_extras: None,
+                    },
+                });
             }
             Pose::Walking {
                 from,
@@ -1718,18 +2101,6 @@ pub fn render_to_rgb_buffer(
             } => {
                 let pos = walking_position(from, to, t_x1000);
                 let walker_anchor = walking_anchor(pos);
-                // Trail painted BEFORE the dust + character so the
-                // walker's current sprite sits on top — trail reads
-                // as "where I came from", not "shadow under me".
-                paint_walker_trail(buf, agent, pack, from, to, t_x1000);
-                paint_walking_dust(buf, walker_anchor, frame);
-                // Direction-aware sprite: when the walker is moving UP
-                // more than horizontally (|dy| > |dx| and dy < 0), use
-                // the back-view sprite so the viewer sees the back of
-                // the head as they walk toward the windows. Otherwise
-                // use the front-view sprite with horizontal flip to
-                // face the direction of motion. Diagonals fall back on
-                // whichever axis dominates.
                 let dx = to.x as i32 - from.x as i32;
                 let dy = to.y as i32 - from.y as i32;
                 let (anim_name, flip) = if dy.unsigned_abs() > dx.unsigned_abs() && dy < 0 {
@@ -1737,86 +2108,38 @@ pub fn render_to_rgb_buffer(
                 } else {
                     ("walking", to.x < from.x)
                 };
-                paint_character_at(
-                    buf,
-                    anim_name,
-                    frame,
-                    walker_anchor,
-                    agent,
-                    pack,
-                    flip,
-                    cache,
-                );
+                drawables.push(Drawable {
+                    anchor_y: walker_anchor.y + 12,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name,
+                        frame_idx: frame,
+                        anchor: walker_anchor,
+                        flip_x: flip,
+                        chair_behind: false,
+                        sleep_z_seed: None,
+                        waiting_bubble: false,
+                        walker_extras: Some(WalkerExtras {
+                            from,
+                            to,
+                            t_x1000,
+                            dust_frame: frame,
+                        }),
+                    },
+                });
             }
         }
     }
 
-    // Pass 1.5: waypoint furniture (couch + pantry counter). Painted
-    // AFTER characters so a visitor at a waypoint has their lower body
-    // occluded by the furniture — same top-down trick as desks.
-    paint_waypoint_furniture(buf, layout, pack, now);
-
-    // Pass 2: desks (+ trash bin + screen glow). Painted AFTER the
-    // character so the desk occludes the character's lower body — top-
-    // down POV reads as "person sitting BEHIND the desk", not "person
-    // standing on the desk top". The screen glow sits on top of
-    // everything, so it's a fully visible "this workstation is active"
-    // cue. Trash bin tucked next to each desk for cubicle realism.
-    const DIVIDER: Rgb = Rgb(72, 82, 104);
-    let desk_anim = pack.animation("desk");
-    let bin_anim = pack.animation("trash_bin");
-    let cab_anim = pack.animation("filing_cabinet");
-    // Iterate ALL desks (even unoccupied ones) so the cubicle furniture
-    // is always painted. Then look up whether an agent is sitting here
-    // to decide on the screen-glow / active-monitor overlay.
-    for (i, desk) in layout.home_desks.iter().enumerate() {
-        // 1 px partition (was 2 px) limited to the desk's vertical span —
-        // half-height partial dividers, more "modern office", less "cube
-        // farm". Skip the last column's divider so the rightmost cubicle
-        // doesn't paint a divider into empty space.
-        let is_last_col =
-            desk.x + DESK_W + 2 + DESK_W >= layout.cubicle_band.x + layout.cubicle_band.width;
-        if !is_last_col {
-            let div_x = desk.x + DESK_W + 3;
-            for dy in 0..(DESK_H + 1) {
-                let px = div_x;
-                let py = desk.y.saturating_sub(1) + dy;
-                if px < buf_w && py < buf_h {
-                    buf.put(px, py, DIVIDER);
-                }
-            }
-        }
-        if i % 2 == 0 {
-            if let Some(cab) = cab_anim.and_then(|a| a.frames.first()) {
-                let cab_x = desk.x.saturating_sub(cab.width + 1);
-                let cab_y = desk.y;
-                if cab_y + cab.height <= buf_h {
-                    blit_frame(cab, cab_x, cab_y, buf);
-                }
-            }
-        }
-        if let Some(frame) = desk_anim.and_then(|a| a.frames.first()) {
-            blit_frame(frame, desk.x, desk.y, buf);
-        }
-        if let Some(bin) = bin_anim.and_then(|a| a.frames.first()) {
-            let bin_x = desk.x + DESK_W;
-            let bin_y = desk.y + 4;
-            if bin_x + bin.width <= buf_w && bin_y + bin.height <= buf_h {
-                blit_frame(bin, bin_x, bin_y, buf);
-            }
-        }
-        let occupant = agents
-            .iter()
-            .find(|a| a.desk_index == i && a.exiting_at.is_none());
-        if let Some(agent) = occupant {
-            if matches!(agent.state, ActivityState::Active { .. }) {
-                paint_screen_glow(buf, desk.x, desk.y, now);
-            }
-        }
+    // Stable sort (Rust's `sort_by_key` is stable) — ties preserve
+    // insertion order. Insertion order above: decor first, characters
+    // last, so a character tied with a piece of furniture paints
+    // BEFORE the furniture (matches the prior pass-1 → pass-1.5
+    // → pass-2 layering for waypoint couch / pantry counter).
+    drawables.sort_by_key(|d| d.anchor_y);
+    for d in &drawables {
+        paint_drawable(d, buf, pack, cache, now);
     }
-
-    let _ = agents; // pixel pass uses `agents` above; flush passes get fresh
-                    // `scene` refs.
 }
 
 #[cfg(test)]
@@ -1956,5 +2279,92 @@ mod tests {
         };
         let out = recolor_frame(&frame, &base, &base);
         assert_eq!(out.pixels, frame.pixels);
+    }
+
+    /// Helper — build a minimal Drawable for sort-order tests. Uses the
+    /// MeetingTable variant since it carries no borrowed data.
+    fn drawable(anchor_y: u16) -> Drawable<'static> {
+        Drawable {
+            anchor_y,
+            kind: DrawableKind::MeetingTable {
+                pos: Point { x: 0, y: 0 },
+            },
+        }
+    }
+
+    #[test]
+    fn drawables_sort_ascending_by_anchor_y() {
+        let mut v = [drawable(30), drawable(10), drawable(20)];
+        v.sort_by_key(|d| d.anchor_y);
+        let ys: Vec<u16> = v.iter().map(|d| d.anchor_y).collect();
+        assert_eq!(ys, [10, 20, 30]);
+    }
+
+    #[test]
+    fn drawables_sort_is_stable_on_ties() {
+        // Same anchor_y values — TimSort (Rust's stable sort) must
+        // preserve insertion order. The y-sort relies on this so that
+        // a character at the same anchor_y as the couch behind them
+        // still paints first (matches the prior Pass 1 → Pass 1.5
+        // layering).
+        let mut v = [
+            Drawable {
+                anchor_y: 10,
+                kind: DrawableKind::MeetingTable {
+                    pos: Point { x: 1, y: 0 },
+                },
+            },
+            Drawable {
+                anchor_y: 10,
+                kind: DrawableKind::MeetingTable {
+                    pos: Point { x: 2, y: 0 },
+                },
+            },
+            Drawable {
+                anchor_y: 10,
+                kind: DrawableKind::MeetingTable {
+                    pos: Point { x: 3, y: 0 },
+                },
+            },
+        ];
+        v.sort_by_key(|d| d.anchor_y);
+        let xs: Vec<u16> = v
+            .iter()
+            .map(|d| match &d.kind {
+                DrawableKind::MeetingTable { pos } => pos.x,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(xs, [1, 2, 3]);
+    }
+
+    #[test]
+    fn character_anchor_y_exceeds_desk_when_south_of_it() {
+        // The bug-fix invariant: a character whose feet (anchor.y + 12)
+        // land BELOW the desk's bottom row (desk.y + 8) must sort AFTER
+        // the desk and therefore paint on top.
+        let desk_y: u16 = 20;
+        let desk_anchor_y = desk_y + 8;
+        let char_feet_anchor = (desk_y + 10) + 12; // walker south of desk
+        assert!(
+            char_feet_anchor > desk_anchor_y,
+            "walker south of desk must sort after it: char={char_feet_anchor}, desk={desk_anchor_y}"
+        );
+    }
+
+    #[test]
+    fn character_anchor_y_below_desk_when_seated_at_it() {
+        // Inverse invariant — a SEATED character at this desk has feet
+        // that land ABOVE the desk's bottom (because they're tucked
+        // under the desktop). They must sort BEFORE the desk so the
+        // desk occludes their lower body in top-down view.
+        let desk_y: u16 = 20;
+        let seated_anchor = seated_anchor(Point { x: 0, y: desk_y });
+        let char_feet_anchor = seated_anchor.y + 12;
+        let desk_anchor_y = desk_y + 8;
+        assert!(
+            char_feet_anchor < desk_anchor_y,
+            "seated char must sort before desk: char={char_feet_anchor}, desk={desk_anchor_y}"
+        );
     }
 }
