@@ -575,6 +575,15 @@ fn octant_offset(turn: f32) -> (i32, i32) {
 fn paint_lounge_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack) {
     use crate::tui::layout::WaypointKind;
 
+    // Decorative rug under each Couch waypoint — defines the seating zone,
+    // adds a warm accent against the wood floor. Painted BEFORE the couch
+    // sprite so the couch sits on it.
+    for wp in &layout.waypoints {
+        if wp.kind == WaypointKind::Couch {
+            paint_lounge_rug(buf, wp.pos.x, wp.pos.y + 1, 9, 4);
+        }
+    }
+
     // Waypoint furniture (the wander destinations) painted centered on each
     // waypoint position.
     for wp in &layout.waypoints {
@@ -740,6 +749,24 @@ fn paint_character_at(
     let recolored = recolor_frame(frame, &pal, &base_pal);
     let final_frame = if flip_x { recolored.mirror_horizontal() } else { recolored };
     blit_frame(&final_frame, anchor.x, anchor.y, buf);
+}
+
+/// Decorative lounge rug under the couch. Warm rust-red with a slightly
+/// lighter fringe so it reads as a real textile, not just a flat tile.
+fn paint_lounge_rug(buf: &mut RgbBuffer, cx: u16, cy: u16, half_w: u16, half_h: u16) {
+    const RUG_BASE: Rgb = Rgb(122, 56, 48);
+    const RUG_FRINGE: Rgb = Rgb(168, 92, 76);
+    let min_x = cx.saturating_sub(half_w);
+    let max_x = (cx + half_w).min(buf.width);
+    let min_y = cy.saturating_sub(half_h);
+    let max_y = (cy + half_h).min(buf.height);
+    for y in min_y..max_y {
+        for x in min_x..max_x {
+            let on_border =
+                x == min_x || x + 1 == max_x || y == min_y || y + 1 == max_y;
+            buf.put(x, y, if on_border { RUG_FRINGE } else { RUG_BASE });
+        }
+    }
 }
 
 /// Elliptical drop-shadow blended toward black at the floor level.
