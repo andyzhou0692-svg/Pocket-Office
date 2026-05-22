@@ -69,11 +69,19 @@ pub struct Layout {
     /// Door anchor (top-left corner of the door sprite). Used both as the
     /// `from` point for SessionStart walk-in animation and as decor.
     pub door: Option<Point>,
+    /// Overflow workstations on the walkway floor — used when all
+    /// cubicle desks are occupied. Agents with desk_index >=
+    /// home_desks.len() sit here with a laptop in their lap.
+    pub floor_seats: Vec<Point>,
 }
 
 pub const WAYPOINT_COUNT: usize = 3;
 pub const DESK_W: u16 = 12;
 pub const DESK_H: u16 = 6;
+/// Hard cap on how many cubicles get painted regardless of how high
+/// `max_desks` is set. Past this count, agents overflow to floor seats.
+/// Keeps the cubicle band from getting wall-to-wall crowded.
+pub const MAX_VISIBLE_DESKS: usize = 6;
 /// Horizontal gap between cubicles. Wider than the previous 2 px so neighbor
 /// desks read as distinct cubicles rather than a single long brown bar.
 pub const DESK_GAP_X: u16 = 6;
@@ -136,13 +144,16 @@ impl Layout {
             height: lounge_h,
         };
 
-        // Home desks: pack into the cubicle band as a grid.
+        // Home desks: pack into the cubicle band as a grid. Capped at
+        // MAX_VISIBLE_DESKS so the user's max_desks=16 setting doesn't
+        // overcrowd the cubicle area — extra agents overflow to floor
+        // seats below.
         let col_w = DESK_W + DESK_GAP_X;
         let row_h = DESK_H + DESK_GAP_Y;
         let cols = ((buf_w - DESK_GAP_X) / col_w).max(1);
         let rows = (cubicle_h / row_h).max(1);
-        let max_desks = (cols * rows) as usize;
-        let n = num_agents.min(max_desks);
+        let max_grid = (cols * rows) as usize;
+        let n = num_agents.min(max_grid).min(MAX_VISIBLE_DESKS);
         let mut home_desks = Vec::with_capacity(n);
         for i in 0..n {
             let r = (i as u16) / cols;
@@ -235,6 +246,22 @@ impl Layout {
             }),
         ];
 
+        // Floor overflow seats: scatter slots across the walkway band for
+        // agents past desk capacity. Count = num_agents - home_desks.len()
+        // (capped at a reasonable max so we don't pack the floor solid).
+        let overflow_count = num_agents.saturating_sub(home_desks.len()).min(8);
+        let floor_seats: Vec<Point> = (0..overflow_count as u16)
+            .map(|i| {
+                let cols = 4u16;
+                let r = i / cols;
+                let c = i % cols;
+                Point {
+                    x: 8 + c * ((buf_w.saturating_sub(16)) / cols.max(1)),
+                    y: walkway.y + 1 + r * 8,
+                }
+            })
+            .collect();
+
         Some(Self {
             buf_w,
             buf_h,
@@ -247,6 +274,7 @@ impl Layout {
             wall_decor,
             floor_lamp,
             door,
+            floor_seats,
         })
     }
 }

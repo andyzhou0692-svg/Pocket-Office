@@ -966,6 +966,39 @@ fn paint_shadow(buf: &mut RgbBuffer, cx: u16, cy: u16, half_w: u16, half_h: u16,
     }
 }
 
+/// Current rendered position of an agent's character — derived from pose
+/// so labels can follow the character rather than staying anchored at the
+/// desk. Returns the top-left anchor of the character sprite.
+fn character_anchor(agent: &AgentSlot, layout: &Layout, now: SystemTime) -> Option<Point> {
+    use crate::tui::layout::WaypointKind;
+    if agent.desk_index >= layout.home_desks.len() {
+        let floor_idx = agent.desk_index - layout.home_desks.len();
+        let seat = layout.floor_seats.get(floor_idx).copied()?;
+        return Some(Point {
+            x: seat.x.saturating_sub(4),
+            y: seat.y.saturating_sub(2),
+        });
+    }
+    let desk = *layout.home_desks.get(agent.desk_index)?;
+    let pose = pose::derive(agent, now, layout)?;
+    let anchor = match pose {
+        Pose::SeatedIdle | Pose::SeatedTyping { .. } => seated_anchor(desk),
+        Pose::StandingAtDesk => standing_at_desk_anchor(desk),
+        Pose::AtWaypoint { wp, kind } => {
+            let wp_obj = layout.waypoints.get(wp)?;
+            match kind {
+                WaypointKind::Couch => couch_seat_anchor(wp_obj.pos),
+                _ => waypoint_anchor(wp_obj.pos),
+            }
+        }
+        Pose::AimlessAt { dest } => waypoint_anchor(dest),
+        Pose::Walking { from, to, t_x1000, .. } => {
+            walking_anchor(walking_position(from, to, t_x1000))
+        }
+    };
+    Some(anchor)
+}
+
 /// Office chair painted BEHIND the character — a darkened version of the
 /// agent's shirt color. Reads as a top-down chair back behind the sitter.
 fn paint_chair_behind(buf: &mut RgbBuffer, anchor: Point, agent: &AgentSlot, pack: &Pack) {
@@ -1270,6 +1303,25 @@ pub fn draw_scene<B: Backend>(
         // gives a stable rank per (wp_idx) across frames.
         let mut wp_rank: HashMap<usize, usize> = HashMap::new();
         for agent in &agents {
+            // Floor overflow: agents past the cubicle cap render as
+            // cross-legged-with-laptop at one of the walkway floor seats.
+            // Entry/exit animations don't apply to floor agents (no
+            // dedicated door routing yet — they pop in/out).
+            if agent.desk_index >= layout.home_desks.len() {
+                let floor_idx = agent.desk_index - layout.home_desks.len();
+                let Some(seat) = layout.floor_seats.get(floor_idx).copied() else { continue };
+                let anchor = with_breath(
+                    Point { x: seat.x.saturating_sub(4), y: seat.y.saturating_sub(2) },
+                    agent.agent_id,
+                    now,
+                );
+                let anim = match &agent.state {
+                    ActivityState::Active { .. } => "seated_floor",
+                    _ => "seated_floor_sleeping",
+                };
+                paint_character_at(buf, anim, 0, anchor, agent, pack, false, cache);
+                continue;
+            }
             let Some(desk) = layout.home_desks.get(agent.desk_index).copied() else { continue };
             let Some(p) = pose::derive(agent, now, &layout) else { continue };
             match p {
@@ -1419,9 +1471,12 @@ pub fn draw_scene<B: Backend>(
             *label_counts.entry(agent.label.as_str()).or_insert(0) += 1;
         }
         for agent in &agents {
-            let Some(desk) = layout.home_desks.get(agent.desk_index) else { continue };
-            let lx = scene_rect.x + desk.x;
-            let ly = scene_rect.y + (desk.y / 2).saturating_sub(1);
+            // Label follows the character — derive the agent's current
+            // rendered anchor (desk / floor seat / waypoint / mid-walk)
+            // and float the label one cell above their head.
+            let Some(anchor) = character_anchor(agent, &layout, now) else { continue };
+            let lx = scene_rect.x + anchor.x.saturating_sub(2);
+            let ly = scene_rect.y + (anchor.y / 2).saturating_sub(1);
             let needs_disambig =
                 label_counts.get(agent.label.as_str()).copied().unwrap_or(0) > 1
                     && agent.session_id.len() >= 4;
