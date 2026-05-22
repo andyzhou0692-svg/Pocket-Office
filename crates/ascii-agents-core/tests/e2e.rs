@@ -97,5 +97,13 @@ fn scripted_timeline_drives_scene_through_states() {
         snaps[3].agents.get(&id).unwrap().state,
         ActivityState::Waiting { .. }
     ));
-    assert!(!snaps[4].agents.contains_key(&id));
+    // After SessionEnd the slot is marked for exit (renderer plays the
+    // walkout animation) and the reducer's sweep removes it ~4.5s later
+    // on the next tick / event. The slot is still present in the
+    // immediate snapshot but has `exiting_at` set.
+    let exit_slot = snaps[4].agents.get(&id).expect("slot still present for exit animation");
+    assert!(
+        exit_slot.exiting_at.is_some(),
+        "SessionEnd should mark exiting_at, not drop immediately"
+    );
 }
