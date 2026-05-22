@@ -835,12 +835,14 @@ fn paint_chair_behind(buf: &mut RgbBuffer, anchor: Point, agent: &AgentSlot, pac
 /// "Active" screen glow painted on top of the desk sprite while an agent is
 /// in `ActivityState::Active`. Covers the full monitor footprint (rows 0-3,
 /// cols 3-10 of desk.sprite — frame + screen + stand silhouette) so the
-/// glow is at least 2 terminal cells tall after half-block compression,
-/// instead of a thin line that the eye averages away.
-fn paint_screen_glow(buf: &mut RgbBuffer, desk_x: u16, desk_y: u16) {
+/// glow is at least 2 terminal cells tall after half-block compression.
+/// Adds a moving scanline (one extra-bright column that cycles across the
+/// screen) so the monitor reads as actually displaying scrolling content.
+fn paint_screen_glow(buf: &mut RgbBuffer, desk_x: u16, desk_y: u16, now: SystemTime) {
     const FRAME_LIT: Rgb = Rgb(180, 200, 200);
     const GLOW: Rgb = Rgb(140, 240, 170);
     const GLOW_BRIGHT: Rgb = Rgb(220, 255, 230);
+    const SCANLINE: Rgb = Rgb(250, 255, 250);
     let put = |buf: &mut RgbBuffer, dx: u16, dy: u16, c: Rgb| {
         let px = desk_x + dx;
         let py = desk_y + dy;
@@ -848,21 +850,27 @@ fn paint_screen_glow(buf: &mut RgbBuffer, desk_x: u16, desk_y: u16) {
             buf.put(px, py, c);
         }
     };
-    // Frame lit up — top row of monitor (cols 3-10 in desk sprite).
     for dx in 3..=10 {
         put(buf, dx, 0, FRAME_LIT);
     }
-    // Screen interior — rows 1-2, cols 4-9. Bright top / glow bottom so the
-    // two pixel rows do not average to the same half-block color.
     for dx in 4..=9 {
         put(buf, dx, 1, GLOW_BRIGHT);
         put(buf, dx, 2, GLOW);
     }
-    // Monitor stand silhouette (row 3) gets a faint reflected tint so the
-    // glow appears to spill onto the desk surface.
     for dx in 4..=9 {
         put(buf, dx, 3, FRAME_LIT);
     }
+    // Scanline: cycles across the 6-column screen interior every ~720ms.
+    // Position derived from `now` + desk_x so neighboring monitors don't
+    // pulse in lockstep.
+    let elapsed_ms = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let phase = (elapsed_ms / 120) as u16 + desk_x;
+    let scan_col = 4 + (phase % 6);
+    put(buf, scan_col, 1, SCANLINE);
+    put(buf, scan_col, 2, SCANLINE);
 }
 
 // --- Speech bubble overlay (kept from the prior renderer) -----------------
@@ -1103,7 +1111,7 @@ pub fn draw_scene<B: Backend>(
                 }
             }
             if matches!(agent.state, ActivityState::Active { .. }) {
-                paint_screen_glow(buf, desk.x, desk.y);
+                paint_screen_glow(buf, desk.x, desk.y, now);
             }
         }
 
