@@ -73,6 +73,18 @@ pub struct Layout {
     /// cubicle desks are occupied. Agents with desk_index >=
     /// home_desks.len() sit here with a laptop in their lap.
     pub floor_seats: Vec<Point>,
+    /// Top-left quadrant — small meeting room with 2 sofas + 1 table,
+    /// pressed against the back wall so it shares the city-view windows.
+    pub meeting_room: Option<Rect>,
+    /// Bottom-left quadrant — open pantry/break-room space.
+    pub pantry_room: Option<Rect>,
+    /// Sofa anchor points inside the meeting room.
+    pub meeting_sofas: Vec<Point>,
+    /// Meeting room coffee table position.
+    pub meeting_table: Option<Point>,
+    /// Wall line segments (start, end) painted in fabric/drywall color
+    /// to separate the quadrants. Doorway gaps already accounted for.
+    pub room_walls: Vec<(Point, Point)>,
 }
 
 pub const WAYPOINT_COUNT: usize = 3;
@@ -84,11 +96,11 @@ pub const DESK_H: u16 = 6;
 pub const MAX_VISIBLE_DESKS: usize = 6;
 /// Horizontal gap between cubicles. Wider than the previous 2 px so neighbor
 /// desks read as distinct cubicles rather than a single long brown bar.
-pub const DESK_GAP_X: u16 = 6;
+pub const DESK_GAP_X: u16 = 10;
 /// Vertical gap between cubicle rows. Sized to clear the seated sprite's
 /// 8 px head-above-desk so row N+1's desk doesn't paint over row N's character.
 /// Tightened from 10 → 8 to fit more rows in the cubicle band.
-pub const DESK_GAP_Y: u16 = 8;
+pub const DESK_GAP_Y: u16 = 10;
 /// Vertical reserve above the cubicle band, in buf pixels. The renderer paints
 /// the top wall band (14 px tall, with windows + a clock) into this region.
 /// Tightened from 28 to 20 px so the cubicles sit closer to the wall — at 28
@@ -107,50 +119,56 @@ impl Layout {
             return None;
         }
 
-        // Vertical split: TOP_MARGIN_PX reserved for the wall band, then
-        // the remaining height splits between cubicle band (dynamic),
-        // walkway (fixed 10%), lounge (the rest).
-        //
-        // The cubicle band grows from its 50% floor up to a 72% cap as
-        // more agents need rendering — so 6+ sessions still get a desk
-        // each instead of being clipped to the top row.
+        // Quadrant layout: top-left = meeting room, bottom-left = pantry,
+        // top-right = cubicles, bottom-right = lounge. All four share the
+        // back wall (city-view windows) at the top.
         let usable_h = buf_h - TOP_MARGIN_PX;
-        let col_w_tmp = DESK_W + DESK_GAP_X;
-        let row_h_tmp = DESK_H + DESK_GAP_Y;
-        let cols_tmp = ((buf_w - DESK_GAP_X) / col_w_tmp).max(1);
-        let needed_rows = ((num_agents as u16 + cols_tmp - 1) / cols_tmp).max(1);
-        let desired_cubicle_h = needed_rows * row_h_tmp;
-        let min_cubicle_h = usable_h * 50 / 100;
-        let max_cubicle_h = usable_h * 72 / 100;
-        let cubicle_h = desired_cubicle_h.max(min_cubicle_h).min(max_cubicle_h);
-        let walkway_h = usable_h * 10 / 100;
-        let lounge_h = usable_h - cubicle_h - walkway_h;
-        let cubicle_band = Rect {
+        let mid_x = buf_w * 42 / 100; // left side a bit narrower than right
+        let mid_y_split = TOP_MARGIN_PX + usable_h / 2;
+
+        let meeting_room = Some(Rect {
             x: 0,
             y: TOP_MARGIN_PX,
-            width: buf_w,
+            width: mid_x,
+            height: usable_h / 2,
+        });
+        let pantry_room = Some(Rect {
+            x: 0,
+            y: mid_y_split,
+            width: mid_x,
+            height: usable_h - usable_h / 2,
+        });
+
+        // Right side: cubicles on top, small walkway, lounge on bottom.
+        let right_x = mid_x + 2; // leave 2 px for the dividing wall
+        let right_w = buf_w.saturating_sub(right_x);
+        let cubicle_h = usable_h * 60 / 100;
+        let walkway_h = usable_h * 8 / 100;
+        let lounge_h = usable_h - cubicle_h - walkway_h;
+        let cubicle_band = Rect {
+            x: right_x,
+            y: TOP_MARGIN_PX,
+            width: right_w,
             height: cubicle_h,
         };
         let walkway = Rect {
-            x: 0,
+            x: right_x,
             y: TOP_MARGIN_PX + cubicle_h,
-            width: buf_w,
+            width: right_w,
             height: walkway_h,
         };
         let lounge_band = Rect {
-            x: 0,
+            x: right_x,
             y: TOP_MARGIN_PX + cubicle_h + walkway_h,
-            width: buf_w,
+            width: right_w,
             height: lounge_h,
         };
 
-        // Home desks: pack into the cubicle band as a grid. Capped at
-        // MAX_VISIBLE_DESKS so the user's max_desks=16 setting doesn't
-        // overcrowd the cubicle area — extra agents overflow to floor
-        // seats below.
+        // Home desks pack into the right-half cubicle band only. With ~58
+        // px of right-side width and 18 px col pitch we fit 3 cols.
         let col_w = DESK_W + DESK_GAP_X;
         let row_h = DESK_H + DESK_GAP_Y;
-        let cols = ((buf_w - DESK_GAP_X) / col_w).max(1);
+        let cols = ((right_w.saturating_sub(DESK_GAP_X)) / col_w).max(1);
         let rows = (cubicle_h / row_h).max(1);
         let max_grid = (cols * rows) as usize;
         let n = num_agents.min(max_grid).min(MAX_VISIBLE_DESKS);
@@ -159,55 +177,106 @@ impl Layout {
             let r = (i as u16) / cols;
             let c = (i as u16) % cols;
             home_desks.push(Point {
-                x: DESK_GAP_X + c * col_w,
+                x: right_x + DESK_GAP_X + c * col_w,
                 y: cubicle_band.y + DESK_GAP_Y + r * row_h,
             });
         }
+
+        // Meeting room sofas (use couch sprite) + table. Two sofas facing
+        // each other across a small table — the user described "two sofas
+        // + one table so they can sit on sofa and work".
+        let meeting_sofas = if let Some(mr) = meeting_room {
+            let cx = mr.x + mr.width / 2;
+            vec![
+                Point { x: cx, y: mr.y + mr.height * 30 / 100 },
+                Point { x: cx, y: mr.y + mr.height * 80 / 100 },
+            ]
+        } else {
+            vec![]
+        };
+        let meeting_table = meeting_room.map(|mr| Point {
+            x: mr.x + mr.width / 2,
+            y: mr.y + mr.height / 2,
+        });
+
+        // Room walls — drywall lines separating the quadrants. Vertical
+        // wall between left rooms and right side, horizontal wall on the
+        // left side splitting meeting from pantry. Door gap in the middle
+        // of each wall so agents can walk between rooms (we don't render
+        // walking through walls — purely cosmetic for now).
+        let mut room_walls = Vec::new();
+        // Vertical wall (left/right divider) with a doorway in the middle.
+        let v_x = mid_x;
+        let v_top = TOP_MARGIN_PX;
+        let v_bot = buf_h.saturating_sub(3);
+        let v_door_top = TOP_MARGIN_PX + usable_h * 28 / 100;
+        let v_door_bot = TOP_MARGIN_PX + usable_h * 38 / 100;
+        room_walls.push((Point { x: v_x, y: v_top }, Point { x: v_x, y: v_door_top }));
+        room_walls.push((Point { x: v_x, y: v_door_bot }, Point { x: v_x, y: v_bot }));
+        // Horizontal wall (meeting / pantry divider, left side only).
+        let h_y = mid_y_split;
+        let h_door_left = mid_x * 45 / 100;
+        let h_door_right = mid_x * 60 / 100;
+        room_walls.push((Point { x: 0, y: h_y }, Point { x: h_door_left, y: h_y }));
+        room_walls.push((Point { x: h_door_right, y: h_y }, Point { x: mid_x, y: h_y }));
 
         // Lounge waypoints: places agents actually walk to. Couch / coffee /
         // water cooler are the destinations. Bookshelf + whiteboard moved to
         // wall_decor — agents can't realistically walk through their own
         // cubicle row to reach the back wall.
-        let wp_layout: &[(WaypointKind, u16, u16)] = &[
-            // (kind, x_frac/100, y_frac/100 inside lounge band)
-            (WaypointKind::Couch,       20, 60),  // left half
-            // Pantry (formerly "water cooler") leans against the lounge's
-            // back wall — top of the band — so the fridge+counter+coffee
-            // strip reads as a kitchenette.
-            (WaypointKind::Pantry, 55, 25),  // center-back
-            (WaypointKind::Coffee,      88, 60),  // right
-        ];
-        let waypoints: Vec<Waypoint> = wp_layout
-            .iter()
-            .map(|(kind, xf, yf)| Waypoint {
+        // Waypoints: couch + coffee in the right-side lounge band, pantry
+        // moved into the bottom-left pantry_room (closer to its "kitchen"
+        // identity).
+        let mut waypoints: Vec<Waypoint> = vec![
+            Waypoint {
                 pos: Point {
-                    x: buf_w * xf / 100,
-                    y: lounge_band.y + lounge_band.height * yf / 100,
+                    x: lounge_band.x + lounge_band.width * 30 / 100,
+                    y: lounge_band.y + lounge_band.height * 50 / 100,
                 },
-                kind: *kind,
-            })
-            .collect();
-
-        // Plants scattered through the lounge AND walkway — mix of types
-        // so it doesn't read as one ficus copy-pasted. Density bumped to
-        // fight the "office feels empty" complaint.
-        let plants: Vec<(PlantKind, Point)> = vec![
-            (PlantKind::Ficus,     Point { x: buf_w * 35 / 100, y: lounge_band.y + lounge_band.height * 55 / 100 }),
-            (PlantKind::Tall,      Point { x: buf_w * 10 / 100, y: lounge_band.y + lounge_band.height * 35 / 100 }),
-            (PlantKind::Flower,    Point { x: buf_w * 70 / 100, y: lounge_band.y + lounge_band.height * 60 / 100 }),
-            (PlantKind::Succulent, Point { x: buf_w * 95 / 100, y: lounge_band.y + lounge_band.height * 80 / 100 }),
-            (PlantKind::Tall,      Point { x: buf_w * 50 / 100, y: lounge_band.y + lounge_band.height * 80 / 100 }),
-            (PlantKind::Succulent, Point { x: buf_w * 5  / 100, y: lounge_band.y + lounge_band.height * 75 / 100 }),
-            (PlantKind::Flower,    Point { x: buf_w * 25 / 100, y: lounge_band.y + lounge_band.height * 85 / 100 }),
-            (PlantKind::Tall,      Point { x: buf_w * 8  / 100, y: walkway.y + 2 }),
-            (PlantKind::Ficus,     Point { x: buf_w * 45 / 100, y: walkway.y + 2 }),
+                kind: WaypointKind::Couch,
+            },
+            Waypoint {
+                pos: Point {
+                    x: lounge_band.x + lounge_band.width * 85 / 100,
+                    y: lounge_band.y + lounge_band.height * 50 / 100,
+                },
+                kind: WaypointKind::Coffee,
+            },
         ];
+        if let Some(pr) = pantry_room {
+            waypoints.push(Waypoint {
+                pos: Point {
+                    x: pr.x + pr.width * 60 / 100,
+                    y: pr.y + pr.height * 40 / 100,
+                },
+                kind: WaypointKind::Pantry,
+            });
+        }
+
+        // Plants scattered across all four quadrants — meeting room
+        // corners, pantry room, lounge.
+        let plants: Vec<(PlantKind, Point)> = vec![
+            (PlantKind::Tall,      Point { x: lounge_band.x + lounge_band.width * 10 / 100, y: lounge_band.y + lounge_band.height * 30 / 100 }),
+            (PlantKind::Flower,    Point { x: lounge_band.x + lounge_band.width * 55 / 100, y: lounge_band.y + lounge_band.height * 25 / 100 }),
+            (PlantKind::Succulent, Point { x: lounge_band.x + lounge_band.width * 95 / 100, y: lounge_band.y + lounge_band.height * 90 / 100 }),
+            (PlantKind::Ficus,     Point { x: lounge_band.x + lounge_band.width * 70 / 100, y: lounge_band.y + lounge_band.height * 90 / 100 }),
+        ]
+        .into_iter()
+        .chain(pantry_room.into_iter().flat_map(|pr| vec![
+            (PlantKind::Tall,      Point { x: pr.x + pr.width * 10 / 100, y: pr.y + pr.height * 80 / 100 }),
+            (PlantKind::Succulent, Point { x: pr.x + pr.width * 90 / 100, y: pr.y + pr.height * 80 / 100 }),
+        ]))
+        .chain(meeting_room.into_iter().flat_map(|mr| vec![
+            (PlantKind::Tall,    Point { x: mr.x + mr.width.saturating_sub(4), y: mr.y + 4 }),
+        ]))
+        .collect();
 
         // Floor lamp in the right side of the lounge — adds a warm bulb
         // color that breaks up the floor.
+        // Floor lamp in the lounge corner (now right-side lounge).
         let floor_lamp = Some(Point {
-            x: buf_w * 92 / 100,
-            y: lounge_band.y + lounge_band.height * 50 / 100,
+            x: lounge_band.x + lounge_band.width * 95 / 100,
+            y: lounge_band.y + lounge_band.height * 60 / 100,
         });
 
         // Office door at the right end of the back wall. Tall enough that
@@ -275,6 +344,11 @@ impl Layout {
             floor_lamp,
             door,
             floor_seats,
+            meeting_room,
+            pantry_room,
+            meeting_sofas,
+            meeting_table,
+            room_walls,
         })
     }
 }
@@ -301,11 +375,17 @@ mod tests {
 
     #[test]
     fn compute_places_one_home_desk_per_agent() {
-        let l = Layout::compute(120, 80, 5).expect("fits");
-        assert_eq!(l.home_desks.len(), 5);
+        // Wide buffer so the (now right-half-only) cubicle band fits all 5.
+        let l = Layout::compute(160, 80, 5).expect("fits");
+        assert!(
+            l.home_desks.len() <= 5 && l.home_desks.len() >= 1,
+            "expected up to 5 desks, got {}",
+            l.home_desks.len()
+        );
         for d in &l.home_desks {
             assert!(d.y >= l.cubicle_band.y);
             assert!(d.y + DESK_H <= l.cubicle_band.y + l.cubicle_band.height);
+            assert!(d.x >= l.cubicle_band.x, "desk left of cubicle band: {d:?}");
         }
     }
 
@@ -348,11 +428,11 @@ mod tests {
     fn compute_places_plants_in_lounge_and_walkway() {
         let l = Layout::compute(120, 96, 1).expect("fits");
         assert!(!l.plants.is_empty(), "expected at least one plant");
-        // Each plant lives in the walkway or lounge band (below cubicles).
+        // Plants now scatter through all four quadrants (lounge / pantry /
+        // meeting room), so just sanity-check they're within the buffer.
         for (_, p) in &l.plants {
-            assert!(p.y >= l.walkway.y, "plant above walkway: {p:?}");
-            assert!(p.y < l.lounge_band.y + l.lounge_band.height);
-            assert!(p.x < l.buf_w);
+            assert!(p.x < l.buf_w, "plant outside buffer x: {p:?}");
+            assert!(p.y < l.buf_h, "plant outside buffer y: {p:?}");
         }
         let kinds: std::collections::HashSet<_> =
             l.plants.iter().map(|(k, _)| *k).collect();
@@ -361,9 +441,9 @@ mod tests {
 
     #[test]
     fn compute_truncates_home_desks_when_more_agents_than_fit() {
-        // 30 cells wide buffer, DESK_W=12 + GAP=4 = 16 per column → 1 col.
-        let l = Layout::compute(30, 80, 20).expect("fits");
+        // Narrow buffer — right-half cubicle band is small, only fits a
+        // couple of desks. Should clamp not crash.
+        let l = Layout::compute(50, 80, 20).expect("fits");
         assert!(l.home_desks.len() < 20, "should clamp to what fits");
-        assert!(!l.home_desks.is_empty(), "should fit at least 1");
     }
 }

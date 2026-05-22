@@ -1251,6 +1251,44 @@ pub fn draw_scene<B: Backend>(
         // but before wall decor — the bookshelf etc. shouldn't cover it.
         let clock_x = buf_w / 2 - 2;
         paint_clock(buf, clock_x, 1, now);
+        // Room dividers — drywall lines between meeting / pantry / right-side
+        // (cubicles + lounge). Painted before decor so wall-leaning items
+        // (e.g. wall_decor) sit on top.
+        const WALL_COLOR: Rgb = Rgb(82, 84, 100);
+        for (start, end) in &layout.room_walls {
+            if start.x == end.x {
+                for y in start.y..=end.y.min(buf_h - 1) {
+                    for dx in 0..2 {
+                        let x = start.x + dx;
+                        if x < buf_w {
+                            buf.put(x, y, WALL_COLOR);
+                        }
+                    }
+                }
+            } else {
+                for x in start.x..=end.x.min(buf_w - 1) {
+                    for dy in 0..2 {
+                        let y = start.y + dy;
+                        if y < buf_h {
+                            buf.put(x, y, WALL_COLOR);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Meeting room sofas + table.
+        if let Some(couch_anim) = pack.animation("couch").and_then(|a| a.frames.first()) {
+            for sofa in &layout.meeting_sofas {
+                let sx = sofa.x.saturating_sub(couch_anim.width / 2);
+                let sy = sofa.y.saturating_sub(couch_anim.height / 2);
+                blit_frame(couch_anim, sx, sy, buf);
+            }
+        }
+        if let Some(table) = layout.meeting_table {
+            paint_coffee_table(buf, table.x, table.y, 7, 3);
+        }
+
         paint_wall_decor(buf, &layout, pack);
         if let Some(door_pos) = layout.door {
             if let Some(frame) = pack.animation("door").and_then(|a| a.frames.first()) {
