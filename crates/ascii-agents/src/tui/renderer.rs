@@ -150,8 +150,6 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16, now: Syste
     // Glass + spill scale with local hour — dark windows at night, full
     // daylight 8..18, smooth ramps at dawn/dusk.
     let look = time_of_day_look(now);
-    let window_glass = look.glass_a;
-    let window_glass_2 = look.glass_b;
 
     for y in 0..buf_h {
         let band = y / PLANK_H;
@@ -175,17 +173,25 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16, now: Syste
         }
     }
 
-    // Window panels every 18 px along the wall, leaving gaps for variation.
-    const WINDOW_W: u16 = 10;
-    const WINDOW_H: u16 = 6;
-    const WINDOW_Y: u16 = 3;
+    // Floor-to-ceiling windows: spans almost the entire wall band, with
+    // the city view painted inside the glass.
+    const WINDOW_W: u16 = 12;
+    const WINDOW_H: u16 = 12;
+    const WINDOW_Y: u16 = 1;
     let mut x = 4u16;
     let mut idx: u32 = 0;
     while x + WINDOW_W + 2 <= buf_w {
-        // Skip every 4th window slot to vary the rhythm.
         if idx % 4 != 3 {
-            paint_window(buf, x, WINDOW_Y, WINDOW_W, WINDOW_H, WINDOW_FRAME, window_glass, window_glass_2);
-            // Sunlight trapezoid — only when the sun is actually up.
+            paint_floor_to_ceiling_window(
+                buf,
+                x,
+                WINDOW_Y,
+                WINDOW_W,
+                WINDOW_H,
+                WINDOW_FRAME,
+                &look,
+                idx as u16,
+            );
             if look.spill_strength > 0.0 {
                 paint_window_light_spill(
                     buf,
@@ -197,7 +203,7 @@ fn paint_floor_and_walls(buf: &mut RgbBuffer, buf_w: u16, buf_h: u16, now: Syste
                 );
             }
         }
-        x += WINDOW_W + 8;
+        x += WINDOW_W + 6;
         idx += 1;
     }
 
@@ -461,17 +467,35 @@ fn mix_lab(a: Rgb, b: Rgb, t: f32) -> Rgb {
     )
 }
 
-fn paint_window(
+/// Floor-to-ceiling window with frame, mullion, and a procedural city view
+/// inside the glass. Sky gradient at top blends with time-of-day glass
+/// colors; the lower portion shows building silhouettes whose "windows"
+/// (1-pixel dots) light up at night.
+fn paint_floor_to_ceiling_window(
     buf: &mut RgbBuffer,
     x: u16,
     y: u16,
     w: u16,
     h: u16,
     frame: Rgb,
-    glass_a: Rgb,
-    glass_b: Rgb,
+    look: &TimeOfDayLook,
+    window_idx: u16,
 ) {
-    // Solid frame
+    const BUILDING_DARK: Rgb = Rgb(20, 22, 32);
+    const BUILDING_LIGHT: Rgb = Rgb(60, 65, 82);
+    const LIT_WINDOW: Rgb = Rgb(252, 215, 110);
+    const DARK_WINDOW: Rgb = Rgb(30, 32, 44);
+
+    let lit_strength = look.darkness.clamp(0.0, 1.0);
+    let lit_color = lerp_rgb(DARK_WINDOW, LIT_WINDOW, lit_strength);
+    let building = lerp_rgb(BUILDING_LIGHT, BUILDING_DARK, look.darkness);
+
+    // Building skyline heights per glass column. Six-pattern repeated,
+    // offset by window_idx so adjacent windows don't show identical skylines.
+    let skyline: &[u16] = &[3, 5, 4, 6, 3, 5, 4, 5, 3, 6, 4, 5];
+    // Lit-window dot positions inside each building (dx_in_glass, dy_from_top_of_building).
+    let lit_dots: &[(u16, u16)] = &[(1, 1), (3, 0), (5, 2), (7, 1), (9, 2), (2, 3), (6, 3)];
+
     for dy in 0..h {
         for dx in 0..w {
             let px = x + dx;
@@ -480,16 +504,30 @@ fn paint_window(
                 continue;
             }
             let on_edge = dx == 0 || dx == w - 1 || dy == 0 || dy == h - 1;
-            // Mullion in the middle horizontally and vertically.
-            let on_mullion = dx == w / 2 || dy == h / 2;
-            let color = if on_edge || on_mullion {
-                frame
-            } else if (dx + dy) % 2 == 0 {
-                glass_a
+            let on_mullion = dx == w / 2 || dy == h * 7 / 10;
+            if on_edge || on_mullion {
+                buf.put(px, py, frame);
+                continue;
+            }
+            let glass_dx = dx - 1;
+            let glass_dy = dy - 1;
+            let glass_h = h - 2;
+            // Sky gradient — light top, deeper bottom — uses time-of-day colors.
+            let sky_t = (glass_dy as f32) / (glass_h as f32 * 0.7);
+            let sky_color = lerp_rgb(look.glass_b, look.glass_a, sky_t.min(1.0));
+
+            // Building silhouette at the bottom of the glass.
+            let building_h = skyline[((glass_dx + window_idx * 3) % skyline.len() as u16) as usize];
+            let in_building = glass_dy >= glass_h.saturating_sub(building_h);
+
+            if in_building {
+                // Building wall (dark slab) with occasional lit window dots.
+                let bldg_y = glass_dy - (glass_h - building_h);
+                let is_lit = lit_dots.iter().any(|&(lx, ly)| lx == glass_dx && ly == bldg_y);
+                buf.put(px, py, if is_lit { lit_color } else { building });
             } else {
-                glass_b
-            };
-            buf.put(px, py, color);
+                buf.put(px, py, sky_color);
+            }
         }
     }
 }
