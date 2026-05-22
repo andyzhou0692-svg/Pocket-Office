@@ -94,6 +94,11 @@ impl Reducer {
 
         // Track active Task tool_use_ids from either transport. HashSet is
         // idempotent so duplicate inserts from both hook+jsonl are harmless.
+        //
+        // Side effect: when the parent gains a Task, also mark it as
+        // Active("Delegating") so it doesn't look idle/asleep while its
+        // subagents do the visible work. When the last Task drains, the
+        // next normal hook/JSONL event will reset its state.
         match &event {
             AgentEvent::ActivityStart {
                 agent_id,
@@ -105,6 +110,14 @@ impl Reducer {
                     .entry(*agent_id)
                     .or_default()
                     .insert(tuid.clone());
+                if let Some(slot) = scene.agents.get_mut(agent_id) {
+                    slot.state = ActivityState::Active {
+                        activity: crate::source::Activity::Typing,
+                        tool_use_id: Some(tuid.clone()),
+                        detail: Some("Delegating".to_string()),
+                    };
+                    slot.state_started_at = now;
+                }
             }
             AgentEvent::ActivityEnd {
                 agent_id,
@@ -112,6 +125,12 @@ impl Reducer {
             } => {
                 if let Some(set) = self.active_tasks.get_mut(agent_id) {
                     set.remove(tuid);
+                    if set.is_empty() {
+                        if let Some(slot) = scene.agents.get_mut(agent_id) {
+                            slot.state = ActivityState::Idle;
+                            slot.state_started_at = now;
+                        }
+                    }
                 }
             }
             _ => {}
