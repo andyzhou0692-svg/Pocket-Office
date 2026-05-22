@@ -267,11 +267,13 @@ fn paint_window_light_spill(
 /// Window glass color + spill intensity + spill slant for the current local
 /// hour. `spill_slant` is x-shift per row going down: positive = rightward
 /// (morning sun in the east), negative = leftward (evening sun in the west).
+/// `darkness` is 1 - daylight, used to drive artificial-light effects.
 struct TimeOfDayLook {
     glass_a: Rgb,
     glass_b: Rgb,
     spill_strength: f32,
     spill_slant: f32,
+    darkness: f32,
 }
 
 fn time_of_day_look(now: SystemTime) -> TimeOfDayLook {
@@ -321,6 +323,106 @@ fn time_of_day_look(now: SystemTime) -> TimeOfDayLook {
         glass_b,
         spill_strength: day,
         spill_slant: slant,
+        darkness: 1.0 - day,
+    }
+}
+
+/// Multiplicative dim applied to floor pixels at night. Pulls everything
+/// toward a dark navy so the artificial-light pools have something to
+/// stand out against. `strength` is 0..1 (no dim..full dim).
+fn dim_floor_overlay(buf: &mut RgbBuffer, top_y: u16, bottom_y: u16, strength: f32) {
+    const NIGHT_TINT: Rgb = Rgb(18, 22, 38);
+    let s = strength.clamp(0.0, 0.55);
+    for y in top_y..bottom_y.min(buf.height) {
+        for x in 0..buf.width {
+            let cur = buf.get(x, y);
+            buf.put(
+                x,
+                y,
+                Rgb(
+                    blend(cur.0, NIGHT_TINT.0, s),
+                    blend(cur.1, NIGHT_TINT.1, s),
+                    blend(cur.2, NIGHT_TINT.2, s),
+                ),
+            );
+        }
+    }
+}
+
+/// Elliptical "ceiling fluorescent" pool of pale warm light on the floor.
+/// Blended additively (toward POOL color) with a quadratic falloff from
+/// center to edge so it reads as a soft round patch, not a stamped oval.
+fn paint_ceiling_pool(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    half_w: u16,
+    half_h: u16,
+    strength: f32,
+) {
+    const POOL: Rgb = Rgb(255, 246, 215);
+    if half_w == 0 || half_h == 0 || strength <= 0.0 {
+        return;
+    }
+    let min_x = cx.saturating_sub(half_w);
+    let max_x = (cx + half_w).min(buf.width);
+    let min_y = cy.saturating_sub(half_h);
+    let max_y = (cy + half_h).min(buf.height);
+    for y in min_y..max_y {
+        for x in min_x..max_x {
+            let nx = (x as f32 - cx as f32) / half_w as f32;
+            let ny = (y as f32 - cy as f32) / half_h as f32;
+            let r2 = nx * nx + ny * ny;
+            if r2 > 1.0 {
+                continue;
+            }
+            let t = (1.0 - r2) * strength;
+            let cur = buf.get(x, y);
+            buf.put(
+                x,
+                y,
+                Rgb(
+                    blend(cur.0, POOL.0, t),
+                    blend(cur.1, POOL.1, t),
+                    blend(cur.2, POOL.2, t),
+                ),
+            );
+        }
+    }
+}
+
+/// Warm radial halo around the floor lamp — only visible at night.
+fn paint_floor_lamp_halo(buf: &mut RgbBuffer, cx: u16, cy: u16, strength: f32) {
+    const WARM: Rgb = Rgb(255, 210, 130);
+    const RADIUS: u16 = 11;
+    if strength <= 0.0 {
+        return;
+    }
+    let min_x = cx.saturating_sub(RADIUS);
+    let max_x = (cx + RADIUS).min(buf.width);
+    let min_y = cy.saturating_sub(RADIUS);
+    let max_y = (cy + RADIUS).min(buf.height);
+    let r2max = (RADIUS as f32) * (RADIUS as f32);
+    for y in min_y..max_y {
+        for x in min_x..max_x {
+            let dx = x as f32 - cx as f32;
+            let dy = y as f32 - cy as f32;
+            let r2 = dx * dx + dy * dy;
+            if r2 > r2max {
+                continue;
+            }
+            let t = (1.0 - (r2 / r2max).sqrt()) * strength;
+            let cur = buf.get(x, y);
+            buf.put(
+                x,
+                y,
+                Rgb(
+                    blend(cur.0, WARM.0, t),
+                    blend(cur.1, WARM.1, t),
+                    blend(cur.2, WARM.2, t),
+                ),
+            );
+        }
     }
 }
 
@@ -765,6 +867,31 @@ pub fn draw_scene<B: Backend>(
         };
 
         paint_floor_and_walls(buf, buf_w, buf_h, now);
+
+        // Artificial light pass — at night the floor dims toward navy and
+        // ceiling fluorescents + the floor lamp halo paint the visible
+        // bright spots. During the day the dim is near-zero and the pools
+        // are subtle ambient highlights.
+        let look = time_of_day_look(now);
+        dim_floor_overlay(buf, 14, buf_h, look.darkness * 0.45);
+        let pool_strength = 0.15 + 0.30 * look.darkness;
+        for desk in &layout.home_desks {
+            paint_ceiling_pool(
+                buf,
+                desk.x + DESK_W / 2,
+                desk.y.saturating_sub(2),
+                10,
+                5,
+                pool_strength,
+            );
+        }
+        let lounge_y = layout.lounge_band.y + layout.lounge_band.height / 2;
+        paint_ceiling_pool(buf, buf_w * 28 / 100, lounge_y, 12, 6, pool_strength);
+        paint_ceiling_pool(buf, buf_w * 62 / 100, lounge_y, 12, 6, pool_strength);
+        if let Some(lamp) = layout.floor_lamp {
+            paint_floor_lamp_halo(buf, lamp.x, lamp.y, look.darkness * 0.55);
+        }
+
         // Live wall clock painted after the wall (so hands sit on top of it)
         // but before wall decor — the bookshelf etc. shouldn't cover it.
         let clock_x = buf_w / 2 - 2;

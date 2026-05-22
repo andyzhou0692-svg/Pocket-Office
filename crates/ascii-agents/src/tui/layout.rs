@@ -77,9 +77,11 @@ pub const DESK_GAP_X: u16 = 6;
 pub const DESK_GAP_Y: u16 = 10;
 /// Vertical reserve above the cubicle band, in buf pixels. The renderer paints
 /// the top wall band (14 px tall, with windows + a clock) into this region.
-/// Sized so a standing character (12 px tall) anchored at desk.y - 12 sits
-/// comfortably below the wall trim line.
-pub const TOP_MARGIN_PX: u16 = 28;
+/// Tightened from 28 to 20 px so the cubicles sit closer to the wall — at 28
+/// there was a wide empty wood strip between the window band and the first
+/// row of desks. 20 leaves just enough room (6 px) above the desk back for a
+/// seated character's head to fit between desk and wall trim.
+pub const TOP_MARGIN_PX: u16 = 20;
 
 impl Layout {
     /// Returns `None` if the buffer is too small for even one cubicle and the
