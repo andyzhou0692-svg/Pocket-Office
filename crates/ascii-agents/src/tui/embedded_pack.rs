@@ -22,6 +22,8 @@ pub fn load_default_pack() -> Result<Pack> {
     let bulletin   = include_str!("../../../../assets/sprites/default/bulletin_board.sprite");
     let exit_sign  = include_str!("../../../../assets/sprites/default/exit_sign.sprite");
     let filing     = include_str!("../../../../assets/sprites/default/filing_cabinet.sprite");
+    let cat_0      = include_str!("../../../../assets/sprites/default/cat_walk_0.sprite");
+    let cat_1      = include_str!("../../../../assets/sprites/default/cat_walk_1.sprite");
     let couch      = include_str!("../../../../assets/sprites/default/couch.sprite");
     let coffee     = include_str!("../../../../assets/sprites/default/coffee.sprite");
     let sitting      = include_str!("../../../../assets/sprites/default/sitting_couch.sprite");
@@ -52,6 +54,8 @@ pub fn load_default_pack() -> Result<Pack> {
             ("bulletin_board.sprite", bulletin),
             ("exit_sign.sprite", exit_sign),
             ("filing_cabinet.sprite", filing),
+            ("cat_walk_0.sprite", cat_0),
+            ("cat_walk_1.sprite", cat_1),
             ("couch.sprite", couch),
             ("coffee.sprite", coffee),
             ("sitting_couch.sprite", sitting),

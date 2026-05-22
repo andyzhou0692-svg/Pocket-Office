@@ -702,6 +702,45 @@ fn paint_lounge_decor(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack, now: Sy
             blit_frame(f, px, py, buf);
         }
     }
+
+    // Wandering office cat — bounces between the left and right ends of
+    // the lounge band on a 30 s cycle, with brief pauses at each end.
+    // Pure whimsy, fills floor space.
+    paint_wandering_cat(buf, layout, pack, now);
+}
+
+/// Office cat that paces between the lounge band's left and right edges
+/// on a 30 s cycle (12 s walk + 3 s pause + 12 s walk back + 3 s pause).
+/// Sprite mirrors horizontally for the return leg.
+fn paint_wandering_cat(buf: &mut RgbBuffer, layout: &Layout, pack: &Pack, now: SystemTime) {
+    let Some(anim) = pack.animation("cat_walk") else { return };
+    if anim.frames.is_empty() { return; }
+    let elapsed_ms = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    const CYCLE_MS: u64 = 30_000;
+    let phase = elapsed_ms % CYCLE_MS;
+    let frac = phase as f32 / CYCLE_MS as f32;
+    let (t, flip) = if frac < 0.4 {
+        (frac / 0.4, false)
+    } else if frac < 0.5 {
+        (1.0, false)
+    } else if frac < 0.9 {
+        (1.0 - (frac - 0.5) / 0.4, true)
+    } else {
+        (0.0, true)
+    };
+    let left_x = layout.lounge_band.width * 12 / 100;
+    let right_x = layout.lounge_band.width * 88 / 100;
+    let cx = left_x + ((right_x - left_x) as f32 * t) as u16;
+    let cy = layout.lounge_band.y + layout.lounge_band.height * 92 / 100;
+    let frame_idx = (elapsed_ms / 220) as usize % anim.frames.len();
+    let Some(frame) = anim.frames.get(frame_idx) else { return };
+    let final_frame = if flip { frame.mirror_horizontal() } else { frame.clone() };
+    let px = cx.saturating_sub(final_frame.width / 2);
+    let py = cy.saturating_sub(final_frame.height / 2);
+    blit_frame(&final_frame, px, py, buf);
 }
 
 /// Wall-leaning furniture (bookshelf + whiteboard). Painted *after* the

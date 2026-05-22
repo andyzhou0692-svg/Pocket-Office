@@ -1,0 +1,7 @@
+# 6x4 orange-tabby cat (frame 0). Top-down view — ears at front, body,
+# tail. Walks left-to-right around the lounge.
+@frame 0
+. t . . t .
+t t t t t t
+t t t t t t
+. t . t . t
