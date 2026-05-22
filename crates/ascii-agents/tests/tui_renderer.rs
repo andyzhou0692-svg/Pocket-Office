@@ -36,6 +36,7 @@ fn tui_renderer_render_paints_a_full_frame() {
             state_started_at: now,
             created_at: now - Duration::from_secs(60),
             exiting_at: None,
+            pending_idle_at: None,
             desk_index: 0,
         },
     );

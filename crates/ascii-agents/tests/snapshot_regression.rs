@@ -62,6 +62,7 @@ fn fixture_scene(now: SystemTime) -> SceneState {
                 state_started_at: now,
                 created_at,
                 exiting_at: None,
+                pending_idle_at: None,
                 desk_index: i,
             },
         );

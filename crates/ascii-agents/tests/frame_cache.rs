@@ -33,6 +33,7 @@ fn make_slot(id: AgentId) -> AgentSlot {
         state_started_at: now,
         created_at: now,
         exiting_at: None,
+        pending_idle_at: None,
         desk_index: 0,
     }
 }

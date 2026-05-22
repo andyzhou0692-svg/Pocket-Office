@@ -13,6 +13,13 @@ pub const HOOK_WINS_WINDOW: Duration = Duration::from_millis(500);
 /// walkout-to-door animation has time to play before the slot is removed.
 pub const EXIT_GRACE_WINDOW: Duration = Duration::from_millis(4500);
 
+/// How long the slot stays visually Active after an `ActivityEnd` before
+/// the reducer's tick flips it to Idle. Hides the per-tool-call Active
+/// flicker that rapid PreToolUse → PostToolUse chains produce in CC; any
+/// `ActivityStart` arriving within this window cancels the pending idle,
+/// so the slot reads as continuously Active for chained tool work.
+pub const ACTIVE_GRACE_WINDOW: Duration = Duration::from_millis(1500);
+
 #[derive(Debug, Default)]
 pub struct Reducer {
     /// Track recent hook-derived events so JSONL duplicates can be dropped.
@@ -33,12 +40,15 @@ impl Reducer {
         Self::default()
     }
 
-    /// Run the GC + exit-sweep without applying an event. Must be called
-    /// periodically (e.g. on each render tick) so that an exiting agent's
-    /// slot is reclaimed even when no new event arrives to drive `apply`.
+    /// Run the GC + exit-sweep + Active→Idle debounce expiry without
+    /// applying an event. Must be called periodically (e.g. on each
+    /// render tick) so exiting slots are reclaimed and pending-idle
+    /// timers actually fire even when no new event arrives to drive
+    /// `apply`.
     pub fn tick(&mut self, scene: &mut SceneState, now: SystemTime) {
         self.gc(now);
         self.sweep_exited(scene, now);
+        self.expire_pending_idles(scene, now);
     }
 
     pub fn apply(
@@ -50,6 +60,7 @@ impl Reducer {
     ) {
         self.gc(now);
         self.sweep_exited(scene, now);
+        self.expire_pending_idles(scene, now);
         let id = event.agent_id();
 
         // Subagent-leak suppression: if this AgentId currently has any Task
@@ -119,6 +130,7 @@ impl Reducer {
                         detail: Some(Arc::<str>::from("Delegating")),
                     };
                     slot.state_started_at = now;
+                    slot.pending_idle_at = None;
                 }
             }
             AgentEvent::ActivityEnd {
@@ -129,8 +141,11 @@ impl Reducer {
                     set.remove(tuid);
                     if set.is_empty() {
                         if let Some(slot) = scene.agents.get_mut(agent_id) {
-                            slot.state = ActivityState::Idle;
-                            slot.state_started_at = now;
+                            // Debounce: stay visually Active for
+                            // ACTIVE_GRACE_WINDOW; expire_pending_idles
+                            // flips to Idle if no new tool starts inside
+                            // the window.
+                            slot.pending_idle_at = Some(now);
                         }
                     }
                 }
@@ -182,6 +197,7 @@ impl Reducer {
                         state_started_at: now,
                         created_at: now,
                         exiting_at: None,
+                        pending_idle_at: None,
                         desk_index,
                     },
                 );
@@ -199,12 +215,18 @@ impl Reducer {
                         detail: detail.map(|d| Arc::<str>::from(d.display())),
                     };
                     slot.state_started_at = now;
+                    // Cancel any debounce in flight — a new tool started
+                    // before the grace window expired, so the slot
+                    // continues to read as continuously Active.
+                    slot.pending_idle_at = None;
                 }
             }
             AgentEvent::ActivityEnd { agent_id, .. } => {
                 if let Some(slot) = scene.agents.get_mut(&agent_id) {
-                    slot.state = ActivityState::Idle;
-                    slot.state_started_at = now;
+                    // Debounce: stay visually Active for ACTIVE_GRACE_WINDOW.
+                    // `expire_pending_idles` (called from `tick`) flips
+                    // state to Idle if no new tool starts in the window.
+                    slot.pending_idle_at = Some(now);
                 }
             }
             AgentEvent::Waiting { agent_id, reason } => {
@@ -213,6 +235,7 @@ impl Reducer {
                         reason: Arc::<str>::from(reason.as_str()),
                     };
                     slot.state_started_at = now;
+                    slot.pending_idle_at = None;
                 }
             }
             AgentEvent::Rename { agent_id, label } => {
@@ -240,6 +263,32 @@ impl Reducer {
         // (clock went backwards). Drop those — stale entries either way.
         self.recent_hook_tool_uses
             .retain(|_, ts| now.duration_since(*ts).is_ok_and(|d| d < HOOK_WINS_WINDOW));
+    }
+
+    /// Walk through agents with `pending_idle_at` set and flip their
+    /// state to Idle if the debounce window has elapsed. Resets
+    /// `state_started_at` to `now` so the Idle wander state machine
+    /// starts fresh from the visible transition, not from the
+    /// (now-stale) original ActivityEnd time. Slots already in a
+    /// non-Active state (e.g. Waiting from a parallel permission
+    /// prompt) are left alone — only the originating Active slot
+    /// gets flipped.
+    fn expire_pending_idles(&mut self, scene: &mut SceneState, now: SystemTime) {
+        for slot in scene.agents.values_mut() {
+            let Some(pending) = slot.pending_idle_at else {
+                continue;
+            };
+            if now
+                .duration_since(pending)
+                .is_ok_and(|d| d >= ACTIVE_GRACE_WINDOW)
+            {
+                if matches!(slot.state, ActivityState::Active { .. }) {
+                    slot.state = ActivityState::Idle;
+                    slot.state_started_at = now;
+                }
+                slot.pending_idle_at = None;
+            }
+        }
     }
 
     /// Remove agents whose exit animation has finished. Called at the top

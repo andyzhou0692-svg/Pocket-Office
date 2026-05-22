@@ -74,11 +74,18 @@ fn activity_start_sets_state_active() {
 }
 
 #[test]
-fn activity_end_returns_to_idle() {
+fn activity_end_arms_debounce_then_tick_flips_to_idle() {
+    // After ActivityEnd the slot stays VISUALLY Active for
+    // ACTIVE_GRACE_WINDOW (1500ms) — this hides per-tool-call flicker
+    // from rapid CC tool chains. `pending_idle_at` is the debounce
+    // armed-flag; `reducer.tick` (or another event past the window)
+    // realizes the transition.
+    use std::time::Duration;
     let mut scene = SceneState::new(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
+    let t0 = SystemTime::now();
     r.apply(
         &mut scene,
         AgentEvent::ActivityStart {
@@ -87,7 +94,7 @@ fn activity_end_returns_to_idle() {
             tool_use_id: Some("t1".into()),
             detail: None,
         },
-        SystemTime::now(),
+        t0,
         Transport::Hook,
     );
     r.apply(
@@ -96,11 +103,84 @@ fn activity_end_returns_to_idle() {
             agent_id: id,
             tool_use_id: Some("t1".into()),
         },
-        SystemTime::now(),
+        t0 + Duration::from_millis(100),
         Transport::Hook,
     );
 
+    // Immediately after ActivityEnd — still Active, debounce armed.
+    let slot = scene.agents.get(&id).unwrap();
+    assert!(matches!(slot.state, ActivityState::Active { .. }));
+    assert!(slot.pending_idle_at.is_some());
+
+    // Tick before window expires — still Active.
+    r.tick(&mut scene, t0 + Duration::from_millis(900));
+    assert!(matches!(
+        scene.agents.get(&id).unwrap().state,
+        ActivityState::Active { .. }
+    ));
+
+    // Tick past the window — flips to Idle.
+    r.tick(&mut scene, t0 + Duration::from_millis(2000));
     assert_eq!(scene.agents.get(&id).unwrap().state, ActivityState::Idle);
+    assert!(scene.agents.get(&id).unwrap().pending_idle_at.is_none());
+}
+
+#[test]
+fn activity_start_inside_grace_window_cancels_debounce() {
+    // A new tool starting before the debounce window expires must
+    // cancel the pending-idle so the slot reads as continuously
+    // Active for chained tool work (Read → Glob → Edit etc.).
+    use std::time::Duration;
+    let mut scene = SceneState::new(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/a.jsonl");
+    start(&mut r, &mut scene, id);
+    let t0 = SystemTime::now();
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            activity: Activity::Typing,
+            tool_use_id: Some("t1".into()),
+            detail: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityEnd {
+            agent_id: id,
+            tool_use_id: Some("t1".into()),
+        },
+        t0 + Duration::from_millis(100),
+        Transport::Hook,
+    );
+    assert!(scene.agents.get(&id).unwrap().pending_idle_at.is_some());
+    // Second tool starts 200ms later — well inside the grace window.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            activity: Activity::Typing,
+            tool_use_id: Some("t2".into()),
+            detail: None,
+        },
+        t0 + Duration::from_millis(300),
+        Transport::Hook,
+    );
+    let slot = scene.agents.get(&id).unwrap();
+    assert!(matches!(slot.state, ActivityState::Active { .. }));
+    assert!(
+        slot.pending_idle_at.is_none(),
+        "ActivityStart inside grace must cancel pending idle"
+    );
+    // Tick well past the original ActivityEnd's grace — must still be Active.
+    r.tick(&mut scene, t0 + Duration::from_millis(2500));
+    assert!(matches!(
+        scene.agents.get(&id).unwrap().state,
+        ActivityState::Active { .. }
+    ));
 }
 
 #[test]
@@ -281,7 +361,9 @@ fn hook_activity_during_active_task_is_suppressed() {
     );
 
     // Task's own PostToolUse: tool_use_id matches the in-flight Task, so the
-    // hook IS allowed through, transitioning parent to Idle.
+    // hook IS allowed through. With the Active-grace debounce, the
+    // transition to Idle is deferred — `pending_idle_at` arms now,
+    // `reducer.tick` past ACTIVE_GRACE_WINDOW (1500ms) realizes it.
     r.apply(
         &mut scene,
         AgentEvent::ActivityEnd {
@@ -291,6 +373,10 @@ fn hook_activity_during_active_task_is_suppressed() {
         t0 + Duration::from_millis(200),
         Transport::Hook,
     );
+    let slot = scene.agents.get(&parent).unwrap();
+    assert!(matches!(slot.state, ActivityState::Active { .. }));
+    assert!(slot.pending_idle_at.is_some());
+    r.tick(&mut scene, t0 + Duration::from_millis(2000));
     assert_eq!(
         scene.agents.get(&parent).unwrap().state,
         ActivityState::Idle

@@ -390,6 +390,7 @@ fn sample_scene(now: SystemTime) -> SceneState {
                 state_started_at: now - *age,
                 created_at: now - *age,
                 exiting_at: None,
+                pending_idle_at: None,
                 desk_index: i,
             },
         );

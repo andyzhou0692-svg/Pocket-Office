@@ -91,7 +91,16 @@ fn scripted_timeline_drives_scene_through_states() {
         snaps[1].agents.get(&id).unwrap().state,
         ActivityState::Active { .. }
     ));
-    assert_eq!(snaps[2].agents.get(&id).unwrap().state, ActivityState::Idle);
+    // After ActivityEnd the slot is debounced (ACTIVE_GRACE_WINDOW =
+    // 1500ms) — it stays visually Active so that rapid CC tool chains
+    // (PreToolUse → PostToolUse → PreToolUse) read as continuous work
+    // instead of flickering. The transition to Idle is realized later
+    // by `reducer.tick` (or by another event arriving past the
+    // window). `pending_idle_at` is the signal that the debounce is
+    // armed.
+    let slot2 = snaps[2].agents.get(&id).unwrap();
+    assert!(matches!(slot2.state, ActivityState::Active { .. }));
+    assert!(slot2.pending_idle_at.is_some());
     assert!(matches!(
         snaps[3].agents.get(&id).unwrap().state,
         ActivityState::Waiting { .. }

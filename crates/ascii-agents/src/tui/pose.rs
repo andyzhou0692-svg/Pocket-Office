@@ -523,6 +523,7 @@ mod tests {
             state_started_at: started,
             created_at: created,
             exiting_at: None,
+            pending_idle_at: None,
             desk_index: 0,
         };
         (s, now)
@@ -727,6 +728,7 @@ mod tests {
             state_started_at: now0,
             created_at: now0,
             exiting_at: None,
+            pending_idle_at: None,
             desk_index: 0,
         };
         let probe = now0 + Duration::from_millis(1500);

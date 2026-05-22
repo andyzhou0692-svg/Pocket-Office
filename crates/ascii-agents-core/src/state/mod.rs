@@ -43,6 +43,12 @@ pub struct AgentSlot {
     /// is keeping the slot alive long enough for the exit animation to
     /// play. The reducer sweeps expired slots on subsequent events.
     pub exiting_at: Option<SystemTime>,
+    /// Active→Idle debounce mark. Set by `ActivityEnd` instead of an
+    /// immediate state flip; cleared by any later `ActivityStart`/Waiting.
+    /// `reducer.tick` expires it after `ACTIVE_GRACE_WINDOW` and flips
+    /// state to Idle. Hides the per-tool-call Active flicker that rapid
+    /// PreToolUse → PostToolUse chains produce in CC.
+    pub pending_idle_at: Option<SystemTime>,
     pub desk_index: usize,
 }
 
@@ -96,6 +102,7 @@ mod tests {
                     state_started_at: now,
                     created_at: now,
                     exiting_at: None,
+                    pending_idle_at: None,
                     desk_index: i,
                 },
             );
