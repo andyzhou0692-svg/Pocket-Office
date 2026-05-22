@@ -26,6 +26,9 @@ fs2                = { workspace = true }
 which              = "6"
 # clock feature gives us Local::now() w/ system timezone for the wall clock.
 chrono             = { version = "0.4", default-features = false, features = ["clock"] }
+# palette gives Lab-space color blending — perceptually-correct twilight
+# transitions and dim overlays vs naive sRGB linear blend.
+palette            = { version = "0.7", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 tempfile = "3"

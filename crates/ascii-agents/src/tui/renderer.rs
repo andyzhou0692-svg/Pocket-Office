@@ -427,7 +427,7 @@ fn paint_floor_lamp_halo(buf: &mut RgbBuffer, cx: u16, cy: u16, strength: f32) {
 }
 
 fn lerp_rgb(a: Rgb, b: Rgb, t: f32) -> Rgb {
-    Rgb(blend(a.0, b.0, t), blend(a.1, b.1, t), blend(a.2, b.2, t))
+    mix_lab(a, b, t)
 }
 
 /// Bell curve centered at `c` with half-width `w` (so the bell is 0 at
@@ -437,8 +437,28 @@ fn bell(x: f32, c: f32, w: f32) -> f32 {
     (1.0 - d * d).max(0.0)
 }
 
+/// Per-channel sRGB lerp. Cheap; used for low-strength tints where
+/// perceptual error doesn't matter (e.g. agent skin glow).
 fn blend(a: u8, b: u8, t: f32) -> u8 {
     ((a as f32) * (1.0 - t) + (b as f32) * t).round().clamp(0.0, 255.0) as u8
+}
+
+/// Perceptually-correct Lab-space mix between two sRGB colors. Twilight
+/// (orange → navy) and dim overlays travel cleanly through Lab without the
+/// muddy desaturated midpoint that naive sRGB lerp produces. Slower than
+/// `blend()` but only used where the perceptual difference is visible.
+fn mix_lab(a: Rgb, b: Rgb, t: f32) -> Rgb {
+    use palette::{FromColor, IntoColor, Lab, Mix, Srgb};
+    let sa = Srgb::new(a.0 as f32 / 255.0, a.1 as f32 / 255.0, a.2 as f32 / 255.0);
+    let sb = Srgb::new(b.0 as f32 / 255.0, b.1 as f32 / 255.0, b.2 as f32 / 255.0);
+    let la = Lab::from_color(sa);
+    let lb = Lab::from_color(sb);
+    let mixed: Srgb = la.mix(lb, t.clamp(0.0, 1.0)).into_color();
+    Rgb(
+        (mixed.red.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (mixed.green.clamp(0.0, 1.0) * 255.0).round() as u8,
+        (mixed.blue.clamp(0.0, 1.0) * 255.0).round() as u8,
+    )
 }
 
 fn paint_window(
