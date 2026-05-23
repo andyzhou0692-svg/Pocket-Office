@@ -218,12 +218,6 @@ pub(super) fn paint_pantry_chair(buf: &mut RgbBuffer, cx: u16, cy: u16) {
     put(buf, 0, 0, TRIM);
 }
 
-/// Current rendered position of an agent's character — derived from pose
-/// so labels can follow the character rather than staying anchored at the
-/// desk. Returns the top-left anchor of the character sprite. Uses
-/// `derive_with_routing` so labels track agents along their A* path
-/// instead of jumping the straight-line midpoint.
-#[allow(clippy::too_many_arguments)]
 /// How long the elevator's open/close transition takes. Used as both
 /// the opening ramp at the START of an agent's entry/exit window and
 /// the closing ramp at the END. 200 ms feels snappy without being
@@ -283,6 +277,12 @@ fn compute_door_frame_idx(agents: &[AgentSlot], now: SystemTime) -> usize {
     max_frame
 }
 
+/// Current rendered position of an agent's character — derived from pose
+/// so labels can follow the character rather than staying anchored at the
+/// desk. Returns the top-left anchor of the character sprite. Uses
+/// `derive_with_routing` so labels track agents along their A* path
+/// instead of jumping the straight-line midpoint.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn character_anchor(
     agent: &AgentSlot,
     layout: &Layout,

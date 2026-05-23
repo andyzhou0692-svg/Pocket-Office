@@ -160,7 +160,6 @@ pub struct SceneLayout {
 /// furniture rather than scraping along its edge.
 pub const OBSTACLE_PAD_PX: u16 = 2;
 
-pub const WAYPOINT_COUNT: usize = 2;
 pub const DESK_W: u16 = 12;
 pub const DESK_H: u16 = 6;
 /// Hard cap on how many cubicles get painted regardless of how high

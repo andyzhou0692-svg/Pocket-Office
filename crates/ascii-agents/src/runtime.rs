@@ -89,7 +89,7 @@ async fn reducer_task(
 }
 
 async fn headless_loop(mut scene_rx: SceneRx) -> Result<()> {
-    eprintln!("ascii-agents headless mode — Ctrl-C to quit");
+    tracing::info!("ascii-agents headless mode — Ctrl-C to quit");
     let mut prev_summary = String::new();
     loop {
         tokio::select! {
@@ -102,7 +102,7 @@ async fn headless_loop(mut scene_rx: SceneRx) -> Result<()> {
                 }
             }
             _ = tokio::signal::ctrl_c() => {
-                eprintln!("shutting down");
+                tracing::info!("shutting down");
                 return Ok(());
             }
         }
