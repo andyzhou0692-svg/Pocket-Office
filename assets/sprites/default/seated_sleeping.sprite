@@ -1,13 +1,16 @@
-# 8x10 seated person with eyes closed (two-pixel dashes instead of dots).
-# Used when the agent is Idle — visually communicates "snoozing at desk".
+# 8x10 head-on-desk — "sleeping at work". Enlarged hair dome (4 rows)
+# so the head reads clearly at half-block scale. Hands (skin) flank the
+# head on row 5 so the pose reads "face buried in arms". Pants visible
+# at the bottom for visual grounding. 2 transparent rows at top make the
+# character visibly shorter than the upright typing sprite.
 @frame 0
+. . . . . . . .
+. . H H H H . .
 . n H H H H n .
-n H H H H H H n
-H S S S S S S H
-H e e S e e S H
-. S S S m S S .
-. n S S S S n .
-. B B B B B B .
+. H H H H H H .
+S B H H H H B S
+B B S S S S B B
 B B B B B B B B
 B B B B B B B B
-. S B B B B S .
+P P B B B B P P
+. . . . . . . .
