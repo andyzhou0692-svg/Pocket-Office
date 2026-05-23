@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/screenshot.png" alt="ascii-agents coworking office" width="720" />
+  <img src="docs/images/demo.gif" alt="ascii-agents animated demo" width="720" />
 </p>
 
 <h1 align="center">ascii-agents</h1>

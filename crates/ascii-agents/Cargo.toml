@@ -37,7 +37,7 @@ palette            = { version = "0.7", default-features = false, features = ["s
 
 [dev-dependencies]
 tempfile = "3"
-image    = { version = "0.25", default-features = false, features = ["png"] }
+image    = { version = "0.25", default-features = false, features = ["png", "gif"] }
 
 [[example]]
 name = "snapshot"

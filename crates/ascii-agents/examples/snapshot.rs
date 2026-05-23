@@ -17,7 +17,8 @@ use ascii_agents_core::sprite::{Rgb, RgbBuffer};
 use ascii_agents_core::state::ActivityState;
 use ascii_agents_core::{AgentId, AgentSlot, Reducer, SceneState, Transport};
 use clap::Parser;
-use image::{Rgb as ImgRgb, RgbImage};
+use image::codecs::gif::{GifEncoder, Repeat};
+use image::{Delay, Frame as GifFrame, Rgb as ImgRgb, Rgba, RgbaImage, RgbImage};
 use ratatui::backend::TestBackend;
 use ratatui::style::Color;
 use ratatui::Terminal;
@@ -69,6 +70,22 @@ struct SnapshotArgs {
     /// default 7-agent scene.
     #[arg(long, default_value_t = 12)]
     max_desks: usize,
+
+    /// Output an animated GIF instead of a static PNG. Renders
+    /// `--gif-duration` seconds at `--gif-fps` frames per second,
+    /// advancing the clock each frame so animations (typing bob,
+    /// walking, wander cycles) play out.
+    #[arg(long)]
+    gif: bool,
+
+    /// GIF duration in seconds (only with --gif).
+    #[arg(long, default_value_t = 5)]
+    gif_duration: u64,
+
+    /// GIF frame rate (only with --gif). 10 fps is a good balance of
+    /// smoothness vs file size (~2-5 MB for a 5s clip).
+    #[arg(long, default_value_t = 10)]
+    gif_fps: u64,
 }
 
 fn default_projects_root() -> String {
@@ -100,17 +117,32 @@ fn main() -> Result<()> {
     let mut cache = FrameCache::new();
     let mut router = ascii_agents::tui::pathfind::AStarRouter::new();
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
+    let mut history = ascii_agents::tui::pose::PoseHistory::new();
+
+    if args.gif {
+        save_as_gif(
+            &mut term,
+            &scene,
+            &pack,
+            now,
+            &args.out,
+            cols,
+            rows,
+            &mut buf,
+            &mut cache,
+            &mut router,
+            &mut overlay,
+            &mut history,
+            args.gif_fps,
+            args.gif_duration,
+        )?;
+        println!("wrote {}", args.out.display());
+        return Ok(());
+    }
+
     draw_scene(
-        &mut term,
-        &scene,
-        &pack,
-        now,
-        &mut buf,
-        &mut cache,
-        &mut router,
-        &mut overlay,
-        &mut ascii_agents::tui::pose::PoseHistory::new(),
-        None,
+        &mut term, &scene, &pack, now, &mut buf, &mut cache, &mut router, &mut overlay,
+        &mut history, None,
     )?;
 
     if args.debug_walkable {
@@ -120,7 +152,6 @@ fn main() -> Result<()> {
     save_backend_as_png(&term, &args.out, cols, rows)?;
     println!("wrote {}", args.out.display());
 
-    // Also dump a text-only preview so you can eyeball without an image viewer.
     println!("\n--- text preview (symbols only) ---");
     let buf = term.backend().buffer();
     for y in 0..rows {
@@ -498,6 +529,93 @@ fn save_backend_as_png(
 
     img.save(path)?;
     Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn save_as_gif(
+    term: &mut Terminal<TestBackend>,
+    scene: &SceneState,
+    pack: &ascii_agents_core::sprite::format::Pack,
+    start_now: SystemTime,
+    path: &PathBuf,
+    cols: u16,
+    rows: u16,
+    buf: &mut RgbBuffer,
+    cache: &mut FrameCache,
+    router: &mut ascii_agents::tui::pathfind::AStarRouter,
+    overlay: &mut ascii_agents_core::walkable::OccupancyOverlay,
+    history: &mut ascii_agents::tui::pose::PoseHistory,
+    fps: u64,
+    duration_secs: u64,
+) -> Result<()> {
+    let frame_count = (duration_secs * fps) as usize;
+    let frame_ms = 1000 / fps.max(1);
+    let img_w = cols as u32 * CELL_W;
+    let img_h = rows as u32 * CELL_H;
+
+    let file = std::fs::File::create(path)?;
+    let mut encoder = GifEncoder::new(file);
+    encoder.set_repeat(Repeat::Infinite)?;
+
+    for i in 0..frame_count {
+        let now = start_now + Duration::from_millis(i as u64 * frame_ms);
+        draw_scene(
+            term, scene, pack, now, buf, cache, router, overlay, history, None,
+        )?;
+
+        let term_buf = term.backend().buffer();
+        let mut rgba = RgbaImage::new(img_w, img_h);
+        for y in 0..rows {
+            for x in 0..cols {
+                let cell = &term_buf[(x, y)];
+                let symbol = cell.symbol();
+                let fg = color_to_rgb(cell.fg, ImgRgb([220, 220, 220]));
+                let bg = color_to_rgb(cell.bg, ImgRgb([20, 22, 28]));
+                let x0 = x as u32 * CELL_W;
+                let y0 = y as u32 * CELL_H;
+                if symbol == "▀" {
+                    fill_rgba_rect(&mut rgba, x0, y0, CELL_W, CELL_H / 2, fg);
+                    fill_rgba_rect(&mut rgba, x0, y0 + CELL_H / 2, CELL_W, CELL_H / 2, bg);
+                } else if symbol.trim().is_empty() {
+                    fill_rgba_rect(&mut rgba, x0, y0, CELL_W, CELL_H, bg);
+                } else {
+                    fill_rgba_rect(&mut rgba, x0, y0, CELL_W, CELL_H, bg);
+                    let pad_x = 1;
+                    let pad_y = 3;
+                    fill_rgba_rect(
+                        &mut rgba,
+                        x0 + pad_x,
+                        y0 + pad_y,
+                        CELL_W - pad_x * 2,
+                        CELL_H - pad_y * 2,
+                        fg,
+                    );
+                }
+            }
+        }
+        let delay = Delay::from_numer_denom_ms(frame_ms as u32, 1);
+        let frame = GifFrame::from_parts(rgba, 0, 0, delay);
+        encoder.encode_frame(frame)?;
+        if (i + 1) % (fps as usize) == 0 {
+            eprint!("\r  encoding: {}/{}s", (i + 1) / fps as usize, duration_secs);
+        }
+    }
+    eprintln!("\r  encoded {frame_count} frames @ {fps}fps");
+    Ok(())
+}
+
+fn fill_rgba_rect(img: &mut RgbaImage, x: u32, y: u32, w: u32, h: u32, color: ImgRgb<u8>) {
+    let (img_w, img_h) = (img.width(), img.height());
+    let rgba = Rgba([color[0], color[1], color[2], 255]);
+    for j in 0..h {
+        for i in 0..w {
+            let px_x = x + i;
+            let px_y = y + j;
+            if px_x < img_w && px_y < img_h {
+                img.put_pixel(px_x, px_y, rgba);
+            }
+        }
+    }
 }
 
 fn fill_rect(img: &mut RgbImage, x: u32, y: u32, w: u32, h: u32, color: ImgRgb<u8>) {
