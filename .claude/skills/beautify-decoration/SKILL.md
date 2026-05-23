@@ -26,14 +26,22 @@ A repo-specific iteration loop for visually redesigning a decoration in `ascii-a
    ↓
 3. ./target/release/examples/snapshot --cols 192 --rows 64 /tmp/snap.png
    ↓
-4. Crop the relevant quadrant with PIL, upscale 2×
+4. .venv/bin/python3 scripts/crop-snapshot.py /tmp/snap.png --scale 3 -q <quadrant>
    ↓
 5. Read the cropped PNG → self-critique → back to step 1
    ↓
 6. When happy, send to user with SendUserFile and short caption
+   ↓
+7. cargo build --release --workspace    ← rebuild the LIVE binary too
+   ↓
+8. Commit with iteration history (which designs were tried, why rejected)
 ```
 
 The user is the final judge of "does it look like a fridge / coffee machine / etc." — but you should self-critique before sending. Three iterations of self-critique before bothering the user.
+
+**Step 7 is mandatory.** `cargo build --release --example snapshot` does NOT rebuild the main binary. Users testing with `./target/release/ascii-agents run` won't see sprite changes until the workspace is rebuilt. Forgetting this step is how "I changed the sprite but nothing happened in the live TUI" bugs get filed.
+
+**Step 8 is mandatory.** Commit messages for sprite changes must include the iteration count and a one-line rationale for each rejected attempt. Future editors need to know which alternatives were explored — otherwise they'll re-try the same dead-end designs (the seated_sleeping sprite went through 4 iterations before reading correctly at scale).
 
 ## Sharp edges (the things that wasted time during the pantry session)
 
