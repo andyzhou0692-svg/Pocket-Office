@@ -1,0 +1,274 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Validate tag matches Cargo.toml version
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          CARGO_VERSION=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match Cargo.toml version ${CARGO_VERSION}"
+            exit 1
+          fi
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --features ascii-agents-core/test-renderer -- -D warnings
+      - run: cargo test --workspace --features ascii-agents-core/test-renderer
+
+  build:
+    name: build (${{ matrix.target }})
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-14
+          - target: x86_64-apple-darwin
+            os: macos-13
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install musl-tools
+        if: contains(matrix.target, 'musl')
+        run: sudo apt-get install -y musl-tools
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          DIR="ascii-agents-${VERSION}-${{ matrix.target }}"
+          mkdir "$DIR"
+          cp "target/${{ matrix.target }}/release/ascii-agents" "$DIR/"
+          cp "target/${{ matrix.target }}/release/ascii-agents-hook" "$DIR/"
+          cp LICENSE "$DIR/"
+          tar czf "${DIR}.tar.gz" "$DIR"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: artifact-${{ matrix.target }}
+          path: "*.tar.gz"
+          if-no-files-found: error
+
+  deb:
+    name: deb (${{ matrix.target }})
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
+            cross: true
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: deb-${{ matrix.target }}
+
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Install cargo-deb
+        run: cargo install cargo-deb
+
+      - name: Build
+        run: |
+          if [ "${{ matrix.cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Build deb (ascii-agents)
+        run: cargo deb -p ascii-agents --no-build --target ${{ matrix.target }}
+
+      - name: Build deb (ascii-agents-hook)
+        run: cargo deb -p ascii-agents-hook --no-build --target ${{ matrix.target }}
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: deb-${{ matrix.target }}
+          path: target/${{ matrix.target }}/debian/*.deb
+          if-no-files-found: error
+
+  release:
+    name: release
+    needs: [build, deb]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          sha256sum *.tar.gz *.deb > sha256sums.txt
+
+      - name: Generate changelog
+        id: changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --latest --strip header
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          body: ${{ steps.changelog.outputs.content }}
+          files: |
+            artifacts/*.tar.gz
+            artifacts/*.deb
+            artifacts/sha256sums.txt
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            artifacts/*.tar.gz
+            artifacts/*.deb
+
+  homebrew:
+    name: update homebrew tap
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Update formula
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          TAG="${GITHUB_REF_NAME}"
+
+          SHA_MACOS_ARM=$(sha256sum "artifacts/ascii-agents-${TAG}-aarch64-apple-darwin.tar.gz" | cut -d' ' -f1)
+          SHA_MACOS_INTEL=$(sha256sum "artifacts/ascii-agents-${TAG}-x86_64-apple-darwin.tar.gz" | cut -d' ' -f1)
+          SHA_LINUX_ARM=$(sha256sum "artifacts/ascii-agents-${TAG}-aarch64-unknown-linux-gnu.tar.gz" | cut -d' ' -f1)
+          SHA_LINUX_INTEL=$(sha256sum "artifacts/ascii-agents-${TAG}-x86_64-unknown-linux-gnu.tar.gz" | cut -d' ' -f1)
+
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/IvanWng97/homebrew-ascii-agents.git" tap
+          mkdir -p tap/Formula
+
+          cat > tap/Formula/ascii-agents.rb <<RUBY
+          class AsciiAgents < Formula
+            desc "Terminal pixel-art office for AI coding agents"
+            homepage "https://github.com/IvanWng97/ascii-agents"
+            version "${VERSION}"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/IvanWng97/ascii-agents/releases/download/${TAG}/ascii-agents-${TAG}-aarch64-apple-darwin.tar.gz"
+                sha256 "${SHA_MACOS_ARM}"
+              end
+              on_intel do
+                url "https://github.com/IvanWng97/ascii-agents/releases/download/${TAG}/ascii-agents-${TAG}-x86_64-apple-darwin.tar.gz"
+                sha256 "${SHA_MACOS_INTEL}"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/IvanWng97/ascii-agents/releases/download/${TAG}/ascii-agents-${TAG}-aarch64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_LINUX_ARM}"
+              end
+              on_intel do
+                url "https://github.com/IvanWng97/ascii-agents/releases/download/${TAG}/ascii-agents-${TAG}-x86_64-unknown-linux-gnu.tar.gz"
+                sha256 "${SHA_LINUX_INTEL}"
+              end
+            end
+
+            def install
+              bin.install "ascii-agents"
+              bin.install "ascii-agents-hook"
+            end
+
+            def caveats
+              <<~EOS
+                To start visualizing your Claude Code sessions:
+                  ascii-agents install-hooks
+                  ascii-agents run
+
+                Before uninstalling, remove hooks from Claude Code:
+                  ascii-agents uninstall-hooks
+              EOS
+            end
+
+            test do
+              assert_match "ascii-agents", shell_output("#{bin}/ascii-agents --version")
+            end
+          end
+          RUBY
+          sed -i 's/^          //' tap/Formula/ascii-agents.rb
+
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ascii-agents.rb
+          git commit -m "ascii-agents ${VERSION}"
+          git push

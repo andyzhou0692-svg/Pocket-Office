@@ -7,8 +7,10 @@ use anyhow::Result;
 
 pub fn install(hook_path: Option<PathBuf>, settings: Option<PathBuf>) -> Result<()> {
     let settings_path = settings.unwrap_or_else(io::default_settings_path);
-    let hook = hook_path.map(Ok).unwrap_or_else(io::default_hook_binary)?;
-    let hook_str = hook.to_string_lossy().to_string();
+    // Verify the binary exists, but write just the bare name so settings.json
+    // stays portable across machines with different install locations.
+    let _hook = hook_path.map(Ok).unwrap_or_else(io::default_hook_binary)?;
+    let hook_str = "ascii-agents-hook".to_string();
 
     let backup = io::backup_once(&settings_path)?;
     let doc = io::read_settings(&settings_path)?;
