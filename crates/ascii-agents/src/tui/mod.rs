@@ -18,10 +18,7 @@ use tui_renderer::TuiRenderer;
 
 use crate::runtime::SceneRx;
 
-pub async fn run_tui(
-    mut scene_rx: SceneRx,
-    pack_dir: Option<std::path::PathBuf>,
-) -> Result<()> {
+pub async fn run_tui(mut scene_rx: SceneRx, pack_dir: Option<std::path::PathBuf>) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
     let mut renderer = TuiRenderer::new(term);

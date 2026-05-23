@@ -41,7 +41,9 @@ fn xdg_pack_dir() -> Option<PathBuf> {
 pub fn load_sprite_pack(pack_dir: Option<PathBuf>) -> Result<Pack> {
     if let Some(dir) = pack_dir {
         return load_pack(&dir)
-            .inspect(|_| tracing::info!(path = %dir.display(), "loaded sprite pack from --pack-dir"))
+            .inspect(
+                |_| tracing::info!(path = %dir.display(), "loaded sprite pack from --pack-dir"),
+            )
             .map_err(|e| {
                 anyhow::anyhow!("failed to load sprite pack from {}: {e}", dir.display())
             });

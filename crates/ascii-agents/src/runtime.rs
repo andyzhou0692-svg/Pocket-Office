@@ -29,9 +29,9 @@ pub fn run(
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
-    rt.block_on(async move {
-        run_async(socket, projects_root, pack_dir, max_desks, headless).await
-    })
+    rt.block_on(
+        async move { run_async(socket, projects_root, pack_dir, max_desks, headless).await },
+    )
 }
 
 async fn run_async(
