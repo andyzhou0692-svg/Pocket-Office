@@ -84,6 +84,10 @@ fn load_embedded_pack() -> Result<Pack> {
     let cat_1 = include_str!("../../../../assets/sprites/default/cat_walk_1.sprite");
     let floor_seat = include_str!("../../../../assets/sprites/default/seated_floor.sprite");
     let floor_slp = include_str!("../../../../assets/sprites/default/seated_floor_sleeping.sprite");
+    let working_couch_0 = include_str!("../../../../assets/sprites/default/working_couch_0.sprite");
+    let working_couch_1 = include_str!("../../../../assets/sprites/default/working_couch_1.sprite");
+    let working_floor_0 = include_str!("../../../../assets/sprites/default/working_floor_0.sprite");
+    let working_floor_1 = include_str!("../../../../assets/sprites/default/working_floor_1.sprite");
     let couch = include_str!("../../../../assets/sprites/default/couch.sprite");
     let meeting_sofa = include_str!("../../../../assets/sprites/default/meeting_sofa.sprite");
     let meeting_screen = include_str!("../../../../assets/sprites/default/meeting_screen.sprite");
@@ -130,6 +134,10 @@ fn load_embedded_pack() -> Result<Pack> {
             ("cat_walk_1.sprite", cat_1),
             ("seated_floor.sprite", floor_seat),
             ("seated_floor_sleeping.sprite", floor_slp),
+            ("working_couch_0.sprite", working_couch_0),
+            ("working_couch_1.sprite", working_couch_1),
+            ("working_floor_0.sprite", working_floor_0),
+            ("working_floor_1.sprite", working_floor_1),
             ("couch.sprite", couch),
             ("meeting_sofa.sprite", meeting_sofa),
             ("meeting_screen.sprite", meeting_screen),

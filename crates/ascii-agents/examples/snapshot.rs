@@ -61,6 +61,14 @@ struct SnapshotArgs {
     /// Override the snapshot terminal height (cells). Default 36.
     #[arg(long)]
     rows: Option<u16>,
+
+    /// Cap on home desks for the sample scene — lowering this forces
+    /// agents past `max_desks` onto overflow seating (meeting sofas
+    /// first, then floor seats). Use `--max-desks 2` to make the
+    /// `working_couch` / `working_floor` poses visible from the
+    /// default 7-agent scene.
+    #[arg(long, default_value_t = 12)]
+    max_desks: usize,
 }
 
 fn default_projects_root() -> String {
@@ -80,7 +88,7 @@ fn main() -> Result<()> {
             .build()?;
         rt.block_on(capture_live_scene(&args.projects_root, args.listen_secs))?
     } else {
-        sample_scene(now)
+        sample_scene(now, args.max_desks)
     };
 
     let cols = args.cols.unwrap_or(COLS);
@@ -352,10 +360,16 @@ async fn capture_live_scene(projects_root: &str, listen_secs: u64) -> Result<Sce
     Ok(snapshot)
 }
 
-fn sample_scene(now: SystemTime) -> SceneState {
+fn sample_scene(now: SystemTime, max_desks: usize) -> SceneState {
     use std::time::Duration as D;
-    let mut s = SceneState::new(12);
-    let agents: [(&str, ActivityState, D); 7] = [
+    let mut s = SceneState::new(max_desks);
+    // 12-agent scene — when the buffer is small enough that not every
+    // agent gets a home desk (true at the default 96×36), the trailing
+    // entries fall through to overflow seating (2 meeting sofas + floor
+    // seats). The Active variants at indexes 6 and 8/11 exercise the
+    // working_couch / working_floor sprites; the Waiting at 7 falls
+    // onto the mirrored second sofa (back_couch).
+    let agents: [(&str, ActivityState, D); 12] = [
         (
             "working",
             ActivityState::Active {
@@ -377,14 +391,41 @@ fn sample_scene(now: SystemTime) -> SceneState {
         ("at-wp", ActivityState::Idle, D::from_millis(6_000)),    // phase 2
         ("walk-back", ActivityState::Idle, D::from_millis(8_250)), // phase 3
         (
-            "working-2",
+            "couch-act",
             ActivityState::Active {
                 activity: Activity::Typing,
-                tool_use_id: Some("tu_b".into()),
-                detail: Some("Edit: lib.rs".into()),
+                tool_use_id: Some("tu_c".into()),
+                detail: Some("Read: README.md".into()),
             },
             D::from_millis(140),
-        ), // mid typing cycle
+        ),
+        (
+            "couch-bk",
+            ActivityState::Waiting {
+                reason: "review".into(),
+            },
+            D::from_millis(0),
+        ),
+        (
+            "floor-act",
+            ActivityState::Active {
+                activity: Activity::Typing,
+                tool_use_id: Some("tu_d".into()),
+                detail: Some("Bash: cargo test".into()),
+            },
+            D::from_millis(140),
+        ),
+        ("floor-idle", ActivityState::Idle, D::from_millis(2_000)),
+        (
+            "floor-act2",
+            ActivityState::Active {
+                activity: Activity::Typing,
+                tool_use_id: Some("tu_e".into()),
+                detail: Some("Grep: TODO".into()),
+            },
+            D::from_millis(280),
+        ),
+        ("floor-idle2", ActivityState::Idle, D::from_millis(3_000)),
     ];
     for (i, (key, state, age)) in agents.iter().enumerate() {
         let id = AgentId::from_transcript_path(&format!("/demo/{key}.jsonl"));

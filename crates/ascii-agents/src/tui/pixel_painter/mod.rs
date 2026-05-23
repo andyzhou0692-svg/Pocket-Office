@@ -766,15 +766,27 @@ pub fn render_to_rgb_buffer(
         if agent.desk_index >= layout.home_desks.len() {
             let overflow_idx = agent.desk_index - layout.home_desks.len();
             let sofa_count = layout.meeting_sofas.len();
+            // 400 ms screen-pulse period for active overflow agents.
+            // Out of phase with typing (140 ms) and walking (220 ms) so
+            // adjacent agents don't visibly strobe together.
+            const OVERFLOW_PULSE_MS: u64 = 400;
+            let pulse_frame: usize = now
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| (d.as_millis() as u64 / OVERFLOW_PULSE_MS) as usize % 2)
+                .unwrap_or(0);
+            let is_active = matches!(agent.state, ActivityState::Active { .. });
+
             if overflow_idx < sofa_count {
                 let sofa = layout.meeting_sofas[overflow_idx];
                 let is_mirrored_sofa = overflow_idx > 0;
-                let (anim_name, base_anchor_y, sprite_h) = if is_mirrored_sofa {
-                    ("back_couch", sofa.y.saturating_sub(7), 9u16)
-                } else if matches!(agent.state, ActivityState::Active { .. }) {
-                    ("sitting_couch", sofa.y.saturating_sub(2), 12u16)
+                let (anim_name, base_anchor_y, sprite_h, frame_idx) = if is_mirrored_sofa {
+                    // Back-facing sofa — viewer sees the agent's back, no
+                    // laptop to show. Keep the static back_couch sprite.
+                    ("back_couch", sofa.y.saturating_sub(7), 9u16, 0)
+                } else if is_active {
+                    ("working_couch", sofa.y.saturating_sub(2), 12u16, pulse_frame)
                 } else {
-                    ("sitting_couch_sleeping", sofa.y.saturating_sub(2), 12u16)
+                    ("sitting_couch_sleeping", sofa.y.saturating_sub(2), 12u16, 0)
                 };
                 let anchor = with_breath(
                     Point {
@@ -789,7 +801,7 @@ pub fn render_to_rgb_buffer(
                     kind: DrawableKind::Character {
                         agent,
                         anim_name,
-                        frame_idx: 0,
+                        frame_idx,
                         anchor,
                         flip_x: false,
                         face_lit: false,
@@ -812,17 +824,17 @@ pub fn render_to_rgb_buffer(
                 agent.agent_id,
                 now,
             );
-            let anim_name = if matches!(agent.state, ActivityState::Active { .. }) {
-                "seated_floor"
+            let (anim_name, frame_idx) = if is_active {
+                ("working_floor", pulse_frame)
             } else {
-                "seated_floor_sleeping"
+                ("seated_floor_sleeping", 0)
             };
             drawables.push(Drawable {
                 anchor_y: anchor.y + 12,
                 kind: DrawableKind::Character {
                     agent,
                     anim_name,
-                    frame_idx: 0,
+                    frame_idx,
                     anchor,
                     flip_x: false,
                     face_lit: false,

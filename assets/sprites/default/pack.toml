@@ -118,6 +118,18 @@ frame_ms = 600
 frames   = ["seated_floor_sleeping.sprite"]
 frame_ms = 600
 
+# Active variants for overflow agents: dim/lit screen cycle reads as
+# "cursor pulse" so the overflow seat conveys WORK rather than just
+# sitting. 400ms is a calm pulse — fast enough to notice, slow enough
+# that two adjacent agents don't strobe in sync.
+[animations.working_couch]
+frames   = ["working_couch_0.sprite", "working_couch_1.sprite"]
+frame_ms = 400
+
+[animations.working_floor]
+frames   = ["working_floor_0.sprite", "working_floor_1.sprite"]
+frame_ms = 400
+
 [animations.couch]
 frames   = ["couch.sprite"]
 frame_ms = 600
