@@ -5,17 +5,12 @@
 //! by `TestRenderer` in tests. `TuiRenderer` is the production impl: it
 //! owns the cross-frame mutable state (`RgbBuffer`, `FrameCache`,
 //! `AStarRouter`, `OccupancyOverlay`, `PoseHistory`) and forwards to
-//! `draw_scene`.
-//!
-//! The trait's `layout` parameter is ignored by this impl — the half-block
-//! terminal recomputes its own layout per frame from `terminal.size()`
-//! because the user can resize at any time. Renderers that target a fixed
-//! canvas (web, PNG, GIF) would use the trait-supplied layout.
+//! `draw_scene`, which recomputes its own layout per frame from
+//! `terminal.size()` because the user can resize at any time.
 
 use std::time::SystemTime;
 
 use anyhow::Result;
-use ascii_agents_core::layout::SceneLayout;
 use ascii_agents_core::sprite::format::Pack;
 use ascii_agents_core::sprite::{Rgb, RgbBuffer};
 use ascii_agents_core::state::SceneState;
@@ -78,13 +73,7 @@ impl<B: Backend> TuiRenderer<B> {
 }
 
 impl<B: Backend> Renderer for TuiRenderer<B> {
-    fn render(
-        &mut self,
-        scene: &SceneState,
-        _layout: &SceneLayout,
-        pack: &Pack,
-        now: SystemTime,
-    ) -> Result<()> {
+    fn render(&mut self, scene: &SceneState, pack: &Pack, now: SystemTime) -> Result<()> {
         draw_scene(
             &mut self.terminal,
             scene,

@@ -8,7 +8,6 @@ use std::time::{Duration, SystemTime};
 
 use ascii_agents::tui::embedded_pack::load_default_pack;
 use ascii_agents::tui::tui_renderer::TuiRenderer;
-use ascii_agents_core::layout::SceneLayout;
 use ascii_agents_core::source::Activity;
 use ascii_agents_core::state::ActivityState;
 use ascii_agents_core::{AgentId, AgentSlot, Renderer, SceneState};
@@ -46,11 +45,8 @@ fn tui_renderer_render_paints_a_full_frame() {
     let mut renderer = TuiRenderer::new(terminal);
     let pack = load_default_pack().expect("pack");
 
-    // Layout param is required by the trait but ignored by the TUI impl
-    // (recomputed per frame from live terminal size); supply a placeholder.
-    let layout = SceneLayout::compute(192, 72, 8).expect("layout");
     renderer
-        .render(&scene, &layout, &pack, now)
+        .render(&scene, &pack, now)
         .expect("render through Renderer trait");
 
     // The TUI impl owns the pixel buffer — after render, it should be sized

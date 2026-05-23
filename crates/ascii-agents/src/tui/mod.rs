@@ -10,7 +10,6 @@ pub mod tui_renderer;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
-use ascii_agents_core::layout::SceneLayout;
 use ascii_agents_core::Renderer;
 use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseEventKind};
 
@@ -28,15 +27,6 @@ pub async fn run_tui(mut scene_rx: SceneRx) -> Result<()> {
     // visible-desk threshold). Dynamic occupancy churn is handled inside
     // the router via overlay signature.
     let mut last_layout_sig: Option<(u16, u16, usize)> = None;
-
-    // The Renderer trait carries `layout` as a parameter for renderers that
-    // need it (web canvas, PNG). `TuiRenderer` ignores it (recomputes per
-    // frame from terminal size), but the trait method demands one — supply
-    // a tiny placeholder. Dimensions must clear `SceneLayout::compute`'s
-    // minimums (MIN_TOP_MARGIN-driven `min_h = 60`, `MIN_W = 34`); 80×64
-    // sits comfortably above both so future bumps don't quietly break this.
-    let placeholder_layout = SceneLayout::compute(80, 64, 1)
-        .ok_or_else(|| anyhow::anyhow!("placeholder layout failed"))?;
 
     let tick = Duration::from_millis(33); // ~30 fps
     let result: Result<()> = (async {
@@ -57,7 +47,7 @@ pub async fn run_tui(mut scene_rx: SceneRx) -> Result<()> {
             // TuiRenderer::render rebuilds the overlay internally from
             // current agent positions before computing routed poses, so the
             // router routes around live agents and characters don't overlap.
-            renderer.render(&snapshot, &placeholder_layout, &pack, now)?;
+            renderer.render(&snapshot, &pack, now)?;
 
             let start = Instant::now();
             // Drain every event that arrived during this tick. Mouse moves
