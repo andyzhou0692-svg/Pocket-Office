@@ -9,16 +9,16 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="ascii-agents animated demo" width="800" />
-</p>
-
-<p align="center">
   <a href="https://github.com/IvanWng97/ascii-agents/stargazers"><img src="https://img.shields.io/github/stars/IvanWng97/ascii-agents?style=flat-square" alt="Stars" /></a>
   <a href="https://github.com/IvanWng97/ascii-agents/releases"><img src="https://img.shields.io/github/v/release/IvanWng97/ascii-agents?label=version&style=flat-square" alt="Version" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License" /></a>
   <a href="https://github.com/IvanWng97/ascii-agents/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/IvanWng97/ascii-agents/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://codecov.io/gh/IvanWng97/ascii-agents"><img src="https://img.shields.io/codecov/c/github/IvanWng97/ascii-agents?style=flat-square" alt="Coverage" /></a>
   <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?style=flat-square&logo=anthropic" alt="Built with Claude Code" /></a>
+</p>
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="ascii-agents animated demo" width="800" />
 </p>
 
 <p align="center">
@@ -125,9 +125,14 @@ Three Rust crates:
 
 </details>
 
-## Extending
+## Contributing
 
-`Source` is the only abstraction for adding a new agent CLI:
+See [`CLAUDE.md`](CLAUDE.md) for architecture and conventions. PRs welcome — especially new themes and `Source` adapters for other agent CLIs (Codex, Cursor, Gemini).
+
+<details>
+<summary><strong>Adding a new agent CLI</strong></summary>
+
+Implement the `Source` trait and plug in via `SourceManager::with_source()`:
 
 ```rust
 #[async_trait]
@@ -137,17 +142,11 @@ pub trait Source: Send + 'static {
 }
 ```
 
-A future `CodexSource` / `CursorSource` / `GeminiSource` implements the trait and plugs in via `SourceManager::with_source()`.
-
-## Contributing
-
-See [`CLAUDE.md`](CLAUDE.md) for architecture, conventions, and the sprite iteration workflow. PRs welcome — especially new `Source` adapters and themes.
+</details>
 
 ## Acknowledgments
 
-- [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) — the inspiration (VS Code webview)
-- [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) — multi-agent hook pattern (desktop pet)
-- Claude Code's [Buddy](https://dev.to/picklepixel/how-i-reverse-engineered-claude-codes-hidden-pet-system-8l7) — proves terminal pets are delightful
+Inspired by [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) (VS Code), [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (desktop pet), and Claude Code's [Buddy](https://dev.to/picklepixel/how-i-reverse-engineered-claude-codes-hidden-pet-system-8l7).
 
 ## License
 
