@@ -412,7 +412,7 @@ impl SceneLayout {
 
         // Two waypoints now: viewing couch (top of cubicle band, against
         // the city windows) and pantry (bottom-left, doubles as coffee).
-        let couch_y = top_margin + 7;
+        let couch_y = top_margin + 3;
         let couch_x = cubicle_band.x + cubicle_band.width * 35 / 100;
         let mut waypoints: Vec<Waypoint> = vec![Waypoint {
             pos: Point {
