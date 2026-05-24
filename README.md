@@ -1,12 +1,13 @@
 <p align="center">
-  <img src="docs/images/demo.gif" alt="ascii-agents animated demo" width="720" />
+  <img src="docs/images/demo.gif" alt="ascii-agents animated demo" width="800" />
 </p>
 
 <h1 align="center">ascii-agents</h1>
 
 <p align="center">
   <strong>Your AI coding agents deserve an office.</strong><br />
-  A terminal-native pixel-art coworking lounge where every Claude Code session is a character — typing at desks, wandering to the pantry, napping on the couch.
+  A terminal-native pixel-art coworking lounge where every Claude Code session is a character —<br />
+  typing at desks, wandering to the pantry, napping on the couch.
 </p>
 
 <p align="center">
@@ -18,7 +19,7 @@
 
 ---
 
-> Inspired by [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) (VS Code webview) and [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (desktop pet). Different niche: pure terminal, no Electron, no browser, runs over SSH.
+> Inspired by [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) (VS Code webview) and [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (desktop pet). Different niche: **pure terminal**, no Electron, no browser — runs over SSH.
 
 ## Why?
 
@@ -30,29 +31,29 @@ You're running 5 Claude Code sessions across 3 repos. Which one is typing? Which
 
 <table>
   <tr>
-    <td align="center"><strong>Cubicle pods</strong><br />Agents typing at desks with per-tool monitor glow<br /><img src="docs/images/gallery-cubicle.png" width="360" /></td>
-    <td align="center"><strong>Meeting room</strong><br />Overflow agents on sofas with laptops<br /><img src="docs/images/gallery-meeting.png" width="240" /></td>
+    <td align="center"><strong>Cubicle pods</strong><br />Agents typing at desks with per-tool monitor glow<br /><img src="docs/images/gallery-cubicle.png" width="480" /></td>
+    <td align="center"><strong>Meeting room</strong><br />Overflow agents on sofas with laptops<br /><img src="docs/images/gallery-meeting.png" width="280" /></td>
   </tr>
   <tr>
-    <td align="center"><strong>Pantry</strong><br />Kitchen counter, bistro table, potted plants<br /><img src="docs/images/gallery-pantry.png" width="240" /></td>
-    <td align="center"><strong>Status footer</strong><br /><code>12 agents · 3 active · 2 waiting · 7 idle · Edit×2 Bash×1</code></td>
+    <td align="center"><strong>Pantry</strong><br />Kitchen counter, bistro table, potted plants<br /><img src="docs/images/gallery-pantry.png" width="280" /></td>
+    <td align="center"><strong>Status footer</strong><br /><code>12 agents · 4 active · 2 waiting · 6 idle · Bash×1 Write×1</code></td>
   </tr>
 </table>
 
 ## Features
 
 - **Multi-agent coworking office** — each CC session gets a desk; overflow agents work from meeting-room sofas and floor seats with laptops
-- **Animated characters** — typing (with head-bob), waiting (standing + `?` bubble), sleeping (head-on-desk + z's), walking between waypoints
-- **A\*-routed pathfinding** — idle agents wander to the couch, pantry, standing desk, phone booth; route around furniture via cached A\* on a 4x4 cell grid
-- **Per-agent identity** — deterministic shirt/hair/skin palette from session hash, 16 curated outfits (Wes Anderson + Studio Ghibli inspired)
+- **Animated characters** — typing, waiting (standing + `?` bubble), sleeping (head-on-desk + z's, slumped variants), walking between waypoints
+- **A\*-routed pathfinding** — idle agents wander to the couch, pantry, standing desk, phone booth; route around furniture via cached A\* with selective invalidation
+- **Per-agent identity** — deterministic shirt/hair/skin palette from session hash, 16 curated outfits
 - **Per-tool monitor glow** — Edit = blue, Bash = orange, Read = cyan, Agent/Task = purple (scannable at a glance)
-- **Coworking-lounge layout** — city-view windows, meeting room with sofas, pantry with coffee machine, cubicle pods with aisle decor (whiteboards, phone booths, standing desks, TVs), elevator door animation
+- **Coworking-lounge layout** — city-view windows, meeting room with sofas, pantry with coffee machine, cubicle pods with aisle decor, elevator door animation
 - **Status-bar footer** — agent count + state breakdown + active tool tally, adapts to terminal width
+- **Stale agent cleanup** — state-adaptive timeouts (Active 10m, Idle 30m, Waiting 60m) auto-remove ghost sessions
 - **Hover tooltips** — mouse over a character to see agent details (cwd, active tool, session ID)
-- **Dual event sources** — hook socket (real-time) + JSONL transcript watching (fallback), transport-tagged dedup with 1.5s Active→Idle debounce
+- **Dual event sources** — hook socket (real-time) + JSONL transcript watching (fallback), transport-tagged dedup
 - **Hook-safe** — the shim always exits 0 with a 200ms timeout; a stuck visualizer can never block Claude Code
-- **Half-block pixel art** — 24-bit RGB color via `▀` cells, hand-drawn `.sprite` files, per-agent recolor by RGB substitution
-- **147+ tests** — TDD-shaped, including walkable-mask BFS connectivity across 5 terminal sizes
+- **Half-block pixel art** — 24-bit RGB via `▀` cells, hand-drawn `.sprite` files, per-agent recolor by RGB substitution
 
 ## Quick start
 
@@ -69,7 +70,14 @@ ascii-agents
 
 In another terminal, start a Claude Code session (`claude`). A character walks in from the elevator within a second.
 
-**`q` / Esc / Ctrl-C** quits the TUI. Hooks stay installed — the shim silently no-ops when the TUI isn't running.
+## Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `q` / `Esc` / `Ctrl-C` | Quit |
+| `p` | Pause / resume animation |
+
+Hooks stay installed after quitting — the shim silently no-ops when the TUI isn't running.
 
 ## Install
 

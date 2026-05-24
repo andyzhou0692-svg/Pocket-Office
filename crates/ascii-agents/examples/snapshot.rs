@@ -24,8 +24,8 @@ use ratatui::style::Color;
 use ratatui::Terminal;
 use tokio::sync::{mpsc, RwLock};
 
-const COLS: u16 = 96;
-const ROWS: u16 = 36;
+const COLS: u16 = 192;
+const ROWS: u16 = 64;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 16;
 
@@ -55,11 +55,11 @@ struct SnapshotArgs {
     #[arg(long)]
     debug_walkable: bool,
 
-    /// Override the snapshot terminal width (cells). Default 96.
+    /// Override the snapshot terminal width (cells). Default 192.
     #[arg(long)]
     cols: Option<u16>,
 
-    /// Override the snapshot terminal height (cells). Default 36.
+    /// Override the snapshot terminal height (cells). Default 64.
     #[arg(long)]
     rows: Option<u16>,
 
