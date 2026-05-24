@@ -45,7 +45,7 @@ fn breath_offset_y(agent_id: ascii_agents_core::AgentId, now: SystemTime) -> u16
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    const CYCLE_MS: u64 = 2800;
+    const CYCLE_MS: u64 = 4500;
     let offset_ms = agent_id.raw() % CYCLE_MS;
     let phase = elapsed_ms.wrapping_add(offset_ms) % CYCLE_MS;
     if phase < CYCLE_MS / 2 {

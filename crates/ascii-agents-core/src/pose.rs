@@ -200,11 +200,12 @@ pub fn derive(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) -> Option
         }
         ActivityState::Waiting { .. } => Some(Pose::StandingAtDesk),
         ActivityState::Idle => {
+            let was_active = slot.last_event_at > slot.created_at;
             let since_last_event = now
                 .duration_since(slot.last_event_at)
                 .unwrap_or(Duration::ZERO)
                 .as_secs();
-            if since_last_event < THINKING_WINDOW_SECS {
+            if was_active && since_last_event < THINKING_WINDOW_SECS {
                 Some(Pose::SeatedThinking)
             } else {
                 Some(idle_pose(slot, desk, layout, elapsed))
@@ -649,5 +650,32 @@ mod tests {
             dest_xs.len() >= 2,
             "destination should vary across cycles, got {dest_xs:?}"
         );
+    }
+
+    #[test]
+    fn idle_within_thinking_window_returns_seated_thinking() {
+        let (mut s, now) = slot(ActivityState::Idle, 5_000);
+        s.last_event_at = now - Duration::from_secs(5);
+        let l = layout();
+        let p = derive(&s, now, &l).unwrap();
+        assert_eq!(p, Pose::SeatedThinking);
+    }
+
+    #[test]
+    fn idle_past_thinking_window_returns_idle_pose() {
+        let (mut s, now) = slot(ActivityState::Idle, 25_000);
+        s.last_event_at = now - Duration::from_secs(25);
+        let l = layout();
+        let p = derive(&s, now, &l).unwrap();
+        assert_ne!(p, Pose::SeatedThinking);
+    }
+
+    #[test]
+    fn freshly_spawned_idle_skips_thinking() {
+        let (s, now) = slot(ActivityState::Idle, 5_000);
+        assert_eq!(s.last_event_at, s.created_at);
+        let l = layout();
+        let p = derive(&s, now, &l).unwrap();
+        assert_ne!(p, Pose::SeatedThinking);
     }
 }

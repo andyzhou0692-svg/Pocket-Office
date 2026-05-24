@@ -137,6 +137,28 @@ pub(super) fn paint_walking_dust(
     }
 }
 
+pub(super) fn paint_thinking_dots(
+    buf: &mut RgbBuffer,
+    anchor: Point,
+    now: SystemTime,
+    theme: &Theme,
+) {
+    let fg = theme.ui.label_active;
+    let elapsed_ms = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let phase = (elapsed_ms / 800) % 4;
+    let bx = anchor.x + 2;
+    let by = anchor.y.saturating_sub(3);
+    for i in 0..phase {
+        let px = bx + (i as u16) * 2;
+        if px < buf.width && by < buf.height {
+            buf.put(px, by, fg);
+        }
+    }
+}
+
 pub(super) fn paint_waiting_bubble(buf: &mut RgbBuffer, anchor: Point, theme: &Theme) {
     let fg = theme.effects.waiting_bubble;
     const GLYPH: &[&[u8]] = &[b".YYY.", b"...Y.", b"..Y..", b"..Y.."];

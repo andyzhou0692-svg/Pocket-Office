@@ -437,10 +437,10 @@ fn sample_scene(now: SystemTime, max_desks: usize) -> SceneState {
             },
             D::from_secs(10),
         ),
-        ("idle-a", ActivityState::Idle, D::from_secs(300)), // 5 min — many cycles completed
+        ("thinking", ActivityState::Idle, D::from_secs(5)), // 5s ago — within thinking window
+        ("idle-a", ActivityState::Idle, D::from_secs(300)), // 5 min — wander/sleep cycle
         ("idle-b", ActivityState::Idle, D::from_secs(301)),
-        ("idle-c", ActivityState::Idle, D::from_secs(302)),
-        ("idle-d", ActivityState::Idle, D::from_secs(303)),
+        ("idle-c", ActivityState::Idle, D::from_secs(303)),
         (
             "couch-act",
             ActivityState::Active {
