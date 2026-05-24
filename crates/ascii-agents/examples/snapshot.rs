@@ -86,6 +86,10 @@ struct SnapshotArgs {
     /// smoothness vs file size (~2-5 MB for a 5s clip).
     #[arg(long, default_value_t = 10)]
     gif_fps: u64,
+
+    /// Color theme name.
+    #[arg(long, default_value = "normal")]
+    theme: String,
 }
 
 fn default_projects_root() -> String {
@@ -118,6 +122,8 @@ fn main() -> Result<()> {
     let mut router = ascii_agents::tui::pathfind::AStarRouter::new();
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
     let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let theme = ascii_agents::tui::theme::theme_by_name(&args.theme)
+        .unwrap_or(&ascii_agents::tui::theme::NORMAL);
     let ticker = TickerQueue::new();
 
     if args.gif {
@@ -136,6 +142,7 @@ fn main() -> Result<()> {
             &mut history,
             args.gif_fps,
             args.gif_duration,
+            theme,
         )?;
         println!("wrote {}", args.out.display());
         return Ok(());
@@ -154,7 +161,7 @@ fn main() -> Result<()> {
         None,
         None,
         &ticker,
-        &ascii_agents::tui::theme::NORMAL,
+        theme,
     )?;
 
     if args.debug_walkable {
@@ -560,6 +567,7 @@ fn save_as_gif(
     history: &mut ascii_agents::tui::pose::PoseHistory,
     fps: u64,
     duration_secs: u64,
+    theme: &ascii_agents::tui::theme::Theme,
 ) -> Result<()> {
     let frame_count = (duration_secs * fps) as usize;
     let frame_ms = 1000 / fps.max(1);
@@ -574,19 +582,8 @@ fn save_as_gif(
     for i in 0..frame_count {
         let now = start_now + Duration::from_millis(i as u64 * frame_ms);
         draw_scene(
-            term,
-            scene,
-            pack,
-            now,
-            buf,
-            cache,
-            router,
-            overlay,
-            history,
-            None,
-            None,
-            &ticker,
-            &ascii_agents::tui::theme::NORMAL,
+            term, scene, pack, now, buf, cache, router, overlay, history, None, None, &ticker,
+            theme,
         )?;
 
         let term_buf = term.backend().buffer();
