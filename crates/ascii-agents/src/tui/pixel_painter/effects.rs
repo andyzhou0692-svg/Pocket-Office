@@ -132,22 +132,20 @@ pub(super) fn paint_walking_dust(buf: &mut RgbBuffer, walker_anchor: Point, fram
     }
 }
 
-/// Yellow "?" painted above a Waiting character. Designed so every pair
-/// of buffer rows is identical — that way each half-block terminal cell
-/// is either fully yellow or fully transparent, never a yellow/dark
-/// half-split (which read as "yellow with a black side" before).
+/// Compact yellow "?" painted above a Waiting character. 4×8 buffer
+/// pixels = 4 cells wide × 4 cells tall — proportional to the 8×12
+/// character sprite. Row pairs are identical so each half-block
+/// terminal cell is either fully yellow or fully transparent.
 pub(super) fn paint_waiting_bubble(buf: &mut RgbBuffer, anchor: Point) {
     const FG: Rgb = Rgb(255, 215, 70);
     const GLYPH: &[&[u8]] = &[
-        b".YYYY.", b".YYYY.", b"....YY", b"....YY", b".YYYY.", b".YYYY.", b".YY...", b".YY...",
-        b"......", b"......", b".YY...", b".YY...",
+        b".YY.", b".YY.", // arc
+        b"..Y.", b"..Y.", // hook
+        b"....", b"....", // gap
+        b".Y..", b".Y..", // dot
     ];
-    let bx = anchor.x;
-    // Snap to even buffer row so the glyph's paired rows line up with
-    // half-block terminal cells — otherwise the (y, y+1) pairing
-    // straddles cell boundaries and the "no half-split" guarantee from
-    // the symmetric glyph design is lost.
-    let by = anchor.y.saturating_sub(13) & !1u16;
+    let bx = anchor.x + 2;
+    let by = anchor.y.saturating_sub(9) & !1u16;
     for (dy, row) in GLYPH.iter().enumerate() {
         for (dx, byte) in row.iter().enumerate() {
             if *byte != b'Y' {
