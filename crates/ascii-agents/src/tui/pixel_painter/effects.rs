@@ -139,16 +139,9 @@ pub(super) fn paint_walking_dust(
 
 pub(super) fn paint_waiting_bubble(buf: &mut RgbBuffer, anchor: Point, theme: &Theme) {
     let fg = theme.effects.waiting_bubble;
-    const GLYPH: &[&[u8]] = &[
-        b".YYYYY..",
-        b".YYYYY..",
-        b"....YY..",
-        b"..YY....",
-        b"..YY....",
-        b"..YY....",
-    ];
-    let bx = anchor.x;
-    let by = anchor.y.saturating_sub(7) & !1u16;
+    const GLYPH: &[&[u8]] = &[b".YYY.", b"...Y.", b"..Y..", b"..Y.."];
+    let bx = anchor.x + 1;
+    let by = anchor.y.saturating_sub(5) & !1u16;
     for (dy, row) in GLYPH.iter().enumerate() {
         for (dx, byte) in row.iter().enumerate() {
             if *byte != b'Y' {

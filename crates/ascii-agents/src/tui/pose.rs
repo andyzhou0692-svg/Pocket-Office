@@ -92,7 +92,7 @@ pub fn derive_with_routing(
     // rendered position over SNAP_BACK_MS.
     let desk_pose = matches!(
         raw,
-        Pose::SeatedIdle | Pose::SeatedTyping { .. } | Pose::StandingAtDesk
+        Pose::SeatedIdle | Pose::SeatedThinking | Pose::SeatedTyping { .. } | Pose::StandingAtDesk
     );
     let since_state = now
         .duration_since(slot.state_started_at)

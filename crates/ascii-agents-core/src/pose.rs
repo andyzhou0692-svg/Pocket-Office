@@ -19,6 +19,11 @@ use crate::layout::{Bounds, Point, SceneLayout, WaypointKind};
 use crate::state::{ActivityState, AgentSlot};
 use crate::AgentId;
 
+/// How long after the last event an Idle agent stays in the "thinking"
+/// pose (seated, awake, no z's) before entering the wander/sleep cycle.
+/// 20s covers typical CC thinking pauses between tool bursts.
+const THINKING_WINDOW_SECS: u64 = 20;
+
 /// Base cycle length. Each agent's actual cycle = base + per-agent jitter.
 pub const WANDER_CYCLE_BASE_MS: u64 = 7_000;
 /// Maximum extra time added per agent — jitter range is `[0, RANGE)`.
@@ -98,6 +103,9 @@ pub fn waypoint_index_for_cycle(agent_id: AgentId, cycle_n: u64, num_waypoints: 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Pose {
     SeatedIdle,
+    /// Seated at desk, awake but not typing. Used when the agent
+    /// recently finished a tool call and the LLM is likely thinking.
+    SeatedThinking,
     SeatedTyping {
         frame: usize,
     },
@@ -191,7 +199,17 @@ pub fn derive(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) -> Option
             Some(Pose::SeatedTyping { frame })
         }
         ActivityState::Waiting { .. } => Some(Pose::StandingAtDesk),
-        ActivityState::Idle => Some(idle_pose(slot, desk, layout, elapsed)),
+        ActivityState::Idle => {
+            let since_last_event = now
+                .duration_since(slot.last_event_at)
+                .unwrap_or(Duration::ZERO)
+                .as_secs();
+            if since_last_event < THINKING_WINDOW_SECS {
+                Some(Pose::SeatedThinking)
+            } else {
+                Some(idle_pose(slot, desk, layout, elapsed))
+            }
+        }
     }
 }
 

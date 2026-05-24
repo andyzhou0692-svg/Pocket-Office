@@ -335,7 +335,7 @@ pub(super) fn character_anchor(
     let desk = *layout.home_desks.get(agent.desk_index)?;
     let pose = pose::derive_with_routing(agent, now, layout, router, overlay, history)?;
     let anchor = match pose {
-        Pose::SeatedIdle | Pose::SeatedTyping { .. } => seated_anchor(desk),
+        Pose::SeatedIdle | Pose::SeatedThinking | Pose::SeatedTyping { .. } => seated_anchor(desk),
         Pose::StandingAtDesk => standing_at_desk_anchor(desk),
         Pose::AtWaypoint { wp, kind } => {
             let wp_obj = layout.waypoints.get(wp)?;
@@ -1016,6 +1016,23 @@ pub fn render_to_rgb_buffer(
                         flip_x: false,
                         glow_tint: None,
                         sleep_z_seed: Some(agent.agent_id.raw()),
+                        waiting_bubble: false,
+                        walking_dust_frame: None,
+                    },
+                });
+            }
+            Pose::SeatedThinking => {
+                let anchor = with_breath(seated_anchor(desk), agent.agent_id, now);
+                drawables.push(Drawable {
+                    anchor_y: anchor.y + 12,
+                    kind: DrawableKind::Character {
+                        agent,
+                        anim_name: "seated",
+                        frame_idx: 0,
+                        anchor,
+                        flip_x: false,
+                        glow_tint: None,
+                        sleep_z_seed: None,
                         waiting_bubble: false,
                         walking_dust_frame: None,
                     },
