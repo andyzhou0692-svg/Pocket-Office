@@ -154,6 +154,7 @@ fn main() -> Result<()> {
         None,
         None,
         &ticker,
+        &ascii_agents::tui::theme::NORMAL,
     )?;
 
     if args.debug_walkable {
@@ -573,7 +574,19 @@ fn save_as_gif(
     for i in 0..frame_count {
         let now = start_now + Duration::from_millis(i as u64 * frame_ms);
         draw_scene(
-            term, scene, pack, now, buf, cache, router, overlay, history, None, None, &ticker,
+            term,
+            scene,
+            pack,
+            now,
+            buf,
+            cache,
+            router,
+            overlay,
+            history,
+            None,
+            None,
+            &ticker,
+            &ascii_agents::tui::theme::NORMAL,
         )?;
 
         let term_buf = term.backend().buffer();

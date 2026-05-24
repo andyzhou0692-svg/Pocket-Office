@@ -24,11 +24,11 @@ pub async fn run_tui(
     mut scene_rx: SceneRx,
     pack_dir: Option<std::path::PathBuf>,
     max_desks: Arc<std::sync::atomic::AtomicUsize>,
-    _theme: &'static theme::Theme,
+    theme: &'static theme::Theme,
 ) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
-    let mut renderer = TuiRenderer::new(term);
+    let mut renderer = TuiRenderer::new(term, theme);
     let mut last_layout_sig: Option<(u16, u16, usize)> = None;
     let mut paused = false;
     let mut frozen_now: Option<SystemTime> = None;

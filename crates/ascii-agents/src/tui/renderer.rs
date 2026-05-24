@@ -185,6 +185,7 @@ pub fn draw_scene<B: Backend>(
     mouse_pos: Option<(u16, u16)>,
     pinned_agent: Option<AgentId>,
     ticker: &TickerQueue,
+    theme: &crate::tui::theme::Theme,
 ) -> Result<()> {
     let term_size = term.size()?;
     let full_rect = Rect {
@@ -206,7 +207,7 @@ pub fn draw_scene<B: Backend>(
 
     let buf_w = scene_rect.width;
     let buf_h = scene_rect.height * 2;
-    buf.ensure_size(buf_w, buf_h, crate::tui::theme::NORMAL.surface.bg_fallback);
+    buf.ensure_size(buf_w, buf_h, theme.surface.bg_fallback);
     let Some(layout) = Layout::compute(buf_w, buf_h, scene.max_desks) else {
         term.draw(|f| paint_footer(f, scene, full_rect))?;
         return Ok(());
@@ -222,16 +223,7 @@ pub fn draw_scene<B: Backend>(
     // into PoseHistory for every walking/waypoint agent so the next
     // frame's snap-back lookup is fresh.
     render_to_rgb_buffer(
-        scene,
-        &layout,
-        pack,
-        now,
-        buf,
-        cache,
-        router,
-        overlay,
-        history,
-        &crate::tui::theme::NORMAL,
+        scene, &layout, pack, now, buf, cache, router, overlay, history, theme,
     );
 
     // Hit-test the cursor against each agent's current sprite footprint
