@@ -73,12 +73,27 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@cargo-nextest
       - name: Generate coverage
         run: cargo llvm-cov --workspace --features ascii-agents-core/test-renderer --lcov --output-path lcov.info
-      - name: Upload to Codecov
+      - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info
+          flags: unit
+          fail_ci_if_error: false
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      - name: Run tests with JUnit output
+        run: cargo nextest run --workspace --features ascii-agents-core/test-renderer --profile ci
+      - name: Upload test results to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: target/nextest/ci/junit.xml
+          report-type: test_results
+          flags: unit
           fail_ci_if_error: false
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
