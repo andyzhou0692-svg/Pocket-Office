@@ -393,7 +393,7 @@ fn paint_floor_to_ceiling_window(
     let cw = theme.office.city_lit_windows;
     let dark_window = theme.office.city_dark_window;
 
-    let lit_strength = look.darkness.clamp(0.0, 1.0);
+    let lit_strength = look.darkness.max(0.5).clamp(0.0, 1.0);
     let lit_colors: [Rgb; 3] = [
         lerp_rgb(dark_window, cw[0], lit_strength),
         lerp_rgb(dark_window, cw[1], lit_strength),

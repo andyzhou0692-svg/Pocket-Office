@@ -63,48 +63,8 @@ pub async fn run_tui(
                 renderer.invalidate_routes();
                 last_layout_sig = Some(sig);
             }
+            renderer.set_theme_picker(theme_picker);
             renderer.render(&snapshot, &pack, now)?;
-
-            if let Some(idx) = theme_picker {
-                use ratatui::layout::Rect;
-                use ratatui::style::{Color, Modifier, Style};
-                use ratatui::text::{Line, Span};
-                use ratatui::widgets::{Block, Borders, Clear, Paragraph};
-                let size = renderer.terminal.size()?;
-                let w = 30u16;
-                let h = (theme::ALL_THEMES.len() as u16 + 2).min(size.height);
-                let x = size.width.saturating_sub(w) / 2;
-                let y = size.height.saturating_sub(h) / 2;
-                let area = Rect {
-                    x,
-                    y,
-                    width: w,
-                    height: h,
-                };
-                renderer.terminal.draw(|f| {
-                    f.render_widget(Clear, area);
-                    let items: Vec<Line> = theme::ALL_THEMES
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| {
-                            let prefix = if i == idx { "▸ " } else { "  " };
-                            let style = if i == idx {
-                                Style::default()
-                                    .fg(Color::Cyan)
-                                    .add_modifier(Modifier::BOLD)
-                            } else {
-                                Style::default().fg(Color::White)
-                            };
-                            Line::from(Span::styled(format!("{prefix}{}", t.name), style))
-                        })
-                        .collect();
-                    let block = Block::default()
-                        .title(" Theme [↑↓] Enter/Esc ")
-                        .borders(Borders::ALL)
-                        .style(Style::default().bg(Color::Rgb(20, 20, 30)));
-                    f.render_widget(Paragraph::new(items).block(block), area);
-                })?;
-            }
 
             let start = Instant::now();
             let mut polled = event::poll(tick)?;
@@ -114,13 +74,13 @@ pub async fn run_tui(
                     Event::Key(k) => {
                         if let Some(idx) = theme_picker.as_mut() {
                             match k.code {
-                                KeyCode::Up => {
+                                KeyCode::Up | KeyCode::Char('k') => {
                                     if *idx > 0 {
                                         *idx -= 1;
                                     }
                                     renderer.set_theme(theme::ALL_THEMES[*idx]);
                                 }
-                                KeyCode::Down => {
+                                KeyCode::Down | KeyCode::Char('j') => {
                                     if *idx + 1 < theme::ALL_THEMES.len() {
                                         *idx += 1;
                                     }

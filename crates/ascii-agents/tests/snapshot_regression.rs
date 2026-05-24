@@ -94,6 +94,7 @@ fn render_pixel_hash(now: SystemTime) -> u64 {
         None,
         &TickerQueue::new(),
         &ascii_agents::tui::theme::NORMAL,
+        None,
     )
     .expect("render");
 
@@ -163,6 +164,7 @@ fn render_produces_distinct_wall_band_and_floor_regions() {
         None,
         &TickerQueue::new(),
         &ascii_agents::tui::theme::NORMAL,
+        None,
     )
     .expect("render");
 
@@ -246,6 +248,7 @@ fn render_changes_when_an_agent_state_changes() {
         None,
         &TickerQueue::new(),
         &ascii_agents::tui::theme::NORMAL,
+        None,
     )
     .expect("render");
     let mut hasher = DefaultHasher::new();

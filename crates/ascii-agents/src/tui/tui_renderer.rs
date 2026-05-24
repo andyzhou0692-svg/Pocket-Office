@@ -35,6 +35,7 @@ pub struct TuiRenderer<B: Backend> {
     pinned_agent: Option<ascii_agents_core::AgentId>,
     pub ticker: crate::tui::renderer::TickerQueue,
     theme: &'static crate::tui::theme::Theme,
+    theme_picker: Option<usize>,
 }
 
 impl<B: Backend> TuiRenderer<B> {
@@ -50,6 +51,7 @@ impl<B: Backend> TuiRenderer<B> {
             pinned_agent: None,
             ticker: crate::tui::renderer::TickerQueue::new(),
             theme,
+            theme_picker: None,
         }
     }
 
@@ -70,8 +72,14 @@ impl<B: Backend> TuiRenderer<B> {
     }
 
     pub fn set_theme(&mut self, theme: &'static crate::tui::theme::Theme) {
-        self.theme = theme;
-        self.cache = FrameCache::new();
+        if !std::ptr::eq(self.theme, theme) {
+            self.theme = theme;
+            self.cache = FrameCache::new();
+        }
+    }
+
+    pub fn set_theme_picker(&mut self, picker: Option<usize>) {
+        self.theme_picker = picker;
     }
 
     /// Drop the cached frame entries for agents no longer in `scene`.
@@ -105,6 +113,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             self.pinned_agent,
             &self.ticker,
             self.theme,
+            self.theme_picker,
         )
     }
 }

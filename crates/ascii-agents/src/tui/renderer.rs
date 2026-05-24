@@ -186,6 +186,7 @@ pub fn draw_scene<B: Backend>(
     pinned_agent: Option<AgentId>,
     ticker: &TickerQueue,
     theme: &crate::tui::theme::Theme,
+    theme_picker: Option<usize>,
 ) -> Result<()> {
     let term_size = term.size()?;
     let full_rect = Rect {
@@ -201,7 +202,7 @@ pub fn draw_scene<B: Backend>(
         height: full_rect.height.saturating_sub(1),
     };
     if scene_rect.width < 20 || scene_rect.height < 12 {
-        term.draw(|f| paint_footer(f, scene, full_rect))?;
+        term.draw(|f| paint_footer(f, scene, full_rect, theme))?;
         return Ok(());
     }
 
@@ -209,7 +210,7 @@ pub fn draw_scene<B: Backend>(
     let buf_h = scene_rect.height * 2;
     buf.ensure_size(buf_w, buf_h, theme.surface.bg_fallback);
     let Some(layout) = Layout::compute(buf_w, buf_h, scene.max_desks) else {
-        term.draw(|f| paint_footer(f, scene, full_rect))?;
+        term.draw(|f| paint_footer(f, scene, full_rect, theme))?;
         return Ok(());
     };
 
@@ -235,7 +236,7 @@ pub fn draw_scene<B: Backend>(
 
     // Terminal-flush pass — half-block + widgets, inside ratatui's draw.
     term.draw(|f| {
-        paint_footer(f, scene, full_rect);
+        paint_footer(f, scene, full_rect, theme);
         flush_buffer_to_term(f, buf, scene_rect);
         paint_label_widgets(
             f, scene, &layout, now, router, overlay, history, scene_rect, hovered, theme,
@@ -255,13 +256,67 @@ pub fn draw_scene<B: Backend>(
                 theme,
             );
         }
+        if let Some(idx) = theme_picker {
+            paint_theme_picker(f, idx, full_rect, theme);
+        }
     })?;
     Ok(())
 }
 
-fn paint_footer(f: &mut ratatui::Frame<'_>, scene: &SceneState, full_rect: Rect) {
+fn paint_theme_picker(
+    f: &mut ratatui::Frame<'_>,
+    selected: usize,
+    bounds: Rect,
+    theme: &crate::tui::theme::Theme,
+) {
+    use crate::tui::theme;
+    use ratatui::style::Modifier;
+    use ratatui::text::{Line, Span as TSpan};
+    use ratatui::widgets::{Block, Borders, Clear};
+
+    let w = 30u16;
+    let h = (theme::ALL_THEMES.len() as u16 + 2).min(bounds.height);
+    let x = bounds.width.saturating_sub(w) / 2;
+    let y = bounds.height.saturating_sub(h) / 2;
+    let area = Rect {
+        x,
+        y,
+        width: w,
+        height: h,
+    };
+    f.render_widget(Clear, area);
+    let items: Vec<Line> = theme::ALL_THEMES
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            let prefix = if i == selected { "▸ " } else { "  " };
+            let style = if i == selected {
+                Style::default()
+                    .fg(to_color(theme.ui.neon_brand))
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(to_color(theme.ui.label_idle))
+            };
+            Line::from(TSpan::styled(format!("{prefix}{}", t.name), style))
+        })
+        .collect();
+    let block = Block::default()
+        .title(" Theme [↑↓/jk] Enter/Esc ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(to_color(theme.ui.neon_brand)))
+        .style(Style::default().bg(to_color(theme.ui.tooltip_bg)));
+    f.render_widget(Paragraph::new(items).block(block), area);
+}
+
+fn paint_footer(
+    f: &mut ratatui::Frame<'_>,
+    scene: &SceneState,
+    full_rect: Rect,
+    theme: &crate::tui::theme::Theme,
+) {
     let summary = build_status_summary(scene, full_rect.width);
-    let footer = Paragraph::new(Span::raw(summary)).style(Style::default().fg(Color::DarkGray));
+    let footer =
+        Paragraph::new(Span::raw(summary)).style(Style::default().fg(to_color(theme.ui.label_idle)));
     f.render_widget(
         footer,
         Rect {
@@ -575,7 +630,7 @@ fn paint_hover_tooltip(
     lines.push(ratatui::text::Line::from(Span::styled(
         format!(" {} ", agent.label),
         Style::default()
-            .fg(Color::White)
+            .fg(to_color(theme.ui.tooltip_title))
             .add_modifier(ratatui::style::Modifier::BOLD),
     )));
     lines.push(ratatui::text::Line::from(vec![
@@ -587,16 +642,16 @@ fn paint_hover_tooltip(
         let trimmed: String = state_detail.chars().take(34).collect();
         lines.push(ratatui::text::Line::from(Span::styled(
             format!("    {}", trimmed),
-            Style::default().fg(Color::Rgb(200, 200, 210)),
+            Style::default().fg(to_color(theme.ui.tooltip_text)),
         )));
     }
     lines.push(ratatui::text::Line::from(Span::styled(
         format!(" 📁 {}", cwd_short),
-        Style::default().fg(Color::Rgb(180, 180, 180)),
+        Style::default().fg(to_color(theme.ui.tooltip_text)),
     )));
     lines.push(ratatui::text::Line::from(Span::styled(
         format!(" ⌗ {} · {}", session_short, agent.source),
-        Style::default().fg(Color::Rgb(140, 140, 150)),
+        Style::default().fg(to_color(theme.ui.tooltip_dim)),
     )));
 
     let lines_h = lines.len() as u16;
