@@ -8,7 +8,7 @@
 //!
 //! Drop a directory at `${XDG_CONFIG_HOME:-~/.config}/ascii-agents/sprites/`
 //! containing `pack.toml` + each `.sprite` file referenced from the TOML.
-//! See `assets/sprites/default/` for the canonical example.
+//! See `crates/ascii-agents/sprites/default/` for the canonical example.
 //!
 //! ## Sharp edge — palette RGB uniqueness
 //!

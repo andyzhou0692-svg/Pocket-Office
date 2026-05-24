@@ -98,10 +98,10 @@ Symptoms of weak identity:
 ### 6. Sprite-format pitfalls
 
 - Every row in a `.sprite` file must have **exactly** the same number of space-separated cells. Off-by-one is the most common bug.
-- Verify with: `awk '/^@/{next}/^#/{next}NF{print NR": "NF}' assets/sprites/default/foo.sprite` — all NF values must match.
+- Verify with: `awk '/^@/{next}/^#/{next}NF{print NR": "NF}' crates/ascii-agents/sprites/default/foo.sprite` — all NF values must match.
 - Or visualize packed rows: `awk '/^@/{next}/^#/{next}NF{for(i=1;i<=NF;i++)printf "%s",$i;print " ["NF"]"}' foo.sprite`.
 - Palette keys must be unique RGB (the per-agent recolor pass substitutes by RGB equality — see `embedded_pack.rs` header comment).
-- Reuse existing palette keys when possible; new keys go in `assets/sprites/default/pack.toml` `[palette]` section.
+- Reuse existing palette keys when possible; new keys go in `crates/ascii-agents/sprites/default/pack.toml` `[palette]` section.
 
 ### 7. Layout integration checklist
 
@@ -111,7 +111,7 @@ When a sprite **changes size**:
 2. If the obstacle is a non-waypoint (plant, wall decor, pod decor), update the corresponding mark_blocked call too.
 3. Run `cargo test -p ascii-agents-core` — the `walkable_mask_is_fully_connected_across_buffer_sizes` test catches mask/sprite mismatches by trying multiple buffer sizes and asserting BFS reach from the door.
 4. If the connectivity test fails on the smallest buffer (96×70), the sprite is too big for that pantry. Add a `_small` variant + conditional pick (see `pantry_counter_size` in `SceneLayout` for the pattern).
-5. Update animation list in `assets/sprites/default/pack.toml` and `embedded_pack.rs` to include both `foo.sprite` and `foo_small.sprite` if you added a variant.
+5. Update animation list in `crates/ascii-agents/sprites/default/pack.toml` and `embedded_pack.rs` to include both `foo.sprite` and `foo_small.sprite` if you added a variant.
 
 ### 8. Live binary uses different binary than snapshot
 

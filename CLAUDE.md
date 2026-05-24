@@ -31,18 +31,19 @@ crates/
 │   ├── runtime.rs          tokio task wiring (source ── (Transport, AgentEvent) ──► reducer ──► renderer)
 │   ├── install/            settings.json merge, atomic write, advisory lock, stow-symlink safe
 │   └── tui/                ratatui App + TuiRenderer (Renderer trait impl)
-│       ├── renderer.rs     draw_scene orchestrator, half-block flush, label/tooltip widgets, footer
-│       ├── tui_renderer.rs Renderer trait impl — owns cross-frame state (RgbBuffer, FrameCache, Router, PoseHistory)
+│       ├── renderer.rs     draw_scene orchestrator, half-block flush, label/tooltip widgets, footer, TickerQueue, neon wall display
+│       ├── tui_renderer.rs Renderer trait impl — owns cross-frame state (RgbBuffer, FrameCache, Router, PoseHistory, TickerQueue)
 │       ├── pose.rs         routed pose layer (PoseHistory, derive_with_routing, snap-back) — re-exports core::pose
 │       ├── pathfind.rs     Router trait + AStarRouter with selective cache invalidation
 │       └── pixel_painter/  pure-pixel pass — split into focused child modules:
 │                           mod.rs (orchestrator), background.rs, drawable.rs
 │                           (y-sort), effects.rs, palette.rs (tool_glow_tint), anchors.rs
 └── ascii-agents-hook/      tiny shim CC invokes — stdin JSON → Unix socket, 200ms write timeout
-assets/sprites/default/     coworking-lounge pack: seated, typing ×2, standing, walking ×2,
-                            walking_back ×2, working_couch ×2, working_floor ×2, sitting_couch,
-                            back_couch, seated_floor, sleeping variants, desk, plant ×4, couch,
-                            pantry, door ×3, meeting_sofa, bookshelf, whiteboard, tv_stand, etc.
+│   └── sprites/default/    coworking-lounge pack (embedded via include_str!): seated, typing ×2,
+│                           standing, walking ×2, walking_back ×2, working_couch ×2,
+│                           working_floor ×2, sitting_couch, back_couch, seated_floor,
+│                           sleeping variants, desk, plant ×4, cat (walk/sit/sleep),
+│                           pantry, door ×3, meeting_sofa, bookshelf, whiteboard, tv_stand, etc.
 scripts/                    preflight.sh (CI mirror), crop-snapshot.py (visual verification)
 ```
 
@@ -135,9 +136,13 @@ These are load-bearing; don't break them without updating the spec.
 - "How is the office laid out?" → `core::layout::SceneLayout::compute` for zone math (cubicle band / walkway / meeting / pantry) + home-desk + waypoint placement (re-exported as `tui::layout::Layout`); `core::pose::derive` for pure state→pose mapping including the Idle wander state machine (`WANDER_CYCLE_BASE_MS=7000` + per-agent jitter); `tui::pose::derive_with_routing` for the routed variant (A*-routed polylines + snap-back walks); `tui::renderer::draw_scene` for the terminal-flush pass (half-block + widgets + status footer) → `tui::pixel_painter::render_to_rgb_buffer` for the pure-pixel pass. The pixel pass is split: `pixel_painter/background.rs` (floor/walls/windows/clock/corridor/entry mat/lighting/shadow), `pixel_painter/drawable.rs` (y-sort `Drawable` enum + dispatch), `pixel_painter/effects.rs` (chair-behind/screen glow/sleep z/steam/dust/bubble), `pixel_painter/palette.rs` (agent palette + recolor + `tool_glow_tint` for per-tool monitor color), `pixel_painter/anchors.rs` (per-pose sprite anchors + breath + walking_position).
 - "How do overflow agents (past max home desks) get rendered?" → `pixel_painter/mod.rs` overflow branch: first 2 → meeting_sofas (`working_couch` if Active, `sitting_couch_sleeping` if Idle, `back_couch` for mirrored second sofa), remaining → `floor_seats` (`working_floor` if Active, `seated_floor_sleeping` if Idle). 400 ms screen-pulse animation via wallclock-derived `pulse_frame`.
 - "Why is the subagent's sprite the right one and not the parent?" → `reducer::Reducer::apply` does subagent-leak suppression via `active_tasks` before applying. `decoder::decode_jsonl_line` emits `AgentEvent::Rename` from `attributionAgent`.
-- "Why don't old idle sessions show on startup?" → `source::jsonl::initial_seed_root`. mtime > `DEFAULT_INITIAL_WINDOW` (10 min) → cursor seeded at EOF, no `SessionStart`.
+- "Why don't old idle sessions show on startup?" → `source::jsonl::initial_seed_root`. mtime > `DEFAULT_INITIAL_WINDOW` (1 hour) → cursor seeded at EOF, no `SessionStart`.
 - "How does the default character pack get into the binary?" → `tui::embedded_pack` does the `include_str!` at compile time; `sprite::format::load_pack_from_strings` parses it.
 - "How do hooks get installed?" → `install::merge::merge_install` for the JSON merge logic, `install::io::write_settings_atomic` for the safe filesystem write.
+- "How does the neon wall display work?" → `pixel_painter/background.rs::paint_neon_panel` paints the dark panel with pulsing cyan border in the pixel buffer; `renderer.rs::paint_wall_display` overlays ratatui text (branding, state dots, scrolling ticker); `renderer.rs::TickerQueue` manages the persistent scrolling message buffer.
+- "How does the cat behave?" → `pixel_painter/drawable.rs::cat_position` — 40s cycle, picks a destination from all spots (desks, pantry, sofas, couch, corridor), walks there (35%), sits/sleeps (65%). Sleeps with z's near idle agents. Sprites: `cat_walk` (8×6 side view), `cat_sit` (6×6 front), `cat_sleep` (6×4 curled).
+- "How does desk personalization work?" → `drawable.rs::paint_desk_personalization` — procedural pixel items appear on desks based on `session_age_secs`: coffee cup (10min), plant (30min), photo frame (1hr).
+- "How does the crash log work?" → `main.rs::install_crash_hook` sets a panic hook that restores the terminal, writes a timestamped backtrace to `~/.cache/ascii-agents/crash.log`.
 
 ## When refactoring
 

@@ -52,10 +52,14 @@ You're running 5 Claude Code sessions across 3 repos. Which one is typing? Which
 - 🪟 **Coworking-lounge layout** — city-view windows, meeting room with sofas, pantry with coffee machine, cubicle pods with aisle decor, elevator door animation
 - 📊 **Status-bar footer** — agent count + state breakdown + active tool tally, adapts to terminal width
 - 🧹 **Stale agent cleanup** — state-adaptive timeouts (Active 10m, Idle 30m, Waiting 60m) auto-remove ghost sessions
-- 🖱️ **Hover tooltips** — mouse over a character to see agent details (cwd, active tool, session ID)
+- 🖱️ **Hover tooltips + click-to-pin** — mouse over or click a character to see agent details (cwd, active tool, session ID)
+- 📺 **Neon wall display** — branding panel with pulsing cyan border, state dots, scrolling tool activity ticker, click ★ to star on GitHub
+- 🐱 **Office cat** — roams desks, pantry, sofas, lounge; sleeps near idle agents with z's; 3 sprites (walk/sit/sleep)
+- ☕ **Desk personalization** — coffee cup (10min), plant (30min), photo frame (1hr) appear on desks based on session age
 - 📡 **Dual event sources** — hook socket (real-time) + JSONL transcript watching (fallback), transport-tagged dedup
 - 🛡️ **Hook-safe** — the shim always exits 0 with a 200ms timeout; a stuck visualizer can never block Claude Code
 - 🧱 **Half-block pixel art** — 24-bit RGB via `▀` cells, hand-drawn `.sprite` files, per-agent recolor by RGB substitution
+- 🪵 **Crash logging** — panic hook restores terminal and writes backtrace to `~/.cache/ascii-agents/crash.log`
 
 ## Quick start
 
