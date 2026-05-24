@@ -7,30 +7,31 @@ pub mod pose;
 pub mod renderer;
 pub mod tui_renderer;
 
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::Result;
 use ascii_agents_core::Renderer;
-use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseEventKind};
+use crossterm::event::{self, Event, KeyCode, KeyModifiers, MouseButton, MouseEventKind};
 
 use renderer::{setup_terminal, teardown_terminal};
 use tui_renderer::TuiRenderer;
 
 use crate::runtime::SceneRx;
 
-pub async fn run_tui(mut scene_rx: SceneRx, pack_dir: Option<std::path::PathBuf>) -> Result<()> {
+pub async fn run_tui(
+    mut scene_rx: SceneRx,
+    pack_dir: Option<std::path::PathBuf>,
+    max_desks: Arc<std::sync::atomic::AtomicUsize>,
+) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
     let mut renderer = TuiRenderer::new(term);
-    // Track the static-mask signature so the router drops its cache when the
-    // obstacle set changes (terminal resize, agent count crosses the
-    // visible-desk threshold). Dynamic occupancy churn is handled inside
-    // the router via overlay signature.
     let mut last_layout_sig: Option<(u16, u16, usize)> = None;
     let mut paused = false;
     let mut frozen_now: Option<SystemTime> = None;
 
-    let tick = Duration::from_millis(33); // ~30 fps
+    let tick = Duration::from_millis(33);
     let result: Result<()> = (async {
         loop {
             let now = if paused {
@@ -40,6 +41,11 @@ pub async fn run_tui(mut scene_rx: SceneRx, pack_dir: Option<std::path::PathBuf>
                 SystemTime::now()
             };
             let snapshot = scene_rx.borrow_and_update().clone();
+            let snapshot = {
+                let mut s = (*snapshot).clone();
+                s.max_desks = max_desks.load(std::sync::atomic::Ordering::Relaxed);
+                Arc::new(s)
+            };
             renderer.evict_missing(&snapshot);
             let sig = (
                 renderer.buf().width,
@@ -50,15 +56,9 @@ pub async fn run_tui(mut scene_rx: SceneRx, pack_dir: Option<std::path::PathBuf>
                 renderer.invalidate_routes();
                 last_layout_sig = Some(sig);
             }
-            // TuiRenderer::render rebuilds the overlay internally from
-            // current agent positions before computing routed poses, so the
-            // router routes around live agents and characters don't overlap.
             renderer.render(&snapshot, &pack, now)?;
 
             let start = Instant::now();
-            // Drain every event that arrived during this tick. Mouse moves
-            // can fire 50-200/s on a fast cursor — we want the latest
-            // position before the next frame, not just the first one.
             let mut polled = event::poll(tick)?;
             let mut quit = false;
             while polled {
@@ -72,20 +72,43 @@ pub async fn run_tui(mut scene_rx: SceneRx, pack_dir: Option<std::path::PathBuf>
                         (KeyCode::Char('p'), _) => {
                             paused = !paused;
                         }
+                        (KeyCode::Char('+') | KeyCode::Char('='), _) => {
+                            let cur = max_desks.load(std::sync::atomic::Ordering::Relaxed);
+                            if cur < 16 {
+                                max_desks.store(cur + 1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
+                        (KeyCode::Char('-'), _) => {
+                            let cur = max_desks.load(std::sync::atomic::Ordering::Relaxed);
+                            if cur > 1 {
+                                max_desks.store(cur - 1, std::sync::atomic::Ordering::Relaxed);
+                            }
+                        }
                         _ => {}
                     },
-                    Event::Mouse(m) => {
-                        // Track move + drag positions; ignore scroll/button
-                        // press events for now (no other interaction yet).
-                        if matches!(
-                            m.kind,
-                            MouseEventKind::Moved
-                                | MouseEventKind::Drag(_)
-                                | MouseEventKind::Down(_)
-                        ) {
+                    Event::Mouse(m) => match m.kind {
+                        MouseEventKind::Moved | MouseEventKind::Drag(_) => {
                             renderer.set_mouse_pos(Some((m.column, m.row)));
                         }
-                    }
+                        MouseEventKind::Down(MouseButton::Left) => {
+                            renderer.set_mouse_pos(Some((m.column, m.row)));
+                            let pinned = renderer.pinned_agent();
+                            if pinned.is_some() {
+                                renderer.set_pinned_agent(None);
+                            } else {
+                                let snap = scene_rx.borrow().clone();
+                                let hit = renderer::hit_test_from_tui(
+                                    &snap,
+                                    snap.max_desks,
+                                    m.column,
+                                    m.row,
+                                    renderer.buf(),
+                                );
+                                renderer.set_pinned_agent(hit);
+                            }
+                        }
+                        _ => {}
+                    },
                     _ => {}
                 }
                 polled = event::poll(Duration::from_millis(0))?;

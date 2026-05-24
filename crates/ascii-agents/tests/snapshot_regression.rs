@@ -91,6 +91,7 @@ fn render_pixel_hash(now: SystemTime) -> u64 {
         &mut overlay,
         &mut ascii_agents::tui::pose::PoseHistory::new(),
         None,
+        None,
     )
     .expect("render");
 
@@ -156,6 +157,7 @@ fn render_produces_distinct_wall_band_and_floor_regions() {
         &mut router,
         &mut overlay,
         &mut ascii_agents::tui::pose::PoseHistory::new(),
+        None,
         None,
     )
     .expect("render");
@@ -236,6 +238,7 @@ fn render_changes_when_an_agent_state_changes() {
         &mut router,
         &mut overlay,
         &mut ascii_agents::tui::pose::PoseHistory::new(),
+        None,
         None,
     )
     .expect("render");

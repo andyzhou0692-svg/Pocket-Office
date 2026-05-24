@@ -31,10 +31,8 @@ pub struct TuiRenderer<B: Backend> {
     router: AStarRouter,
     overlay: OccupancyOverlay,
     history: PoseHistory,
-    /// Latest mouse position in terminal cells. `set_mouse_pos` updates it
-    /// between frames so the next render's hover tooltip + focus ring follow
-    /// the cursor.
     mouse_pos: Option<(u16, u16)>,
+    pinned_agent: Option<ascii_agents_core::AgentId>,
 }
 
 impl<B: Backend> TuiRenderer<B> {
@@ -47,11 +45,20 @@ impl<B: Backend> TuiRenderer<B> {
             overlay: OccupancyOverlay::new(),
             history: PoseHistory::new(),
             mouse_pos: None,
+            pinned_agent: None,
         }
     }
 
     pub fn set_mouse_pos(&mut self, pos: Option<(u16, u16)>) {
         self.mouse_pos = pos;
+    }
+
+    pub fn pinned_agent(&self) -> Option<ascii_agents_core::AgentId> {
+        self.pinned_agent
+    }
+
+    pub fn set_pinned_agent(&mut self, id: Option<ascii_agents_core::AgentId>) {
+        self.pinned_agent = id;
     }
 
     pub fn buf(&self) -> &RgbBuffer {
@@ -85,6 +92,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             &mut self.overlay,
             &mut self.history,
             self.mouse_pos,
+            self.pinned_agent,
         )
     }
 }

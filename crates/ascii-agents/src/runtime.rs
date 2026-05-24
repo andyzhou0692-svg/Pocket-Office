@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -56,10 +57,12 @@ async fn run_async(
 
     let _source_handles = SourceManager::new().with_source(Box::new(src)).spawn(tx);
 
+    let max_desks_shared = Arc::new(AtomicUsize::new(max_desks));
+
     if headless {
         headless_loop(scene_rx).await
     } else {
-        crate::tui::run_tui(scene_rx, pack_dir).await
+        crate::tui::run_tui(scene_rx, pack_dir, max_desks_shared).await
     }
 }
 
@@ -78,7 +81,7 @@ async fn reducer_task(
             event = rx.recv() => {
                 let Some((transport, ev)) = event else { break };
                 let now = SystemTime::now();
-                tracing::info!(?transport, ?ev, "event");
+                tracing::debug!(?transport, ?ev, "event");
                 reducer.apply(&mut scene, ev, now, transport);
                 // Send a fresh Arc snapshot. send() ignores errors when
                 // there are no active receivers — that's fine.

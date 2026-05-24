@@ -113,6 +113,7 @@ pub fn draw_scene<B: Backend>(
     overlay: &mut OccupancyOverlay,
     history: &mut pose::PoseHistory,
     mouse_pos: Option<(u16, u16)>,
+    pinned_agent: Option<AgentId>,
 ) -> Result<()> {
     let term_size = term.size()?;
     let full_rect = Rect {
@@ -168,8 +169,18 @@ pub fn draw_scene<B: Backend>(
             f, scene, &layout, now, router, overlay, history, scene_rect, hovered,
         );
         paint_bulletin_notice(f, scene, &layout, scene_rect);
-        if let (Some(agent_id), Some((mx, my))) = (hovered, mouse_pos) {
+        let tooltip_agent = hovered.or(pinned_agent);
+        if let (Some(agent_id), Some((mx, my))) = (tooltip_agent, mouse_pos) {
             paint_hover_tooltip(f, scene, agent_id, mx, my, scene_rect);
+        } else if let Some(agent_id) = pinned_agent {
+            paint_hover_tooltip(
+                f,
+                scene,
+                agent_id,
+                scene_rect.width / 2,
+                scene_rect.height / 2,
+                scene_rect,
+            );
         }
     })?;
     Ok(())
@@ -227,7 +238,7 @@ pub(super) fn build_status_summary(scene: &SceneState, term_width: u16) -> Strin
         }
     }
 
-    const QUIT: &str = " [q] quit ";
+    const QUIT: &str = " [p]ause [+/-]desks [q]uit ";
     let tools_str = {
         // Sort by count desc, then name asc for stable output. Top 4
         // keeps the line bounded — beyond that the listing crowds out
@@ -366,6 +377,43 @@ fn paint_label_widgets(
             f.render_widget(para, r);
         }
     }
+}
+
+/// Lightweight hit-test for click-to-pin without needing router/overlay state.
+/// Uses home desk positions only (no walking agents).
+pub fn hit_test_from_tui(
+    scene: &SceneState,
+    max_desks: usize,
+    mx: u16,
+    my: u16,
+    buf: &RgbBuffer,
+) -> Option<AgentId> {
+    let buf_h = buf.height;
+    let buf_w = buf.width;
+    if buf_w < 20 || buf_h < 24 {
+        return None;
+    }
+    let layout = Layout::compute(buf_w, buf_h, max_desks)?;
+    const SPRITE_W: u16 = 8;
+    const SPRITE_H_CELLS: u16 = 6;
+    for agent in scene.agents.values() {
+        if agent.desk_index >= layout.home_desks.len() {
+            continue;
+        }
+        let desk = &layout.home_desks[agent.desk_index];
+        let ax = desk.x + 1;
+        let ay = desk.y.saturating_sub(4);
+        let cell_x = ax;
+        let cell_y = ay / 2;
+        if mx >= cell_x
+            && mx < cell_x.saturating_add(SPRITE_W)
+            && my >= cell_y
+            && my < cell_y.saturating_add(SPRITE_H_CELLS)
+        {
+            return Some(agent.agent_id);
+        }
+    }
+    None
 }
 
 /// Hit-test the mouse cursor against each agent's current sprite footprint.
@@ -641,15 +689,14 @@ mod tests {
         s
     }
 
+    const QUIT_SUFFIX: &str = " [p]ause [+/-]desks [q]uit ";
+
     #[test]
     fn footer_zero_agents_shows_zero_count_and_quit() {
         let s = scene_of(vec![]);
         let line = build_status_summary(&s, 80);
         assert!(line.contains("0 agents"), "missing zero count: {line:?}");
-        assert!(
-            line.ends_with(" [q] quit "),
-            "missing quit suffix: {line:?}"
-        );
+        assert!(line.ends_with(QUIT_SUFFIX), "missing quit suffix: {line:?}");
         assert_eq!(line.len(), 80, "should pad to full width: {line:?}");
     }
 
@@ -687,35 +734,34 @@ mod tests {
             waiting("b"),
             idle("c"),
         ]);
-        // 36 cells is too narrow for the full version but fits medium.
-        let line = build_status_summary(&s, 36);
+        let line = build_status_summary(&s, 52);
         assert!(
             line.contains("3a") && line.contains("1A"),
             "expected medium tier letters: {line:?}"
         );
         assert!(
             !line.contains("3 agents · "),
-            "full tier should not fit at width 36: {line:?}"
+            "full tier should not fit at width 52: {line:?}"
         );
-        assert!(line.ends_with(" [q] quit "), "{line:?}");
+        assert!(line.ends_with(QUIT_SUFFIX), "{line:?}");
     }
 
     #[test]
     fn footer_minimal_width_keeps_total_and_quit_only() {
         let s = scene_of(vec![idle("a"), idle("b")]);
-        // Just wide enough for " 2a " (4) + " [q] quit " (10) = 14.
-        let line = build_status_summary(&s, 16);
+        let w = QUIT_SUFFIX.len() + 6;
+        let line = build_status_summary(&s, w as u16);
         assert!(line.contains("2a"), "expected minimal tier: {line:?}");
-        assert!(line.ends_with(" [q] quit "), "{line:?}");
-        assert_eq!(line.len(), 16);
+        assert!(line.ends_with(QUIT_SUFFIX), "{line:?}");
+        assert_eq!(line.len(), w);
     }
 
     #[test]
     fn footer_collapses_to_quit_only_below_minimal_threshold() {
         let s = scene_of(vec![idle("a")]);
-        // Width 10 fits exactly " [q] quit " — no stats at all.
-        let line = build_status_summary(&s, 10);
-        assert_eq!(line, " [q] quit ");
+        let w = QUIT_SUFFIX.len();
+        let line = build_status_summary(&s, w as u16);
+        assert_eq!(line, QUIT_SUFFIX);
     }
 
     #[test]

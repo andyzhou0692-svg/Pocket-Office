@@ -78,6 +78,8 @@ In another terminal, start a Claude Code session (`claude`). A character walks i
 |---|---|
 | `q` / `Esc` / `Ctrl-C` | Quit |
 | `p` | Pause / resume animation |
+| `+` / `-` | Increase / decrease max desks |
+| Click | Pin / unpin agent tooltip |
 
 Hooks stay installed after quitting — the shim silently no-ops when the TUI isn't running.
 
