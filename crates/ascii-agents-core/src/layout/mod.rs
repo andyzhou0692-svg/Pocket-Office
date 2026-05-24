@@ -124,7 +124,7 @@ impl SceneLayout {
             return None;
         }
 
-        let top_margin = (buf_h / 4).max(MIN_TOP_MARGIN);
+        let top_margin = (buf_h * 30 / 100).max(MIN_TOP_MARGIN);
         let usable_h = buf_h - top_margin;
         let mid_x = buf_w * 28 / 100;
         let mid_y_split = top_margin + usable_h / 2;

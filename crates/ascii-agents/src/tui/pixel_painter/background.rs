@@ -1,6 +1,6 @@
 //! Background pass — depth-independent floor, walls, windows, skyline,
 //! clock, corridor runner, entry mat, time-of-day overlays, ceiling
-//! light pools, lamp halo, and floor shadows.
+//! light pools, lamp halo, floor shadows, and weather effects.
 //!
 //! Everything here paints BEFORE the y-sorted entity pass. Helpers are
 //! `pub(super)` so the orchestrator (`pixel_painter/mod.rs`) can call
@@ -13,6 +13,48 @@ use ascii_agents_core::sprite::{Rgb, RgbBuffer};
 use super::palette::{blend, lerp_rgb};
 
 use crate::tui::theme::Theme;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Weather {
+    Clear,
+    Rain,
+    Storm,
+    Snow,
+    Fog,
+    Overcast,
+    Windy,
+}
+
+pub(super) fn weather_state(now: SystemTime) -> Weather {
+    let secs = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let cycle = secs / 600;
+    let mut h = cycle.wrapping_add(0x9e37_79b9_7f4a_7c15);
+    h = (h ^ (h >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    h = (h ^ (h >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    h ^= h >> 31;
+    match h % 14 {
+        0..=5 => Weather::Clear,
+        6..=7 => Weather::Rain,
+        8 => Weather::Storm,
+        9 => Weather::Snow,
+        10 => Weather::Fog,
+        11..=12 => Weather::Overcast,
+        _ => Weather::Windy,
+    }
+}
+
+pub(super) fn sunset_strength(now: SystemTime) -> f32 {
+    use chrono::Timelike;
+    let unix_now = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let local = chrono::DateTime::<chrono::Local>::from(std::time::UNIX_EPOCH + unix_now);
+    let h = local.hour() as f32 + local.minute() as f32 / 60.0;
+    super::palette::bell(h, 18.0, 1.5).max(super::palette::bell(h, 6.5, 1.0))
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn paint_floor_and_walls(
@@ -60,7 +102,8 @@ pub(super) fn paint_floor_and_walls(
     const WINDOW_W: u16 = 22;
     const WINDOW_GAP: u16 = 3;
     let window_y: u16 = 1;
-    let window_h: u16 = top_wall_h.saturating_sub(3).max(8);
+    let window_h: u16 = top_wall_h.saturating_sub(2).max(8);
+    let weather = weather_state(now);
     let mut x = 3u16;
     let mut idx: u32 = 0;
     while x + WINDOW_W + 2 <= buf_w {
@@ -81,6 +124,7 @@ pub(super) fn paint_floor_and_walls(
                 idx as u16,
                 now,
                 theme,
+                weather,
             );
             if look.spill_strength > 0.0 {
                 paint_window_light_spill(
@@ -138,14 +182,12 @@ fn city_dot_twinkle(window_idx: u16, dx: u16, dy: u16, now: SystemTime) -> bool 
     let dot_seed = (window_idx as u64).wrapping_mul(31)
         ^ (dx as u64).wrapping_mul(131)
         ^ (dy as u64).wrapping_mul(521);
-    // Per-dot cycle 3-7 s — slow enough that the eye doesn't perceive
-    // constant flickering, fast enough that the skyline still "lives".
-    let cycle_ms = 3000 + (dot_seed % 4000);
+    let cycle_ms = 6000 + (dot_seed % 8000);
     let phase = now_ms / cycle_ms;
     let hash = dot_seed
         .wrapping_add(phase)
         .wrapping_mul(0x9e37_79b9_7f4a_7c15);
-    (hash % 10) < 8
+    (hash % 10) < 7
 }
 
 /// Warm sunlight tint spilling onto the floor below a window. Trapezoid
@@ -387,6 +429,7 @@ fn paint_floor_to_ceiling_window(
     window_idx: u16,
     now: SystemTime,
     theme: &Theme,
+    weather: Weather,
 ) {
     let building_dark = theme.office.building_dark;
     let building_light = theme.office.building_light;
@@ -461,6 +504,230 @@ fn paint_floor_to_ceiling_window(
                 }
             } else {
                 buf.put(px, py, sky_row[glass_dy as usize]);
+            }
+        }
+    }
+
+    let elapsed_ms = now
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    match weather {
+        Weather::Rain => {
+            let glass_x0 = x + 1;
+            let glass_y0 = y + 1;
+            let gw = w.saturating_sub(2);
+            let gh = h.saturating_sub(2);
+            for streak in 0..4u64 {
+                let seed = window_idx as u64 * 7 + streak;
+                let sx = (seed.wrapping_mul(0x9e37_79b9) % gw as u64) as u16;
+                let speed = 60 + (seed.wrapping_mul(0x4f6c_dd1d) % 50);
+                let offset = seed.wrapping_mul(0x85eb_ca6b) % (gh as u64).max(1);
+                let phase = (elapsed_ms / speed + offset) % gh as u64;
+                let len = 3 + (seed % 2) as u16;
+                let px = glass_x0 + sx;
+                for dy in 0..len {
+                    let py = glass_y0 + ((phase as u16 + dy) % gh);
+                    if px < buf.width && py < buf.height {
+                        let alpha = 0.35 - (dy as f32 / len as f32) * 0.15;
+                        let cur = buf.get(px, py);
+                        buf.put(
+                            px,
+                            py,
+                            Rgb(
+                                blend(cur.0, 210, alpha),
+                                blend(cur.1, 220, alpha),
+                                blend(cur.2, 240, alpha),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        Weather::Storm => {
+            let glass_x0 = x + 1;
+            let glass_y0 = y + 1;
+            let gw = w.saturating_sub(2);
+            let gh = h.saturating_sub(2);
+            for streak in 0..6u64 {
+                let seed = window_idx as u64 * 7 + streak;
+                let sx = (seed.wrapping_mul(0x9e37_79b9) % gw as u64) as u16;
+                let speed = 40 + (seed.wrapping_mul(0x4f6c_dd1d) % 40);
+                let offset = seed.wrapping_mul(0x85eb_ca6b) % (gh as u64).max(1);
+                let phase = (elapsed_ms / speed + offset) % gh as u64;
+                let len = 4 + (seed % 3) as u16;
+                let px = glass_x0 + sx;
+                for dy in 0..len {
+                    let py = glass_y0 + ((phase as u16 + dy) % gh);
+                    if px < buf.width && py < buf.height {
+                        let alpha = 0.6 - (dy as f32 / len as f32) * 0.3;
+                        buf.put(
+                            px,
+                            py,
+                            Rgb(
+                                blend(buf.get(px, py).0, 210, alpha),
+                                blend(buf.get(px, py).1, 220, alpha),
+                                blend(buf.get(px, py).2, 245, alpha),
+                            ),
+                        );
+                    }
+                }
+            }
+            let flash_phase = elapsed_ms % 6000;
+            if flash_phase < 50 {
+                for dy in 1..h.saturating_sub(1) {
+                    for dx in 1..w.saturating_sub(1) {
+                        let px = x + dx;
+                        let py = y + dy;
+                        if px < buf.width && py < buf.height {
+                            let cur = buf.get(px, py);
+                            buf.put(
+                                px,
+                                py,
+                                Rgb(
+                                    blend(cur.0, 255, 0.35),
+                                    blend(cur.1, 255, 0.35),
+                                    blend(cur.2, 255, 0.35),
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        Weather::Snow => {
+            let glass_x0 = x + 1;
+            let glass_y0 = y + 1;
+            let gw = w.saturating_sub(2);
+            let gh = h.saturating_sub(2);
+            for flake in 0..3u64 {
+                let seed = window_idx as u64 * 11 + flake;
+                let sx = (seed.wrapping_mul(0x517c_c1b7) % gw as u64) as u16;
+                let speed = 150 + (seed.wrapping_mul(0x4f6c_dd1d) % 100);
+                let offset = seed.wrapping_mul(0x85eb_ca6b) % (gh as u64).max(1);
+                let phase = (elapsed_ms / speed + offset) % gh as u64;
+                let wiggle = if (elapsed_ms / 400 + seed.wrapping_mul(0x9e37)) % 2 == 0 {
+                    0
+                } else {
+                    1
+                };
+                let px = glass_x0 + (sx + wiggle) % gw;
+                let py = glass_y0 + phase as u16;
+                if px < buf.width && py < buf.height {
+                    buf.put(px, py, Rgb(240, 240, 250));
+                }
+            }
+        }
+        Weather::Fog => {
+            for dy in 1..h.saturating_sub(1) {
+                for dx in 1..w.saturating_sub(1) {
+                    let px = x + dx;
+                    let py = y + dy;
+                    if px < buf.width && py < buf.height {
+                        let cur = buf.get(px, py);
+                        buf.put(
+                            px,
+                            py,
+                            Rgb(
+                                blend(cur.0, 160, 0.25),
+                                blend(cur.1, 165, 0.25),
+                                blend(cur.2, 175, 0.25),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        Weather::Overcast => {
+            for dy in 1..h.saturating_sub(1) {
+                for dx in 1..w.saturating_sub(1) {
+                    let px = x + dx;
+                    let py = y + dy;
+                    if px < buf.width && py < buf.height {
+                        let cur = buf.get(px, py);
+                        buf.put(
+                            px,
+                            py,
+                            Rgb(
+                                blend(cur.0, 100, 0.2),
+                                blend(cur.1, 105, 0.2),
+                                blend(cur.2, 110, 0.2),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        Weather::Windy => {
+            let glass_x0 = x + 1;
+            let glass_y0 = y + 1;
+            let gw = w.saturating_sub(2);
+            let gh = h.saturating_sub(2);
+            for streak in 0..5u64 {
+                let seed = window_idx as u64 * 7 + streak;
+                let sx = (seed.wrapping_mul(0x9e37_79b9) % gw as u64) as u16;
+                let speed = 50 + (seed.wrapping_mul(0x4f6c_dd1d) % 40);
+                let offset = seed.wrapping_mul(0x85eb_ca6b) % (gh as u64).max(1);
+                let phase = (elapsed_ms / speed + offset) % gh as u64;
+                let len = 3 + (seed % 2) as u16;
+                for dy in 0..len {
+                    let drift = dy / 2;
+                    let px = glass_x0 + (sx + drift) % gw;
+                    let py = glass_y0 + ((phase as u16 + dy) % gh);
+                    if px < buf.width && py < buf.height {
+                        let alpha = 0.35 - (dy as f32 / len as f32) * 0.15;
+                        let cur = buf.get(px, py);
+                        buf.put(
+                            px,
+                            py,
+                            Rgb(
+                                blend(cur.0, 210, alpha),
+                                blend(cur.1, 220, alpha),
+                                blend(cur.2, 240, alpha),
+                            ),
+                        );
+                    }
+                }
+            }
+        }
+        Weather::Clear => {}
+    }
+
+    let raw_sunset = sunset_strength(now);
+    let twilight_now = {
+        use chrono::Timelike;
+        let unix_now = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let local = chrono::DateTime::<chrono::Local>::from(std::time::UNIX_EPOCH + unix_now);
+        let hf = local.hour() as f32 + local.minute() as f32 / 60.0;
+        super::palette::bell(hf, 6.5, 1.5).max(super::palette::bell(hf, 18.5, 1.5))
+    };
+    let sunset = (raw_sunset * (1.0 - twilight_now * 0.8)).max(0.0);
+    if sunset > 0.05 {
+        let min_building_h = (glass_h / 5).max(3);
+        for dy in 1..h.saturating_sub(1) {
+            let glass_dy = dy.saturating_sub(1);
+            if glass_dy >= glass_h.saturating_sub(min_building_h) {
+                continue;
+            }
+            for dx in 1..w.saturating_sub(1) {
+                let px = x + dx;
+                let py = y + dy;
+                if px < buf.width && py < buf.height {
+                    let cur = buf.get(px, py);
+                    let s = sunset * 0.35;
+                    buf.put(
+                        px,
+                        py,
+                        Rgb(
+                            blend(cur.0, 255, s * 0.4),
+                            blend(cur.1, 160, s * 0.25),
+                            blend(cur.2, 60, s * 0.1),
+                        ),
+                    );
+                }
             }
         }
     }

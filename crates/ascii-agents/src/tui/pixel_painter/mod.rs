@@ -1524,4 +1524,56 @@ mod tests {
         let open = entry_slot(2_000, now); // frame 2
         assert_eq!(compute_door_frame_idx(&[opening, open], now), 2);
     }
+
+    #[test]
+    fn weather_state_covers_all_variants() {
+        let mut seen = std::collections::HashSet::new();
+        let base = SystemTime::UNIX_EPOCH;
+        for cycle in 0..100u64 {
+            let now = base + std::time::Duration::from_secs(cycle * 600);
+            seen.insert(std::mem::discriminant(&background::weather_state(now)));
+        }
+        assert!(
+            seen.len() >= 5,
+            "expected at least 5 weather variants in 100 cycles, got {}",
+            seen.len()
+        );
+    }
+
+    #[test]
+    fn weather_state_deterministic() {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(10_000);
+        let a = background::weather_state(now);
+        let b = background::weather_state(now);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn weather_state_changes_across_cycles() {
+        let mut states = Vec::new();
+        let base = SystemTime::UNIX_EPOCH;
+        for cycle in 0..20u64 {
+            states.push(background::weather_state(
+                base + std::time::Duration::from_secs(cycle * 600),
+            ));
+        }
+        let unique: std::collections::HashSet<_> =
+            states.iter().map(std::mem::discriminant).collect();
+        assert!(unique.len() >= 2, "weather should vary across cycles");
+    }
+
+    #[test]
+    fn sunset_strength_varies_across_day() {
+        let mut strengths = Vec::new();
+        let base = SystemTime::UNIX_EPOCH;
+        for hour in 0..24u64 {
+            strengths.push(background::sunset_strength(
+                base + std::time::Duration::from_secs(hour * 3600),
+            ));
+        }
+        let has_zero = strengths.iter().any(|s| *s < 0.05);
+        let has_nonzero = strengths.iter().any(|s| *s > 0.1);
+        assert!(has_zero, "sunset should be ~0 at some hours");
+        assert!(has_nonzero, "sunset should be >0 at dawn/dusk hours");
+    }
 }

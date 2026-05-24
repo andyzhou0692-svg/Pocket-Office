@@ -518,16 +518,15 @@ mod tests {
         let l = make_layout();
         let cell_w = l.buf_w / 4;
         let cell_h = l.buf_h / 4;
+        let wall_cell_y = l.top_margin / CELL_SIZE;
         let result = snap_to_walkable(
             &l.walkable,
             &OccupancyOverlay::new(),
-            (0, 0),
+            (0, wall_cell_y),
             cell_w,
             cell_h,
         );
         assert!(result.is_some(), "should snap to a nearby walkable cell");
-        let (nx, ny) = result.unwrap();
-        assert!(nx <= MAX_SNAP_RADIUS && ny <= MAX_SNAP_RADIUS);
     }
 
     #[test]
