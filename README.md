@@ -45,6 +45,19 @@ Running multiple AI agents in the terminal is like managing a sweatshop you can'
 | ☕ | **Desk personalization** | Coffee cup (10min), plant (30min), photo frame (1hr) appear over time |
 | 🛡️ | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block Claude Code |
 
+## Supported Tools
+
+| Tool | Status | Notes |
+|---|---|---|
+| [**Claude Code**](https://code.claude.com) | ✅ Supported | Hook shim + JSONL watcher |
+| [**Codex CLI**](https://github.com/openai/codex) | 🔜 Planned | Same hook pattern as CC |
+| [**Copilot CLI**](https://github.com/github/copilot-cli) | 🔜 Planned | Identical event names |
+| [**OpenCode**](https://github.com/opencode-ai/opencode) | 🔜 Planned | Any LLM (DeepSeek / GPT / Claude / Gemini) |
+| [**Cursor CLI**](https://cursor.com/cli) | 🔜 Planned | NDJSON stream |
+| [**Gemini CLI**](https://github.com/google-gemini/gemini-cli) | 🔜 Planned | Hook shim |
+
+> Adding a new tool? Implement the [`Source` trait](#contributing) — one file, one channel, done.
+
 ## Themes
 
 Press `t` to switch themes with live preview. 6 built-in:
