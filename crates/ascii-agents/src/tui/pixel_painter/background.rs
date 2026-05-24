@@ -694,9 +694,24 @@ fn paint_floor_to_ceiling_window(
         Weather::Clear => {}
     }
 
-    let sunset = sunset_strength(now);
+    let raw_sunset = sunset_strength(now);
+    let twilight_now = {
+        use chrono::Timelike;
+        let unix_now = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let local = chrono::DateTime::<chrono::Local>::from(std::time::UNIX_EPOCH + unix_now);
+        let hf = local.hour() as f32 + local.minute() as f32 / 60.0;
+        super::palette::bell(hf, 6.5, 1.5).max(super::palette::bell(hf, 18.5, 1.5))
+    };
+    let sunset = (raw_sunset * (1.0 - twilight_now * 0.8)).max(0.0);
     if sunset > 0.05 {
+        let min_building_h = (glass_h / 5).max(3);
         for dy in 1..h.saturating_sub(1) {
+            let glass_dy = dy.saturating_sub(1);
+            if glass_dy >= glass_h.saturating_sub(min_building_h) {
+                continue;
+            }
             for dx in 1..w.saturating_sub(1) {
                 let px = x + dx;
                 let py = y + dy;
