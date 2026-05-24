@@ -10,7 +10,7 @@ use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<()> {
     install_crash_hook();
-    let (log_level, cmd) = Cli::parse().cmd_or_default();
+    let (log_level, theme_name, cmd) = Cli::parse().cmd_or_default();
     let make_filter =
         || EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&log_level));
 
@@ -68,7 +68,14 @@ fn main() -> Result<()> {
             pack_dir,
             max_desks,
             headless,
-        } => runtime::run(socket, projects_root, pack_dir, max_desks, headless),
+        } => runtime::run(
+            socket,
+            projects_root,
+            pack_dir,
+            max_desks,
+            headless,
+            theme_name,
+        ),
         Cmd::InstallHooks {
             hook_path,
             settings,

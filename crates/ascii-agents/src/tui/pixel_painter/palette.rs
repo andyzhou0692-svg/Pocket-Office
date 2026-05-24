@@ -173,7 +173,10 @@ pub(super) fn agent_palette(base: &Palette, agent: &AgentSlot, glow_tint: Option
 
 /// Map an agent's active tool detail to a monitor glow color.
 /// Returns `None` for non-Active states (no glow).
-pub(super) fn tool_glow_tint(agent: &AgentSlot) -> Option<Rgb> {
+pub(super) fn tool_glow_tint(
+    agent: &AgentSlot,
+    glow: &crate::tui::theme::ToolGlowColors,
+) -> Option<Rgb> {
     use ascii_agents_core::state::ActivityState;
     let detail = match &agent.state {
         ActivityState::Active { detail, .. } => detail.as_deref(),
@@ -183,12 +186,12 @@ pub(super) fn tool_glow_tint(agent: &AgentSlot) -> Option<Rgb> {
         .and_then(|d| d.split(|c: char| !c.is_alphanumeric()).next())
         .unwrap_or("");
     Some(match token {
-        "Edit" | "Write" | "MultiEdit" => Rgb(100, 160, 255),
-        "Read" => Rgb(80, 220, 240),
-        "Bash" => Rgb(240, 170, 80),
-        "Agent" | "Task" | "Delegating" => Rgb(200, 140, 255),
-        "Grep" | "Glob" => Rgb(180, 220, 120),
-        _ => Rgb(140, 240, 170),
+        "Edit" | "Write" | "MultiEdit" => glow.edit,
+        "Read" => glow.read,
+        "Bash" => glow.bash,
+        "Agent" | "Task" | "Delegating" => glow.agent,
+        "Grep" | "Glob" => glow.grep,
+        _ => glow.default,
     })
 }
 

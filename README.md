@@ -17,6 +17,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/Rust-1.78%2B-orange.svg" alt="Rust 1.78+" /></a>
   <a href="https://github.com/IvanWng97/ascii-agents/releases"><img src="https://img.shields.io/github/v/release/IvanWng97/ascii-agents?label=release&color=green" alt="Release" /></a>
+  <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?logo=anthropic" alt="Built with Claude Code" /></a>
 </p>
 
 ---
@@ -28,6 +29,14 @@
 You're running 5 Claude Code sessions across 3 repos. Which one is typing? Which one is stuck waiting for permission? Which one finished 10 minutes ago and you forgot about?
 
 **ascii-agents** gives you a single pane of glass: a pixel-art office where each session is a character. Typing agents sit at desks with glowing monitors. Waiting agents stand up with a `?` bubble. Idle agents doze off — head on desk, z's floating. You see everything at a glance.
+
+## Themes
+
+Press `t` in the TUI to switch themes with live preview. 6 built-in themes:
+
+<p align="center">
+  <img src="docs/images/themes-composite.png" alt="6 themes: Normal, Cyberpunk, Dracula, Tokyo Night, Catppuccin, Gruvbox" width="800" />
+</p>
 
 ## Gallery
 
@@ -82,6 +91,7 @@ In another terminal, start a Claude Code session (`claude`). A character walks i
 |---|---|
 | `q` / `Esc` / `Ctrl-C` | Quit |
 | `p` | Pause / resume animation |
+| `t` | Open theme picker (↑↓ to preview, Enter/Esc) |
 | `+` / `-` | Increase / decrease max desks |
 | Click | Pin / unpin agent tooltip |
 

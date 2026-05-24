@@ -34,10 +34,11 @@ pub struct TuiRenderer<B: Backend> {
     mouse_pos: Option<(u16, u16)>,
     pinned_agent: Option<ascii_agents_core::AgentId>,
     pub ticker: crate::tui::renderer::TickerQueue,
+    theme: &'static crate::tui::theme::Theme,
 }
 
 impl<B: Backend> TuiRenderer<B> {
-    pub fn new(terminal: Terminal<B>) -> Self {
+    pub fn new(terminal: Terminal<B>, theme: &'static crate::tui::theme::Theme) -> Self {
         Self {
             terminal,
             buf: RgbBuffer::filled(0, 0, Rgb(0, 0, 0)),
@@ -48,6 +49,7 @@ impl<B: Backend> TuiRenderer<B> {
             mouse_pos: None,
             pinned_agent: None,
             ticker: crate::tui::renderer::TickerQueue::new(),
+            theme,
         }
     }
 
@@ -65,6 +67,11 @@ impl<B: Backend> TuiRenderer<B> {
 
     pub fn buf(&self) -> &RgbBuffer {
         &self.buf
+    }
+
+    pub fn set_theme(&mut self, theme: &'static crate::tui::theme::Theme) {
+        self.theme = theme;
+        self.cache = FrameCache::new();
     }
 
     /// Drop the cached frame entries for agents no longer in `scene`.
@@ -97,6 +104,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             self.mouse_pos,
             self.pinned_agent,
             &self.ticker,
+            self.theme,
         )
     }
 }

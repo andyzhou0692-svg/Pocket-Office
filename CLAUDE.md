@@ -32,7 +32,10 @@ crates/
 │   ├── install/            settings.json merge, atomic write, advisory lock, stow-symlink safe
 │   └── tui/                ratatui App + TuiRenderer (Renderer trait impl)
 │       ├── renderer.rs     draw_scene orchestrator, half-block flush, label/tooltip widgets, footer, TickerQueue, neon wall display
-│       ├── tui_renderer.rs Renderer trait impl — owns cross-frame state (RgbBuffer, FrameCache, Router, PoseHistory, TickerQueue)
+│       ├── tui_renderer.rs Renderer trait impl — owns cross-frame state (RgbBuffer, FrameCache, Router, PoseHistory, TickerQueue, Theme)
+│       ├── theme/          color theme system — one file per theme, Theme struct in mod.rs
+│       │                   mod.rs (struct defs + ALL_THEMES registry), normal.rs, cyberpunk.rs,
+│       │                   dracula.rs, tokyo_night.rs, catppuccin.rs, gruvbox.rs
 │       ├── pose.rs         routed pose layer (PoseHistory, derive_with_routing, snap-back) — re-exports core::pose
 │       ├── pathfind.rs     Router trait + AStarRouter with selective cache invalidation
 │       └── pixel_painter/  pure-pixel pass — split into focused child modules:
@@ -143,6 +146,7 @@ These are load-bearing; don't break them without updating the spec.
 - "How does the cat behave?" → `pixel_painter/drawable.rs::cat_position` — 40s cycle, picks a destination from all spots (desks, pantry, sofas, couch, corridor), walks there (35%), sits/sleeps (65%). Sleeps with z's near idle agents. Sprites: `cat_walk` (8×6 side view), `cat_sit` (6×6 front), `cat_sleep` (6×4 curled).
 - "How does desk personalization work?" → `drawable.rs::paint_desk_personalization` — procedural pixel items appear on desks based on `session_age_secs`: coffee cup (10min), plant (30min), photo frame (1hr).
 - "How does the crash log work?" → `main.rs::install_crash_hook` sets a panic hook that restores the terminal, writes a timestamped backtrace to `~/.cache/ascii-agents/crash.log`.
+- "How does the theme system work?" → `tui/theme/mod.rs` defines the `Theme` struct (~100 color roles in 7 groups). Each theme is a `pub static Theme` in its own file (e.g. `theme/cyberpunk.rs`). `ALL_THEMES` is the registry slice. `--theme` CLI flag resolves via `theme_by_name()`. The `&'static Theme` threads through `TuiRenderer` → `draw_scene` → `render_to_rgb_buffer` → all paint functions. Press `[t]` in the TUI for a live preview picker. `set_theme()` flushes the `FrameCache` so character recolors update immediately. 6 themes: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox.
 
 ## When refactoring
 

@@ -12,16 +12,9 @@ use ascii_agents_core::sprite::{Rgb, RgbBuffer};
 
 use super::palette::{blend, lerp_rgb};
 
-// --- Color constants ------------------------------------------------------
-const CARPET_BASE: Rgb = Rgb(150, 110, 72);
-const CARPET_LIGHT: Rgb = Rgb(178, 138, 96);
-const CARPET_DARK: Rgb = Rgb(118, 82, 50);
-const WALL: Rgb = Rgb(56, 56, 70);
-const WALL_TRIM: Rgb = Rgb(80, 80, 100);
-const BASEBOARD: Rgb = Rgb(40, 40, 52);
+use crate::tui::theme::Theme;
 
-// --- Floor / walls / windows ---------------------------------------------
-
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_floor_and_walls(
     buf: &mut RgbBuffer,
     buf_w: u16,
@@ -30,12 +23,17 @@ pub(super) fn paint_floor_and_walls(
     look: &TimeOfDayLook,
     top_wall_h: u16,
     skip_window_x_range: Option<(u16, u16)>,
+    theme: &Theme,
 ) {
     const BASEBOARD_H: u16 = 3;
-    const WINDOW_FRAME: Rgb = Rgb(24, 24, 32);
+    let window_frame = theme.surface.window_frame;
+    let carpet_base = theme.surface.carpet_base;
+    let carpet_light = theme.surface.carpet_light;
+    let carpet_dark = theme.surface.carpet_dark;
+    let wall = theme.surface.wall;
+    let wall_trim_color = theme.surface.wall_trim;
+    let baseboard = theme.surface.baseboard;
 
-    // Carpet: warm tan/grey base with deterministic light/dark flecks.
-    // No seams, no grid — softer than the previous plank pattern.
     for y in 0..buf_h {
         for x in 0..buf_w {
             let hash = (x as u32)
@@ -43,16 +41,16 @@ pub(super) fn paint_floor_and_walls(
                 .wrapping_add((y as u32).wrapping_mul(151))
                 ^ ((x as u32).wrapping_mul(11) ^ (y as u32).wrapping_mul(37));
             let color = match hash % 17 {
-                0 | 1 => CARPET_LIGHT,
-                2 | 3 => CARPET_DARK,
-                _ => CARPET_BASE,
+                0 | 1 => carpet_light,
+                2 | 3 => carpet_dark,
+                _ => carpet_base,
             };
             buf.put(x, y, color);
         }
     }
     for y in 0..top_wall_h.min(buf_h) {
         for x in 0..buf_w {
-            buf.put(x, y, WALL);
+            buf.put(x, y, wall);
         }
     }
 
@@ -78,10 +76,11 @@ pub(super) fn paint_floor_and_walls(
                 window_y,
                 WINDOW_W,
                 window_h,
-                WINDOW_FRAME,
+                window_frame,
                 look,
                 idx as u16,
                 now,
+                theme,
             );
             if look.spill_strength > 0.0 {
                 paint_window_light_spill(
@@ -91,6 +90,7 @@ pub(super) fn paint_floor_and_walls(
                     top_wall_h,
                     look.spill_strength,
                     look.spill_slant,
+                    theme,
                 );
             }
         }
@@ -102,14 +102,14 @@ pub(super) fn paint_floor_and_walls(
     let trim_y = top_wall_h.saturating_sub(1);
     if trim_y < buf_h {
         for x in 0..buf_w {
-            buf.put(x, trim_y, WALL_TRIM);
+            buf.put(x, trim_y, wall_trim_color);
         }
     }
 
     let base_y = buf_h.saturating_sub(BASEBOARD_H);
     for y in base_y..buf_h {
         for x in 0..buf_w {
-            buf.put(x, y, BASEBOARD);
+            buf.put(x, y, baseboard);
         }
     }
 }
@@ -162,8 +162,9 @@ fn paint_window_light_spill(
     top_y: u16,
     intensity: f32,
     slant_per_row: f32,
+    theme: &Theme,
 ) {
-    const WARM: Rgb = Rgb(255, 230, 160);
+    let warm = theme.lighting.sun_spill;
     const DEPTH: u16 = 12;
     let fade_start = 0.32 * intensity;
     for dy in 0..DEPTH {
@@ -183,9 +184,9 @@ fn paint_window_light_spill(
                 x,
                 y,
                 Rgb(
-                    blend(cur.0, WARM.0, strength),
-                    blend(cur.1, WARM.1, strength),
-                    blend(cur.2, WARM.2, strength),
+                    blend(cur.0, warm.0, strength),
+                    blend(cur.1, warm.1, strength),
+                    blend(cur.2, warm.2, strength),
                 ),
             );
         }
@@ -204,7 +205,7 @@ pub(super) struct TimeOfDayLook {
     pub(super) darkness: f32,
 }
 
-pub(super) fn time_of_day_look(now: SystemTime) -> TimeOfDayLook {
+pub(super) fn time_of_day_look(now: SystemTime, theme: &Theme) -> TimeOfDayLook {
     use chrono::Timelike;
     let unix_now = now
         .duration_since(std::time::UNIX_EPOCH)
@@ -227,15 +228,15 @@ pub(super) fn time_of_day_look(now: SystemTime) -> TimeOfDayLook {
     // tint that the cyan↔dark-blue base doesn't capture.
     let twilight = super::palette::bell(h, 6.5, 1.5).max(super::palette::bell(h, 18.5, 1.5));
 
-    const DAY_A: Rgb = Rgb(120, 160, 200);
-    const DAY_B: Rgb = Rgb(160, 190, 220);
-    const NIGHT_A: Rgb = Rgb(18, 26, 52);
-    const NIGHT_B: Rgb = Rgb(28, 36, 70);
-    const TWILIGHT_A: Rgb = Rgb(220, 130, 80);
-    const TWILIGHT_B: Rgb = Rgb(240, 170, 110);
+    let day_a = theme.lighting.day_sky_a;
+    let day_b = theme.lighting.day_sky_b;
+    let night_a = theme.lighting.night_sky_a;
+    let night_b = theme.lighting.night_sky_b;
+    let twilight_a = theme.lighting.twilight_a;
+    let twilight_b = theme.lighting.twilight_b;
 
-    let glass_a = lerp_rgb(lerp_rgb(NIGHT_A, DAY_A, day), TWILIGHT_A, twilight * 0.5);
-    let glass_b = lerp_rgb(lerp_rgb(NIGHT_B, DAY_B, day), TWILIGHT_B, twilight * 0.5);
+    let glass_a = lerp_rgb(lerp_rgb(night_a, day_a, day), twilight_a, twilight * 0.5);
+    let glass_b = lerp_rgb(lerp_rgb(night_b, day_b, day), twilight_b, twilight * 0.5);
 
     // Spill slant: ±0.7 px per row at peak hours (6am leftmost, 6pm
     // rightmost), zero at noon. Conventional read: morning sun on the east
@@ -259,8 +260,14 @@ pub(super) fn time_of_day_look(now: SystemTime) -> TimeOfDayLook {
 /// Multiplicative dim applied to floor pixels at night. Pulls everything
 /// toward a dark navy so the artificial-light pools have something to
 /// stand out against. `strength` is 0..1 (no dim..full dim).
-pub(super) fn dim_floor_overlay(buf: &mut RgbBuffer, top_y: u16, bottom_y: u16, strength: f32) {
-    const NIGHT_TINT: Rgb = Rgb(18, 22, 38);
+pub(super) fn dim_floor_overlay(
+    buf: &mut RgbBuffer,
+    top_y: u16,
+    bottom_y: u16,
+    strength: f32,
+    theme: &Theme,
+) {
+    let night_tint = theme.lighting.night_tint;
     let s = strength.clamp(0.0, 0.55);
     for y in top_y..bottom_y.min(buf.height) {
         for x in 0..buf.width {
@@ -269,9 +276,9 @@ pub(super) fn dim_floor_overlay(buf: &mut RgbBuffer, top_y: u16, bottom_y: u16, 
                 x,
                 y,
                 Rgb(
-                    blend(cur.0, NIGHT_TINT.0, s),
-                    blend(cur.1, NIGHT_TINT.1, s),
-                    blend(cur.2, NIGHT_TINT.2, s),
+                    blend(cur.0, night_tint.0, s),
+                    blend(cur.1, night_tint.1, s),
+                    blend(cur.2, night_tint.2, s),
                 ),
             );
         }
@@ -279,8 +286,9 @@ pub(super) fn dim_floor_overlay(buf: &mut RgbBuffer, top_y: u16, bottom_y: u16, 
 }
 
 /// Elliptical "ceiling fluorescent" pool of pale warm light on the floor.
-/// Blended additively (toward POOL color) with a quadratic falloff from
+/// Blended additively (toward pool color) with a quadratic falloff from
 /// center to edge so it reads as a soft round patch, not a stamped oval.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_ceiling_pool(
     buf: &mut RgbBuffer,
     cx: u16,
@@ -288,8 +296,9 @@ pub(super) fn paint_ceiling_pool(
     half_w: u16,
     half_h: u16,
     strength: f32,
+    theme: &Theme,
 ) {
-    const POOL: Rgb = Rgb(255, 246, 215);
+    let pool = theme.lighting.ceiling_pool;
     if half_w == 0 || half_h == 0 || strength <= 0.0 {
         return;
     }
@@ -311,9 +320,9 @@ pub(super) fn paint_ceiling_pool(
                 x,
                 y,
                 Rgb(
-                    blend(cur.0, POOL.0, t),
-                    blend(cur.1, POOL.1, t),
-                    blend(cur.2, POOL.2, t),
+                    blend(cur.0, pool.0, t),
+                    blend(cur.1, pool.1, t),
+                    blend(cur.2, pool.2, t),
                 ),
             );
         }
@@ -321,8 +330,14 @@ pub(super) fn paint_ceiling_pool(
 }
 
 /// Warm radial halo around the floor lamp — only visible at night.
-pub(super) fn paint_floor_lamp_halo(buf: &mut RgbBuffer, cx: u16, cy: u16, strength: f32) {
-    const WARM: Rgb = Rgb(255, 210, 130);
+pub(super) fn paint_floor_lamp_halo(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    strength: f32,
+    theme: &Theme,
+) {
+    let warm = theme.lighting.floor_lamp_halo;
     const RADIUS: u16 = 11;
     if strength <= 0.0 {
         return;
@@ -346,9 +361,9 @@ pub(super) fn paint_floor_lamp_halo(buf: &mut RgbBuffer, cx: u16, cy: u16, stren
                 x,
                 y,
                 Rgb(
-                    blend(cur.0, WARM.0, t),
-                    blend(cur.1, WARM.1, t),
-                    blend(cur.2, WARM.2, t),
+                    blend(cur.0, warm.0, t),
+                    blend(cur.1, warm.1, t),
+                    blend(cur.2, warm.2, t),
                 ),
             );
         }
@@ -371,15 +386,20 @@ fn paint_floor_to_ceiling_window(
     look: &TimeOfDayLook,
     window_idx: u16,
     now: SystemTime,
+    theme: &Theme,
 ) {
-    const BUILDING_DARK: Rgb = Rgb(20, 22, 32);
-    const BUILDING_LIGHT: Rgb = Rgb(60, 65, 82);
-    const LIT_WINDOW: Rgb = Rgb(252, 215, 110);
-    const DARK_WINDOW: Rgb = Rgb(30, 32, 44);
+    let building_dark = theme.office.building_dark;
+    let building_light = theme.office.building_light;
+    let cw = theme.office.city_lit_windows;
+    let dark_window = theme.office.city_dark_window;
 
     let lit_strength = look.darkness.clamp(0.0, 1.0);
-    let lit_color = lerp_rgb(DARK_WINDOW, LIT_WINDOW, lit_strength);
-    let building = lerp_rgb(BUILDING_LIGHT, BUILDING_DARK, look.darkness);
+    let lit_colors: [Rgb; 3] = [
+        lerp_rgb(dark_window, cw[0], lit_strength),
+        lerp_rgb(dark_window, cw[1], lit_strength),
+        lerp_rgb(dark_window, cw[2], lit_strength),
+    ];
+    let building = lerp_rgb(building_light, building_dark, look.darkness);
 
     // Skyline silhouette as a 0..15 PATTERN; the actual pixel height is
     // computed per-window so the skyline auto-scales with the glass
@@ -430,7 +450,12 @@ fn paint_floor_to_ceiling_window(
                 let on_grid = glass_dx % 2 == 1 && bldg_y % 2 == 1;
                 let lit_base = on_grid && city_dot_lit(window_idx, glass_dx, bldg_y);
                 if lit_base && city_dot_twinkle(window_idx, glass_dx, bldg_y, now) {
-                    buf.put(px, py, lit_color);
+                    let dot_color = match (glass_dx.wrapping_add(bldg_y)) % 5 {
+                        0 => lit_colors[1],
+                        1 => lit_colors[2],
+                        _ => lit_colors[0],
+                    };
+                    buf.put(px, py, dot_color);
                 } else {
                     buf.put(px, py, building);
                 }
@@ -450,6 +475,7 @@ pub(super) fn paint_neon_panel(
     w: u16,
     h: u16,
     now: SystemTime,
+    theme: &Theme,
 ) {
     let elapsed_ms = now
         .duration_since(std::time::UNIX_EPOCH)
@@ -457,12 +483,14 @@ pub(super) fn paint_neon_panel(
         .unwrap_or(0);
     let pulse = 0.7 + 0.3 * ((elapsed_ms as f32 / 1200.0).sin() * 0.5 + 0.5);
 
-    const PANEL_BG: Rgb = Rgb(12, 14, 22);
+    let panel_bg = theme.office.neon_panel_bg;
+    let base = theme.office.neon_frame_base;
 
+    let clamp = |v: f32| v.clamp(0.0, 255.0) as u8;
     let frame_color = Rgb(
-        (20.0 + 25.0 * pulse) as u8,
-        (60.0 + 50.0 * pulse) as u8,
-        (80.0 + 50.0 * pulse) as u8,
+        clamp(base.0 as f32 + 25.0 * pulse),
+        clamp(base.1 as f32 + 50.0 * pulse),
+        clamp(base.2 as f32 + 50.0 * pulse),
     );
 
     for dy in 0..h {
@@ -476,7 +504,7 @@ pub(super) fn paint_neon_panel(
             if on_border {
                 buf.put(px, py, frame_color);
             } else {
-                buf.put(px, py, PANEL_BG);
+                buf.put(px, py, panel_bg);
             }
         }
     }
@@ -485,35 +513,35 @@ pub(super) fn paint_neon_panel(
 /// Live wall clock — reads system local time and renders hour + minute hands.
 /// 5x5 clock face. Hands quantize to 8 cardinal/intercardinal directions
 /// (the most a 5x5 sprite can express).
-pub(super) fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, now: SystemTime) {
-    const RIM: Rgb = Rgb(200, 200, 210);
-    const FACE: Rgb = Rgb(240, 240, 240);
-    const HAND_HOUR: Rgb = Rgb(20, 20, 25);
-    const HAND_MIN: Rgb = Rgb(60, 60, 80);
+pub(super) fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, now: SystemTime, theme: &Theme) {
+    let rim = theme.office.clock_rim;
+    let face = theme.office.clock_face;
+    let hand_color = theme.office.clock_hand;
+    let hand_min = hand_color;
 
     // Face + rim background.
     let bg: &[(u16, u16, Rgb)] = &[
-        (1, 0, RIM),
-        (2, 0, RIM),
-        (3, 0, RIM),
-        (0, 1, RIM),
-        (1, 1, FACE),
-        (2, 1, FACE),
-        (3, 1, FACE),
-        (4, 1, RIM),
-        (0, 2, RIM),
-        (1, 2, FACE),
-        (2, 2, FACE),
-        (3, 2, FACE),
-        (4, 2, RIM),
-        (0, 3, RIM),
-        (1, 3, FACE),
-        (2, 3, FACE),
-        (3, 3, FACE),
-        (4, 3, RIM),
-        (1, 4, RIM),
-        (2, 4, RIM),
-        (3, 4, RIM),
+        (1, 0, rim),
+        (2, 0, rim),
+        (3, 0, rim),
+        (0, 1, rim),
+        (1, 1, face),
+        (2, 1, face),
+        (3, 1, face),
+        (4, 1, rim),
+        (0, 2, rim),
+        (1, 2, face),
+        (2, 2, face),
+        (3, 2, face),
+        (4, 2, rim),
+        (0, 3, rim),
+        (1, 3, face),
+        (2, 3, face),
+        (3, 3, face),
+        (4, 3, rim),
+        (1, 4, rim),
+        (2, 4, rim),
+        (3, 4, rim),
     ];
     for (dx, dy, c) in bg {
         let px = x + dx;
@@ -545,15 +573,15 @@ pub(super) fn paint_clock(buf: &mut RgbBuffer, x: u16, y: u16, now: SystemTime) 
     };
 
     // Center pin (always painted).
-    put(buf, 0, 0, HAND_HOUR);
+    put(buf, 0, 0, hand_color);
 
     // Hour hand: 1 px from center along quantized angle.
     let (hdx, hdy) = octant_offset(hour_turns);
-    put(buf, hdx, hdy, HAND_HOUR);
+    put(buf, hdx, hdy, hand_color);
 
     // Minute hand: 2 px from center (longer than hour hand) along its angle.
     let (mdx, mdy) = octant_offset(min_turns);
-    put(buf, mdx, mdy, HAND_MIN);
+    put(buf, mdx, mdy, hand_min);
     // (Don't put a 2nd pixel if it falls off the 5x5 — the rim handles it.)
 }
 
@@ -578,10 +606,14 @@ fn octant_offset(turn: f32) -> (i32, i32) {
 /// painted along the walkway band so the eye traces a path connecting the
 /// door, meeting room, pantry, cubicles, and lounge. Just texture over the
 /// floor — walls and decor paint on top.
-pub(super) fn paint_corridor_runner(buf: &mut RgbBuffer, rect: crate::tui::layout::Bounds) {
-    const RUNNER_BASE: Rgb = Rgb(94, 62, 36);
-    const RUNNER_STRIPE: Rgb = Rgb(118, 82, 50);
-    const RUNNER_EDGE: Rgb = Rgb(60, 40, 24);
+pub(super) fn paint_corridor_runner(
+    buf: &mut RgbBuffer,
+    rect: crate::tui::layout::Bounds,
+    theme: &Theme,
+) {
+    let runner_base = theme.office.runner_base;
+    let runner_stripe = theme.office.runner_stripe;
+    let runner_edge = theme.office.runner_edge;
     let max_x = (rect.x + rect.width).min(buf.width);
     let max_y = (rect.y + rect.height).min(buf.height);
     for y in rect.y..max_y {
@@ -590,11 +622,11 @@ pub(super) fn paint_corridor_runner(buf: &mut RgbBuffer, rect: crate::tui::layou
             let dy = y - rect.y;
             let stripe = (x.wrapping_add(dy * 3)) % 9 == 0;
             let color = if is_edge {
-                RUNNER_EDGE
+                runner_edge
             } else if stripe {
-                RUNNER_STRIPE
+                runner_stripe
             } else {
-                RUNNER_BASE
+                runner_base
             };
             buf.put(x, y, color);
         }
@@ -605,6 +637,7 @@ pub(super) fn paint_corridor_runner(buf: &mut RgbBuffer, rect: crate::tui::layou
 /// Grounds floating sprites so they look like they're standing/sitting
 /// on the floor instead of hovering in mid-air. `strength` 0..1 controls
 /// the darken amount at the center; falls off quadratically to 0 at edge.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_shadow(
     buf: &mut RgbBuffer,
     cx: u16,
@@ -612,8 +645,9 @@ pub(super) fn paint_shadow(
     half_w: u16,
     half_h: u16,
     strength: f32,
+    theme: &Theme,
 ) {
-    const SHADOW: Rgb = Rgb(8, 8, 14);
+    let shadow = theme.office.shadow;
     if half_w == 0 || half_h == 0 || strength <= 0.0 {
         return;
     }
@@ -635,9 +669,9 @@ pub(super) fn paint_shadow(
                 x,
                 y,
                 Rgb(
-                    blend(cur.0, SHADOW.0, t),
-                    blend(cur.1, SHADOW.1, t),
-                    blend(cur.2, SHADOW.2, t),
+                    blend(cur.0, shadow.0, t),
+                    blend(cur.1, shadow.1, t),
+                    blend(cur.2, shadow.2, t),
                 ),
             );
         }

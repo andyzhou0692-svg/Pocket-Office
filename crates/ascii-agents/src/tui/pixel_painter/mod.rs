@@ -86,9 +86,16 @@ pub(super) fn paint_character_at(
 /// Low coffee table in front of the lounge couch. Wood top with darker
 /// trim along the front edge so it reads as a real piece of furniture,
 /// not just a brown rectangle.
-pub(super) fn paint_coffee_table(buf: &mut RgbBuffer, cx: u16, cy: u16, w: u16, h: u16) {
-    const TOP: Rgb = Rgb(120, 80, 48);
-    const TRIM: Rgb = Rgb(72, 48, 26);
+pub(super) fn paint_coffee_table(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    w: u16,
+    h: u16,
+    theme: &crate::tui::theme::Theme,
+) {
+    let top = theme.furniture.wood_top;
+    let trim = theme.furniture.wood_trim;
     let min_x = cx.saturating_sub(w / 2);
     let max_x = (cx + w / 2 + (w & 1)).min(buf.width);
     let min_y = cy.saturating_sub(h / 2);
@@ -96,7 +103,7 @@ pub(super) fn paint_coffee_table(buf: &mut RgbBuffer, cx: u16, cy: u16, w: u16, 
     for y in min_y..max_y {
         for x in min_x..max_x {
             let on_front = y + 1 == max_y;
-            buf.put(x, y, if on_front { TRIM } else { TOP });
+            buf.put(x, y, if on_front { trim } else { top });
         }
     }
 }
@@ -104,10 +111,17 @@ pub(super) fn paint_coffee_table(buf: &mut RgbBuffer, cx: u16, cy: u16, w: u16, 
 /// Meeting-room area rug — warm Persian-tone rectangle painted under
 /// the coffee table. Border ring in a darker shade so the rug reads as
 /// having a fringe/binding rather than a flat blob. Centred on `cx,cy`.
-pub(super) fn paint_area_rug(buf: &mut RgbBuffer, cx: u16, cy: u16, w: u16, h: u16) {
-    const RUG_FIELD: Rgb = Rgb(140, 60, 50);
-    const RUG_TRIM: Rgb = Rgb(90, 40, 35);
-    const RUG_ACCENT: Rgb = Rgb(190, 130, 80);
+pub(super) fn paint_area_rug(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    w: u16,
+    h: u16,
+    theme: &crate::tui::theme::Theme,
+) {
+    let rug_field = theme.furniture.rug_field;
+    let rug_trim = theme.furniture.rug_trim;
+    let rug_accent = theme.furniture.rug_accent;
     let half_w = w as i32 / 2;
     let half_h = h as i32 / 2;
     for dy in 0..h as i32 {
@@ -120,11 +134,11 @@ pub(super) fn paint_area_rug(buf: &mut RgbBuffer, cx: u16, cy: u16, w: u16, h: u
             let on_border = dx == 0 || dx == w as i32 - 1 || dy == 0 || dy == h as i32 - 1;
             let on_inner_border = dx == 1 || dx == w as i32 - 2 || dy == 1 || dy == h as i32 - 2;
             let color = if on_border {
-                RUG_TRIM
+                rug_trim
             } else if on_inner_border {
-                RUG_ACCENT
+                rug_accent
             } else {
-                RUG_FIELD
+                rug_field
             };
             buf.put(px as u16, py as u16, color);
         }
@@ -135,11 +149,16 @@ pub(super) fn paint_area_rug(buf: &mut RgbBuffer, cx: u16, cy: u16, w: u16, h: u
 /// (opposite side from the floor lamp). Bumped from 5×3 to clear the
 /// skill's ~5-cell-wide subzone threshold. Carries a 3-cell magazine
 /// stack on top so the silhouette reads as "side table with a book".
-pub(super) fn paint_side_table(buf: &mut RgbBuffer, cx: u16, cy: u16) {
-    const TOP: Rgb = Rgb(132, 88, 52);
-    const TRIM: Rgb = Rgb(78, 52, 28);
-    const MAG: Rgb = Rgb(98, 122, 178);
-    const MAG_TRIM: Rgb = Rgb(50, 60, 92);
+pub(super) fn paint_side_table(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    theme: &crate::tui::theme::Theme,
+) {
+    let top = theme.furniture.wood_top;
+    let trim = theme.furniture.wood_trim;
+    let mag = theme.furniture.magazine;
+    let mag_trim = theme.furniture.magazine_trim;
     let w: i32 = 7;
     let h: i32 = 4;
     for dy in 0..h {
@@ -150,19 +169,16 @@ pub(super) fn paint_side_table(buf: &mut RgbBuffer, cx: u16, cy: u16) {
                 continue;
             }
             let on_bottom = dy == h - 1;
-            buf.put(px as u16, py as u16, if on_bottom { TRIM } else { TOP });
+            buf.put(px as u16, py as u16, if on_bottom { trim } else { top });
         }
     }
-    // Magazine stack on top — 3 cells wide × 2 tall, slightly inset from
-    // the table's top edge so it reads as "object placed on the table"
-    // not "edge of table."
     let mag_pixels: &[((i32, i32), Rgb)] = &[
-        ((-1, -1), MAG),
-        ((0, -1), MAG),
-        ((1, -1), MAG),
-        ((-1, 0), MAG_TRIM),
-        ((0, 0), MAG_TRIM),
-        ((1, 0), MAG_TRIM),
+        ((-1, -1), mag),
+        ((0, -1), mag),
+        ((1, -1), mag),
+        ((-1, 0), mag_trim),
+        ((0, 0), mag_trim),
+        ((1, 0), mag_trim),
     ];
     for ((dx, dy), c) in mag_pixels {
         let px = cx as i32 + dx;
@@ -176,9 +192,14 @@ pub(super) fn paint_side_table(buf: &mut RgbBuffer, cx: u16, cy: u16) {
 /// Pantry bistro table — round-ish wood top (rounded corners by skipping
 /// the 4 corner pixels) painted with the same warm wood palette as the
 /// coffee table so they read as the same furniture family.
-pub(super) fn paint_pantry_table(buf: &mut RgbBuffer, cx: u16, cy: u16) {
-    const TOP: Rgb = Rgb(132, 88, 52);
-    const TRIM: Rgb = Rgb(78, 52, 28);
+pub(super) fn paint_pantry_table(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    theme: &crate::tui::theme::Theme,
+) {
+    let top = theme.furniture.wood_top;
+    let trim = theme.furniture.wood_trim;
     let w: i32 = 7;
     let h: i32 = 4;
     for dy in 0..h {
@@ -193,18 +214,19 @@ pub(super) fn paint_pantry_table(buf: &mut RgbBuffer, cx: u16, cy: u16) {
                 continue;
             }
             let on_edge = dy == h - 1;
-            buf.put(px as u16, py as u16, if on_edge { TRIM } else { TOP });
+            buf.put(px as u16, py as u16, if on_edge { trim } else { top });
         }
     }
 }
 
-/// 2x2 stool — small dark wood square. Read as "stool around the bistro
-/// table" once placed next to `paint_pantry_table`. Different from the
-/// office chair (which is the agent's shirt color); these are unoccupied
-/// furniture so they stay neutral wood.
-pub(super) fn paint_pantry_chair(buf: &mut RgbBuffer, cx: u16, cy: u16) {
-    const SEAT: Rgb = Rgb(96, 68, 44);
-    const TRIM: Rgb = Rgb(60, 40, 22);
+pub(super) fn paint_pantry_chair(
+    buf: &mut RgbBuffer,
+    cx: u16,
+    cy: u16,
+    theme: &crate::tui::theme::Theme,
+) {
+    let seat = theme.furniture.chair_seat;
+    let trim = theme.furniture.chair_trim;
     let put = |buf: &mut RgbBuffer, dx: i32, dy: i32, c: Rgb| {
         let px = cx as i32 + dx;
         let py = cy as i32 + dy;
@@ -212,10 +234,10 @@ pub(super) fn paint_pantry_chair(buf: &mut RgbBuffer, cx: u16, cy: u16) {
             buf.put(px as u16, py as u16, c);
         }
     };
-    put(buf, -1, -1, SEAT);
-    put(buf, 0, -1, SEAT);
-    put(buf, -1, 0, TRIM);
-    put(buf, 0, 0, TRIM);
+    put(buf, -1, -1, seat);
+    put(buf, 0, -1, seat);
+    put(buf, -1, 0, trim);
+    put(buf, 0, 0, trim);
 }
 
 /// How long the elevator's open/close transition takes. Used as both
@@ -344,6 +366,7 @@ pub fn render_to_rgb_buffer(
     router: &mut dyn Router,
     overlay: &mut OccupancyOverlay,
     history: &mut pose::PoseHistory,
+    theme: &crate::tui::theme::Theme,
 ) {
     let agents: Vec<_> = scene.agents.values().cloned().collect();
     let buf_w = layout.buf_w;
@@ -352,7 +375,7 @@ pub fn render_to_rgb_buffer(
     // Compute time-of-day once per frame and pass to every paint
     // helper that depends on it. Avoids recomputing the chrono local
     // hour for each window + ceiling pool + lamp halo.
-    let look = time_of_day_look(now);
+    let look = time_of_day_look(now, theme);
     // Wall band height tracks layout.top_margin (which is buf_h/4 with
     // a floor) — leaves a 4-px buffer between wall trim and cubicles.
     let top_wall_h = layout.top_margin.saturating_sub(4);
@@ -360,7 +383,16 @@ pub fn render_to_rgb_buffer(
     // so `paint_floor_and_walls` skips drawing a window that would
     // otherwise bleed through behind the elevator frame.
     let door_x_range = layout.door.map(|d| (d.x, d.x + 16));
-    paint_floor_and_walls(buf, buf_w, buf_h, now, &look, top_wall_h, door_x_range);
+    paint_floor_and_walls(
+        buf,
+        buf_w,
+        buf_h,
+        now,
+        &look,
+        top_wall_h,
+        door_x_range,
+        theme,
+    );
 
     // Artificial light pass — at night the floor dims toward navy and
     // ceiling fluorescents + the floor lamp halo paint the visible
@@ -368,7 +400,7 @@ pub fn render_to_rgb_buffer(
     // are subtle ambient highlights. The wall-clock-based darkness
     // already handles "after hours" cleanly — an activity-based boost
     // flickers because Active flips on/off per tool call.
-    dim_floor_overlay(buf, top_wall_h, buf_h, look.darkness * 0.45);
+    dim_floor_overlay(buf, top_wall_h, buf_h, look.darkness * 0.45, theme);
     let pool_strength = 0.15 + 0.30 * look.darkness;
     for desk in &layout.home_desks {
         paint_ceiling_pool(
@@ -378,6 +410,7 @@ pub fn render_to_rgb_buffer(
             10,
             5,
             pool_strength,
+            theme,
         );
     }
     // Two ceiling fluorescents over the pantry and a third over the
@@ -390,6 +423,7 @@ pub fn render_to_rgb_buffer(
             12,
             6,
             pool_strength,
+            theme,
         );
     }
     if let Some(corridor) = layout.corridor {
@@ -400,10 +434,11 @@ pub fn render_to_rgb_buffer(
             14,
             5,
             pool_strength,
+            theme,
         );
     }
     if let Some(lamp) = layout.floor_lamp {
-        paint_floor_lamp_halo(buf, lamp.x, lamp.y, look.darkness * 0.55);
+        paint_floor_lamp_halo(buf, lamp.x, lamp.y, look.darkness * 0.55, theme);
     }
 
     // Neon sign panel in the wall band — dark bg with glow border.
@@ -411,16 +446,16 @@ pub fn render_to_rgb_buffer(
     // widget pass in renderer.rs::paint_wall_display.
     let neon_w = 30u16;
     let neon_h = 8u16;
-    paint_neon_panel(buf, 1, 1, neon_w, neon_h, now);
+    paint_neon_panel(buf, 1, 1, neon_w, neon_h, now, theme);
 
     // Live wall clock painted after the wall (so hands sit on top of it)
     // but before wall decor — the bookshelf etc. shouldn't cover it.
     let clock_x = buf_w / 2 - 2;
-    paint_clock(buf, clock_x, 1, now);
+    paint_clock(buf, clock_x, 1, now, theme);
     // Corridor runner — painted over the floor but BEFORE walls/decor
     // so walls cleanly overlap it where they cross.
     if let Some(corridor) = layout.corridor {
-        paint_corridor_runner(buf, corridor);
+        paint_corridor_runner(buf, corridor, theme);
     }
     // Room dividers. Stardew-style fake-3D perspective:
     //   • horizontal walls (E-W) show the wall face — 4 px tall with
@@ -430,16 +465,16 @@ pub fn render_to_rgb_buffer(
     // Must match `WALL_THICK_V` / `WALL_THICK_H` in build_walkable_mask.
     const WALL_THICK_V_PX: u16 = 1;
     const WALL_THICK_H_PX: u16 = 4;
-    const WALL_BODY: Rgb = Rgb(72, 74, 90);
-    const WALL_TRIM_LIGHT: Rgb = Rgb(110, 112, 128);
-    const WALL_TRIM_DARK: Rgb = Rgb(40, 42, 54);
+    let wall_body = theme.office.room_wall_body;
+    let wall_trim_light = theme.office.room_wall_trim_light;
+    let wall_trim_dark = theme.office.room_wall_trim_dark;
     for (start, end) in &layout.room_walls {
         if start.x == end.x {
             for y in start.y..=end.y.min(buf_h - 1) {
                 for dx in 0..WALL_THICK_V_PX {
                     let x = start.x + dx;
                     if x < buf_w {
-                        buf.put(x, y, WALL_BODY);
+                        buf.put(x, y, wall_body);
                     }
                 }
             }
@@ -451,11 +486,11 @@ pub fn render_to_rgb_buffer(
                         continue;
                     }
                     let color = if dy == 0 {
-                        WALL_TRIM_LIGHT
+                        wall_trim_light
                     } else if dy == WALL_THICK_H_PX - 1 {
-                        WALL_TRIM_DARK
+                        wall_trim_dark
                     } else {
-                        WALL_BODY
+                        wall_body
                     };
                     buf.put(x, y, color);
                 }
@@ -489,16 +524,17 @@ pub fn render_to_rgb_buffer(
             DESK_W / 2 + 1,
             3,
             shadow_strength,
+            theme,
         );
     }
     for wp in &layout.waypoints {
-        paint_shadow(buf, wp.pos.x, wp.pos.y + 2, 7, 2, shadow_strength);
+        paint_shadow(buf, wp.pos.x, wp.pos.y + 2, 7, 2, shadow_strength, theme);
     }
     for (_, p) in &layout.plants {
-        paint_shadow(buf, p.x, p.y + 3, 3, 1, shadow_strength);
+        paint_shadow(buf, p.x, p.y + 3, 3, 1, shadow_strength, theme);
     }
     if let Some(lamp) = layout.floor_lamp {
-        paint_shadow(buf, lamp.x, lamp.y + 5, 2, 1, shadow_strength);
+        paint_shadow(buf, lamp.x, lamp.y + 5, 2, 1, shadow_strength, theme);
     }
 
     // Build per-frame occupancy from STATIONARY agent positions only.
@@ -557,7 +593,7 @@ pub fn render_to_rgb_buffer(
             .find(|a| a.desk_index == i && a.exiting_at.is_none());
         let screen_glow = occupant
             .filter(|a| matches!(a.state, ActivityState::Active { .. }))
-            .and_then(palette::tool_glow_tint);
+            .and_then(|a| palette::tool_glow_tint(a, &theme.tool_glow));
         let session_age_secs = occupant
             .and_then(|a| now.duration_since(a.created_at).ok())
             .map(|d| d.as_secs())
@@ -995,7 +1031,7 @@ pub fn render_to_rgb_buffer(
                         frame_idx: frame,
                         anchor,
                         flip_x: false,
-                        glow_tint: palette::tool_glow_tint(agent),
+                        glow_tint: palette::tool_glow_tint(agent, &theme.tool_glow),
                         sleep_z_seed: None,
                         waiting_bubble: false,
                         walking_dust_frame: None,
@@ -1120,7 +1156,7 @@ pub fn render_to_rgb_buffer(
     // → pass-2 layering for waypoint couch / pantry counter).
     drawables.sort_by_key(|d| d.anchor_y);
     for d in &drawables {
-        paint_drawable(d, buf, pack, cache, now);
+        paint_drawable(d, buf, pack, cache, now, theme);
     }
 }
 
@@ -1238,9 +1274,10 @@ mod tests {
             },
         );
         let idle_slot = make_slot(id, ActivityState::Idle);
-        let edit_tint = palette::tool_glow_tint(&edit_slot);
-        let bash_tint = palette::tool_glow_tint(&bash_slot);
-        let idle_tint = palette::tool_glow_tint(&idle_slot);
+        let glow = &crate::tui::theme::NORMAL.tool_glow;
+        let edit_tint = palette::tool_glow_tint(&edit_slot, glow);
+        let bash_tint = palette::tool_glow_tint(&bash_slot, glow);
+        let idle_tint = palette::tool_glow_tint(&idle_slot, glow);
         assert!(edit_tint.is_some(), "Edit should produce glow");
         assert!(bash_tint.is_some(), "Bash should produce glow");
         assert_eq!(idle_tint, None, "Idle should produce no glow");

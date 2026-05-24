@@ -5,6 +5,7 @@ pub mod pathfind;
 pub mod pixel_painter;
 pub mod pose;
 pub mod renderer;
+pub mod theme;
 pub mod tui_renderer;
 
 use std::sync::Arc;
@@ -23,13 +24,19 @@ pub async fn run_tui(
     mut scene_rx: SceneRx,
     pack_dir: Option<std::path::PathBuf>,
     max_desks: Arc<std::sync::atomic::AtomicUsize>,
+    theme: &'static theme::Theme,
 ) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
-    let mut renderer = TuiRenderer::new(term);
+    let mut renderer = TuiRenderer::new(term, theme);
     let mut last_layout_sig: Option<(u16, u16, usize)> = None;
     let mut paused = false;
     let mut frozen_now: Option<SystemTime> = None;
+    let mut theme_picker: Option<usize> = None;
+    let mut saved_theme_idx: usize = theme::ALL_THEMES
+        .iter()
+        .position(|t| std::ptr::eq(*t, theme))
+        .unwrap_or(0);
 
     let tick = Duration::from_millis(33);
     let result: Result<()> = (async {
@@ -58,34 +65,108 @@ pub async fn run_tui(
             }
             renderer.render(&snapshot, &pack, now)?;
 
+            if let Some(idx) = theme_picker {
+                use ratatui::layout::Rect;
+                use ratatui::style::{Color, Modifier, Style};
+                use ratatui::text::{Line, Span};
+                use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+                let size = renderer.terminal.size()?;
+                let w = 30u16;
+                let h = (theme::ALL_THEMES.len() as u16 + 2).min(size.height);
+                let x = size.width.saturating_sub(w) / 2;
+                let y = size.height.saturating_sub(h) / 2;
+                let area = Rect {
+                    x,
+                    y,
+                    width: w,
+                    height: h,
+                };
+                renderer.terminal.draw(|f| {
+                    f.render_widget(Clear, area);
+                    let items: Vec<Line> = theme::ALL_THEMES
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| {
+                            let prefix = if i == idx { "▸ " } else { "  " };
+                            let style = if i == idx {
+                                Style::default()
+                                    .fg(Color::Cyan)
+                                    .add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default().fg(Color::White)
+                            };
+                            Line::from(Span::styled(format!("{prefix}{}", t.name), style))
+                        })
+                        .collect();
+                    let block = Block::default()
+                        .title(" Theme [↑↓] Enter/Esc ")
+                        .borders(Borders::ALL)
+                        .style(Style::default().bg(Color::Rgb(20, 20, 30)));
+                    f.render_widget(Paragraph::new(items).block(block), area);
+                })?;
+            }
+
             let start = Instant::now();
             let mut polled = event::poll(tick)?;
             let mut quit = false;
             while polled {
                 match event::read()? {
-                    Event::Key(k) => match (k.code, k.modifiers) {
-                        (KeyCode::Char('q'), _)
-                        | (KeyCode::Esc, _)
-                        | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                            quit = true;
-                        }
-                        (KeyCode::Char('p'), _) => {
-                            paused = !paused;
-                        }
-                        (KeyCode::Char('+') | KeyCode::Char('='), _) => {
-                            let cur = max_desks.load(std::sync::atomic::Ordering::Relaxed);
-                            if cur < 16 {
-                                max_desks.store(cur + 1, std::sync::atomic::Ordering::Relaxed);
+                    Event::Key(k) => {
+                        if let Some(idx) = theme_picker.as_mut() {
+                            match k.code {
+                                KeyCode::Up => {
+                                    if *idx > 0 {
+                                        *idx -= 1;
+                                    }
+                                    renderer.set_theme(theme::ALL_THEMES[*idx]);
+                                }
+                                KeyCode::Down => {
+                                    if *idx + 1 < theme::ALL_THEMES.len() {
+                                        *idx += 1;
+                                    }
+                                    renderer.set_theme(theme::ALL_THEMES[*idx]);
+                                }
+                                KeyCode::Enter => {
+                                    saved_theme_idx = *idx;
+                                    theme_picker = None;
+                                }
+                                KeyCode::Esc => {
+                                    renderer.set_theme(theme::ALL_THEMES[saved_theme_idx]);
+                                    theme_picker = None;
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            match (k.code, k.modifiers) {
+                                (KeyCode::Char('q'), _)
+                                | (KeyCode::Esc, _)
+                                | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
+                                    quit = true;
+                                }
+                                (KeyCode::Char('p'), _) => {
+                                    paused = !paused;
+                                }
+                                (KeyCode::Char('t'), _) => {
+                                    theme_picker = Some(saved_theme_idx);
+                                }
+                                (KeyCode::Char('+') | KeyCode::Char('='), _) => {
+                                    let cur = max_desks.load(std::sync::atomic::Ordering::Relaxed);
+                                    if cur < 16 {
+                                        max_desks
+                                            .store(cur + 1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                                (KeyCode::Char('-'), _) => {
+                                    let cur = max_desks.load(std::sync::atomic::Ordering::Relaxed);
+                                    if cur > 1 {
+                                        max_desks
+                                            .store(cur - 1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                                _ => {}
                             }
                         }
-                        (KeyCode::Char('-'), _) => {
-                            let cur = max_desks.load(std::sync::atomic::Ordering::Relaxed);
-                            if cur > 1 {
-                                max_desks.store(cur - 1, std::sync::atomic::Ordering::Relaxed);
-                            }
-                        }
-                        _ => {}
-                    },
+                    }
                     Event::Mouse(m) => match m.kind {
                         MouseEventKind::Moved | MouseEventKind::Drag(_) => {
                             renderer.set_mouse_pos(Some((m.column, m.row)));
@@ -118,6 +199,9 @@ pub async fn run_tui(
                 polled = event::poll(Duration::from_millis(0))?;
             }
             if quit {
+                if theme_picker.is_some() {
+                    renderer.set_theme(theme::ALL_THEMES[saved_theme_idx]);
+                }
                 break;
             }
             let elapsed = start.elapsed();

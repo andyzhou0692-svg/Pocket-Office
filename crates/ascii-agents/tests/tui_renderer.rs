@@ -43,7 +43,7 @@ fn tui_renderer_render_paints_a_full_frame() {
 
     let backend = TestBackend::new(96, 36);
     let terminal = Terminal::new(backend).expect("terminal");
-    let mut renderer = TuiRenderer::new(terminal);
+    let mut renderer = TuiRenderer::new(terminal, &ascii_agents::tui::theme::NORMAL);
     let pack = load_sprite_pack(None).expect("pack");
 
     renderer

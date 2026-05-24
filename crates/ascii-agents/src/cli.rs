@@ -14,6 +14,10 @@ pub struct Cli {
 
     #[arg(long, global = true, default_value = "info")]
     pub log_level: String,
+
+    /// Color theme: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox.
+    #[arg(long, global = true, default_value = "normal")]
+    pub theme: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -52,8 +56,9 @@ pub enum Cmd {
 }
 
 impl Cli {
-    pub fn cmd_or_default(self) -> (String, Cmd) {
+    pub fn cmd_or_default(self) -> (String, String, Cmd) {
         let level = self.log_level;
+        let theme = self.theme;
         let cmd = self.cmd.unwrap_or(Cmd::Run {
             socket: None,
             projects_root: None,
@@ -61,6 +66,6 @@ impl Cli {
             max_desks: 16,
             headless: false,
         });
-        (level, cmd)
+        (level, theme, cmd)
     }
 }
