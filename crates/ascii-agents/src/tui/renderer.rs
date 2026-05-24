@@ -55,7 +55,7 @@ impl Default for TickerQueue {
 impl TickerQueue {
     pub fn new() -> Self {
         Self {
-            buffer: "★ Star on GitHub  ·  github.com/IvanWng97/ascii-agents  ·  ".to_string(),
+            buffer: String::new(),
             last_snapshot: String::new(),
         }
     }
@@ -255,6 +255,13 @@ pub fn draw_scene<B: Backend>(
                 scene_rect,
                 theme,
             );
+        }
+        if tooltip_agent.is_none() && pinned_agent.is_none() {
+            if let Some((mx, my)) = mouse_pos {
+                if hit_test_coffee_machine(buf, scene.max_desks, mx, my) {
+                    paint_coffee_tooltip(f, mx, my, scene_rect, theme);
+                }
+            }
         }
         if let Some(idx) = theme_picker {
             paint_theme_picker(f, idx, full_rect, theme);
@@ -583,6 +590,78 @@ fn hit_test_agent(
         }
     }
     None
+}
+
+fn paint_coffee_tooltip(
+    f: &mut ratatui::Frame<'_>,
+    mx: u16,
+    my: u16,
+    scene_rect: Rect,
+    theme: &crate::tui::theme::Theme,
+) {
+    use ratatui::text::Line;
+    use ratatui::widgets::Block;
+
+    let text = " ☕ Buy Ivan a coffee ";
+    let tip_w = text.len() as u16;
+    let tip_h = 1u16;
+    let mut tx = mx.saturating_add(2);
+    if tx.saturating_add(tip_w) > scene_rect.x + scene_rect.width {
+        tx = mx.saturating_sub(tip_w + 1);
+    }
+    let mut ty = my.saturating_sub(1);
+    if ty < scene_rect.y {
+        ty = my.saturating_add(1);
+    }
+    if let Some(r) = clip_widget_rect(
+        Rect {
+            x: tx,
+            y: ty,
+            width: tip_w,
+            height: tip_h,
+        },
+        scene_rect,
+    ) {
+        let block = Block::default().style(Style::default().bg(to_color(theme.ui.tooltip_bg)));
+        let line = Line::from(Span::styled(
+            text,
+            Style::default().fg(to_color(theme.ui.tooltip_title)),
+        ));
+        f.render_widget(Paragraph::new(line).block(block), r);
+    }
+}
+
+/// Hit-test whether the mouse is over the pantry coffee machine.
+/// Returns true if `(mx, my)` (terminal cell coords) falls on the coffee
+/// machine section of the pantry counter sprite.
+pub fn hit_test_coffee_machine(buf: &RgbBuffer, max_desks: usize, mx: u16, my: u16) -> bool {
+    let buf_w = buf.width;
+    let buf_h = buf.height;
+    if buf_w < 20 || buf_h < 24 {
+        return false;
+    }
+    let Some(layout) = Layout::compute(buf_w, buf_h, max_desks) else {
+        return false;
+    };
+    let pantry_wp = layout
+        .waypoints
+        .iter()
+        .find(|w| matches!(w.kind, crate::tui::layout::WaypointKind::Pantry));
+    let Some(wp) = pantry_wp else {
+        return false;
+    };
+    let (cw, ch) = layout.pantry_counter_size;
+    let sprite_x = wp.pos.x.saturating_sub(cw / 2);
+    let sprite_y = wp.pos.y.saturating_sub(ch / 2);
+    let (coffee_x0, coffee_x1) = if cw >= 32 {
+        (sprite_x + 11, sprite_x + 18)
+    } else {
+        (sprite_x + 8, sprite_x + 13)
+    };
+    let coffee_y0 = sprite_y;
+    let coffee_y1 = sprite_y + ch;
+    let cell_y = my * 2;
+    mx >= coffee_x0 && mx < coffee_x1 && cell_y >= coffee_y0 && cell_y < coffee_y1
 }
 
 /// Floating detail panel painted near the cursor when an agent is hovered.

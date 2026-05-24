@@ -15,6 +15,7 @@
   <a href="https://github.com/IvanWng97/ascii-agents/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/IvanWng97/ascii-agents/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
   <a href="https://codecov.io/gh/IvanWng97/ascii-agents"><img src="https://img.shields.io/codecov/c/github/IvanWng97/ascii-agents?style=flat-square" alt="Coverage" /></a>
   <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?style=flat-square&logo=anthropic" alt="Built with Claude Code" /></a>
+  <a href="https://buymeacoffee.com/IvanWng97"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-ffdd00?style=flat-square&logo=buy-me-a-coffee&logoColor=black" alt="Buy Me a Coffee" /></a>
 </p>
 
 <p align="center">
@@ -160,6 +161,10 @@ pub trait Source: Send + 'static {
 ## Acknowledgments
 
 Inspired by [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) (VS Code), [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (desktop pet), and Claude Code's [Buddy](https://dev.to/picklepixel/how-i-reverse-engineered-claude-codes-hidden-pet-system-8l7).
+
+## Support
+
+If you enjoy ascii-agents, consider [buying me a coffee](https://buymeacoffee.com/IvanWng97) :)
 
 ## License
 
