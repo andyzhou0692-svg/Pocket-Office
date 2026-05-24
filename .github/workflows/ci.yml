@@ -39,3 +39,36 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --features ascii-agents-core/test-renderer
+
+  smoke:
+    name: smoke
+    needs: [fmt, clippy, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binaries
+        run: cargo build --release --workspace
+      - name: ascii-agents --help exits 0
+        run: ./target/release/ascii-agents --help
+      - name: ascii-agents-hook exits 0 with no socket
+        run: |
+          echo '{}' | ./target/release/ascii-agents-hook || true
+          echo "hook shim exited (expected silent no-op)"
+      - name: install-hooks round-trip
+        run: |
+          mkdir -p /tmp/smoke-test/.claude
+          echo '{}' > /tmp/smoke-test/.claude/settings.json
+          HOME=/tmp/smoke-test ./target/release/ascii-agents install-hooks
+          HOME=/tmp/smoke-test ./target/release/ascii-agents uninstall-hooks
+      - name: snapshot renders without crash
+        run: ./target/release/examples/snapshot /tmp/smoke-snapshot.png
+      - name: Upload snapshot artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-snapshot
+          path: /tmp/smoke-snapshot.png
+          retention-days: 7

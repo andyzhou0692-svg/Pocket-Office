@@ -42,18 +42,18 @@ You're running 5 Claude Code sessions across 3 repos. Which one is typing? Which
 
 ## Features
 
-- **Multi-agent coworking office** — each CC session gets a desk; overflow agents work from meeting-room sofas and floor seats with laptops
-- **Animated characters** — typing, waiting (standing + `?` bubble), sleeping (head-on-desk + z's, slumped variants), walking between waypoints
-- **A\*-routed pathfinding** — idle agents wander to the couch, pantry, standing desk, phone booth; route around furniture via cached A\* with selective invalidation
-- **Per-agent identity** — deterministic shirt/hair/skin palette from session hash, 16 curated outfits
-- **Per-tool monitor glow** — Edit = blue, Bash = orange, Read = cyan, Agent/Task = purple (scannable at a glance)
-- **Coworking-lounge layout** — city-view windows, meeting room with sofas, pantry with coffee machine, cubicle pods with aisle decor, elevator door animation
-- **Status-bar footer** — agent count + state breakdown + active tool tally, adapts to terminal width
-- **Stale agent cleanup** — state-adaptive timeouts (Active 10m, Idle 30m, Waiting 60m) auto-remove ghost sessions
-- **Hover tooltips** — mouse over a character to see agent details (cwd, active tool, session ID)
-- **Dual event sources** — hook socket (real-time) + JSONL transcript watching (fallback), transport-tagged dedup
-- **Hook-safe** — the shim always exits 0 with a 200ms timeout; a stuck visualizer can never block Claude Code
-- **Half-block pixel art** — 24-bit RGB via `▀` cells, hand-drawn `.sprite` files, per-agent recolor by RGB substitution
+- 🏢 **Multi-agent coworking office** — each CC session gets a desk; overflow agents work from meeting-room sofas and floor seats with laptops
+- 🎭 **Animated characters** — typing, waiting (standing + `?` bubble), sleeping (head-on-desk + z's, slumped variants), walking between waypoints
+- 🧭 **A\*-routed pathfinding** — idle agents wander to the couch, pantry, standing desk, phone booth; route around furniture via cached A\* with selective invalidation
+- 🎨 **Per-agent identity** — deterministic shirt/hair/skin palette from session hash, 16 curated outfits
+- 💡 **Per-tool monitor glow** — Edit = blue, Bash = orange, Read = cyan, Agent/Task = purple (scannable at a glance)
+- 🪟 **Coworking-lounge layout** — city-view windows, meeting room with sofas, pantry with coffee machine, cubicle pods with aisle decor, elevator door animation
+- 📊 **Status-bar footer** — agent count + state breakdown + active tool tally, adapts to terminal width
+- 🧹 **Stale agent cleanup** — state-adaptive timeouts (Active 10m, Idle 30m, Waiting 60m) auto-remove ghost sessions
+- 🖱️ **Hover tooltips** — mouse over a character to see agent details (cwd, active tool, session ID)
+- 📡 **Dual event sources** — hook socket (real-time) + JSONL transcript watching (fallback), transport-tagged dedup
+- 🛡️ **Hook-safe** — the shim always exits 0 with a 200ms timeout; a stuck visualizer can never block Claude Code
+- 🧱 **Half-block pixel art** — 24-bit RGB via `▀` cells, hand-drawn `.sprite` files, per-agent recolor by RGB substitution
 
 ## Quick start
 
@@ -95,7 +95,7 @@ Download from [GitHub Releases](https://github.com/IvanWng97/ascii-agents/releas
 |---|---|
 | macOS (Apple Silicon) | `ascii-agents-v*-aarch64-apple-darwin.tar.gz` |
 | macOS (Intel) | `ascii-agents-v*-x86_64-apple-darwin.tar.gz` |
-| Linux (x86_64, glibc) | `ascii-agents-v*-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux (x86_64, static) | `ascii-agents-v*-x86_64-unknown-linux-musl.tar.gz` |
 | Linux (ARM64) | `ascii-agents-v*-aarch64-unknown-linux-gnu.tar.gz` |
 
 ### From source
