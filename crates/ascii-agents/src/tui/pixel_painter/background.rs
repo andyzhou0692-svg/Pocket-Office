@@ -46,7 +46,7 @@ pub(super) fn weather_state(now: SystemTime) -> Weather {
     }
 }
 
-fn sunset_strength(now: SystemTime) -> f32 {
+pub(super) fn sunset_strength(now: SystemTime) -> f32 {
     use chrono::Timelike;
     let unix_now = now
         .duration_since(std::time::UNIX_EPOCH)
