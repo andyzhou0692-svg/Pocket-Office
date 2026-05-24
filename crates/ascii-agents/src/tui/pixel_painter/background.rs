@@ -14,6 +14,7 @@ use super::palette::{blend, lerp_rgb};
 
 use crate::tui::theme::Theme;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn paint_floor_and_walls(
     buf: &mut RgbBuffer,
     buf_w: u16,
