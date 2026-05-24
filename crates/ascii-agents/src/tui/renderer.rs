@@ -315,8 +315,8 @@ fn paint_footer(
     theme: &crate::tui::theme::Theme,
 ) {
     let summary = build_status_summary(scene, full_rect.width);
-    let footer =
-        Paragraph::new(Span::raw(summary)).style(Style::default().fg(to_color(theme.ui.label_idle)));
+    let footer = Paragraph::new(Span::raw(summary))
+        .style(Style::default().fg(to_color(theme.ui.label_idle)));
     f.render_widget(
         footer,
         Rect {
