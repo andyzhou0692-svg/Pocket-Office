@@ -116,3 +116,130 @@ fn resolve_symlink(path: &Path) -> PathBuf {
     }
     cur
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn resolve_symlink_regular_file_returns_as_is() {
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("plain.json");
+        std::fs::write(&file, "{}").unwrap();
+        assert_eq!(resolve_symlink(&file), file);
+    }
+
+    #[test]
+    fn resolve_symlink_nonexistent_returns_as_is() {
+        let path = PathBuf::from("/tmp/ascii-agents-test-nonexistent-xyz");
+        assert_eq!(resolve_symlink(&path), path);
+    }
+
+    #[test]
+    fn resolve_symlink_follows_single_hop() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real.json");
+        std::fs::write(&target, "{}").unwrap();
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(resolve_symlink(&link), target);
+    }
+
+    #[test]
+    fn resolve_symlink_follows_chain() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real.json");
+        std::fs::write(&target, "{}").unwrap();
+        let mid = dir.path().join("mid.json");
+        std::os::unix::fs::symlink(&target, &mid).unwrap();
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&mid, &link).unwrap();
+        assert_eq!(resolve_symlink(&link), target);
+    }
+
+    #[test]
+    fn resolve_symlink_dangling_returns_target() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("nonexistent.json");
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert_eq!(resolve_symlink(&link), target);
+    }
+
+    #[test]
+    fn resolve_symlink_relative_target() {
+        let dir = TempDir::new().unwrap();
+        let sub = dir.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let target = sub.join("real.json");
+        std::fs::write(&target, "{}").unwrap();
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(Path::new("sub/real.json"), &link).unwrap();
+        let resolved = resolve_symlink(&link);
+        assert_eq!(
+            std::fs::canonicalize(&resolved).unwrap(),
+            std::fs::canonicalize(&target).unwrap()
+        );
+    }
+
+    #[test]
+    fn read_settings_missing_file_returns_empty_object() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nope.json");
+        let v = read_settings(&path).unwrap();
+        assert_eq!(v, serde_json::json!({}));
+    }
+
+    #[test]
+    fn read_settings_empty_file_returns_empty_object() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("empty.json");
+        std::fs::write(&path, "").unwrap();
+        let v = read_settings(&path).unwrap();
+        assert_eq!(v, serde_json::json!({}));
+    }
+
+    #[test]
+    fn read_settings_through_symlink() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real.json");
+        std::fs::write(&target, r#"{"key":"val"}"#).unwrap();
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        let v = read_settings(&link).unwrap();
+        assert_eq!(v["key"], serde_json::json!("val"));
+    }
+
+    #[test]
+    fn write_settings_atomic_through_symlink_preserves_link() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("real.json");
+        std::fs::write(&target, "{}").unwrap();
+        let link = dir.path().join("link.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        write_settings_atomic(&link, &serde_json::json!({"a": 1})).unwrap();
+        assert!(link.symlink_metadata().unwrap().file_type().is_symlink());
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&target).unwrap()).unwrap();
+        assert_eq!(v["a"], serde_json::json!(1));
+    }
+
+    #[test]
+    fn backup_once_no_file_returns_none() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("missing.json");
+        assert_eq!(backup_once(&path).unwrap(), None);
+    }
+
+    #[test]
+    fn backup_once_creates_bak_and_is_idempotent() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, r#"{"v":1}"#).unwrap();
+        let bak = backup_once(&path).unwrap().unwrap();
+        assert!(bak.exists());
+        let bak2 = backup_once(&path).unwrap().unwrap();
+        assert_eq!(bak, bak2);
+    }
+}
