@@ -5,9 +5,7 @@
 <h1 align="center">ascii-agents</h1>
 
 <p align="center">
-  <strong>Your AI coding agents deserve an office.</strong><br />
-  A terminal-native pixel-art coworking lounge where every Claude Code session is a character —<br />
-  typing at desks, wandering to the pantry, napping on the couch.
+  <em>Your AI coding agents, visualized as pixel-art coworkers in a terminal office.</em>
 </p>
 
 <p align="center">
@@ -19,90 +17,59 @@
   <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?style=flat-square&logo=anthropic" alt="Built with Claude Code" /></a>
 </p>
 
+<p align="center">
+  <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#themes">Themes</a> · <a href="#install">Install</a> · <a href="#how-it-works">How It Works</a>
+</p>
+
 ---
 
-> Inspired by [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) (VS Code webview) and [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (desktop pet). Different niche: **pure terminal**, no Electron, no browser — runs over SSH.
+> [!TIP]
+> **Try it in 30 seconds:**
+> ```bash
+> brew install IvanWng97/ascii-agents/ascii-agents
+> ascii-agents install-hooks && ascii-agents
+> ```
 
 ## Why?
 
-You're running 5 Claude Code sessions across 3 repos. Which one is typing? Which one is stuck waiting for permission? Which one finished 10 minutes ago and you forgot about?
+You're running 5 Claude Code sessions across 3 repos. Which one is typing? Which one is stuck waiting? Which one finished 10 minutes ago?
 
-**ascii-agents** gives you a single pane of glass: a pixel-art office where each session is a character. Typing agents sit at desks with glowing monitors. Waiting agents stand up with a `?` bubble. Idle agents doze off — head on desk, z's floating. You see everything at a glance.
+**ascii-agents** gives you a single pane of glass — a pixel-art office where each session is a character. Typing agents sit at glowing desks. Waiting agents stand up with a `?` bubble. Idle agents doze off with z's floating. You see everything at a glance.
+
+## Features
+
+| | Feature | Description |
+|---|---|---|
+| 🏢 | **Multi-agent office** | Each CC session gets a desk; overflow agents work from sofas and floor seats |
+| 🎭 | **Animated characters** | Typing, waiting (`?` bubble), sleeping (z's), walking with A\*-routed pathfinding |
+| 💡 | **Per-tool monitor glow** | Edit = blue, Bash = orange, Read = cyan — scannable at a glance |
+| 🎨 | **Per-agent identity** | Deterministic shirt/hair/skin palette from session hash, 16 curated outfits |
+| 🐱 | **Office cat** | Roams desks, pantry, sofas; sleeps near idle agents with z's |
+| ☕ | **Desk personalization** | Coffee cup (10min), plant (30min), photo frame (1hr) appear over time |
+| 🛡️ | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block Claude Code |
 
 ## Themes
 
-Press `t` in the TUI to switch themes with live preview. 6 built-in themes:
+Press `t` to switch themes with live preview. 6 built-in:
 
 <p align="center">
   <img src="docs/images/themes-composite.png" alt="6 themes: Normal, Cyberpunk, Dracula, Tokyo Night, Catppuccin, Gruvbox" width="800" />
 </p>
 
-## Gallery
-
-<table>
-  <tr>
-    <td align="center"><strong>Cubicle pods</strong><br />Agents typing at desks with per-tool monitor glow<br /><img src="docs/images/gallery-cubicle.png" width="480" /></td>
-    <td align="center"><strong>Meeting room</strong><br />Overflow agents on sofas with laptops<br /><img src="docs/images/gallery-meeting.png" width="280" /></td>
-  </tr>
-  <tr>
-    <td align="center"><strong>Pantry</strong><br />Kitchen counter, bistro table, potted plants<br /><img src="docs/images/gallery-pantry.png" width="280" /></td>
-    <td align="center"><strong>Status footer</strong><br /><code>12 agents · 4 active · 2 waiting · 6 idle · Bash×1 Write×1</code></td>
-  </tr>
-</table>
-
-## Features
-
-- 🏢 **Multi-agent coworking office** — each CC session gets a desk; overflow agents work from meeting-room sofas and floor seats with laptops
-- 🎭 **Animated characters** — typing, waiting (standing + `?` bubble), sleeping (head-on-desk + z's, slumped variants), walking between waypoints
-- 🧭 **A\*-routed pathfinding** — idle agents wander to the couch, pantry, standing desk, phone booth; route around furniture via cached A\* with selective invalidation
-- 🎨 **Per-agent identity** — deterministic shirt/hair/skin palette from session hash, 16 curated outfits
-- 💡 **Per-tool monitor glow** — Edit = blue, Bash = orange, Read = cyan, Agent/Task = purple (scannable at a glance)
-- 🪟 **Coworking-lounge layout** — city-view windows, meeting room with sofas, pantry with coffee machine, cubicle pods with aisle decor, elevator door animation
-- 📊 **Status-bar footer** — agent count + state breakdown + active tool tally, adapts to terminal width
-- 🧹 **Stale agent cleanup** — state-adaptive timeouts (Active 10m, Idle 30m, Waiting 60m) auto-remove ghost sessions
-- 🖱️ **Hover tooltips + click-to-pin** — mouse over or click a character to see agent details (cwd, active tool, session ID)
-- 📺 **Neon wall display** — branding panel with pulsing cyan border, state dots, scrolling tool activity ticker, click ★ to star on GitHub
-- 🐱 **Office cat** — roams desks, pantry, sofas, lounge; sleeps near idle agents with z's; 3 sprites (walk/sit/sleep)
-- ☕ **Desk personalization** — coffee cup (10min), plant (30min), photo frame (1hr) appear on desks based on session age
-- 📡 **Dual event sources** — hook socket (real-time) + JSONL transcript watching (fallback), transport-tagged dedup
-- 🛡️ **Hook-safe** — the shim always exits 0 with a 200ms timeout; a stuck visualizer can never block Claude Code
-- 🧱 **Half-block pixel art** — 24-bit RGB via `▀` cells, hand-drawn `.sprite` files, per-agent recolor by RGB substitution
-- 🪵 **Crash logging** — panic hook restores terminal and writes backtrace to `~/.cache/ascii-agents/crash.log`
-
-## Quick start
+## Quick Start
 
 ```bash
-# Install (macOS / Linux)
 brew install IvanWng97/ascii-agents/ascii-agents
-
-# Wire Claude Code's hooks (one-time).
 ascii-agents install-hooks
-
-# Start the office.
 ascii-agents
 ```
 
-In another terminal, start a Claude Code session (`claude`). A character walks in from the elevator within a second.
+In another terminal, start a Claude Code session. A character walks in from the elevator within a second.
 
-## Keyboard shortcuts
+**Keyboard shortcuts:** `q` quit · `p` pause · `t` themes · `+/-` desks · click to pin tooltip
 
-| Key | Action |
-|---|---|
-| `q` / `Esc` / `Ctrl-C` | Quit |
-| `p` | Pause / resume animation |
-| `t` | Open theme picker (↑↓ to preview, Enter/Esc) |
-| `+` / `-` | Increase / decrease max desks |
-| Click | Pin / unpin agent tooltip |
-
-Hooks stay installed after quitting — the shim silently no-ops when the TUI isn't running.
-
-## Install
-
-### Homebrew (macOS / Linux)
-
-```bash
-brew install IvanWng97/ascii-agents/ascii-agents
-```
+<details>
+<summary><strong>More install methods</strong></summary>
 
 ### Pre-built binaries
 
@@ -115,7 +82,7 @@ Download from [GitHub Releases](https://github.com/IvanWng97/ascii-agents/releas
 | Linux (x86_64, static) | `ascii-agents-v*-x86_64-unknown-linux-musl.tar.gz` |
 | Linux (ARM64) | `ascii-agents-v*-aarch64-unknown-linux-gnu.tar.gz` |
 
-### Cargo (crates.io)
+### Cargo
 
 ```bash
 cargo install ascii-agents
@@ -123,17 +90,17 @@ cargo install ascii-agents
 
 ### From source
 
-Requires Rust 1.78+ (`brew install rust` on macOS).
-
 ```bash
-git clone https://github.com/IvanWng97/ascii-agents
-cd ascii-agents
+git clone https://github.com/IvanWng97/ascii-agents && cd ascii-agents
 cargo build --release
 ```
 
-Two binaries in `target/release/`: **`ascii-agents`** (TUI) and **`ascii-agents-hook`** (shim).
+</details>
 
-## How it works
+## How It Works
+
+<details>
+<summary><strong>Architecture</strong></summary>
 
 ```
 CC tool call ──► CC fires hook ──► ascii-agents-hook (shim)
@@ -155,11 +122,13 @@ Three Rust crates:
 
 | Crate | Role |
 |---|---|
-| **ascii-agents-core** | Headless library — no terminal deps. Owns `Source` trait, `Renderer` trait, reducer, pose derivation, layout geometry, sprite engine. |
-| **ascii-agents** | TUI binary — ratatui + crossterm + tokio. `TuiRenderer` wires the `Renderer` trait to half-block rendering. |
-| **ascii-agents-hook** | Tiny shim CC invokes from hooks. Forwards JSON to the socket with 200ms timeout. Always exits 0. |
+| **ascii-agents-core** | Headless library — no terminal deps. Source trait, reducer, pose, layout, sprites. |
+| **ascii-agents** | TUI binary — ratatui + crossterm + tokio. Half-block rendering + theme system. |
+| **ascii-agents-hook** | Tiny shim CC invokes from hooks. 200ms timeout, always exits 0. |
 
-## Extending (multi-CLI)
+</details>
+
+## Extending
 
 `Source` is the only abstraction for adding a new agent CLI:
 
@@ -171,17 +140,17 @@ pub trait Source: Send + 'static {
 }
 ```
 
-A future `CodexSource` / `CursorSource` / `GeminiSource` implements the trait, writes tagged events onto the channel, and `SourceManager::with_source()` plugs it in.
+A future `CodexSource` / `CursorSource` / `GeminiSource` implements the trait and plugs in via `SourceManager::with_source()`.
 
 ## Contributing
 
-See [`CLAUDE.md`](CLAUDE.md) for architecture, conventions, and the sprite iteration workflow. PRs welcome — especially new `Source` adapters for other agent CLIs.
+See [`CLAUDE.md`](CLAUDE.md) for architecture, conventions, and the sprite iteration workflow. PRs welcome — especially new `Source` adapters and themes.
 
 ## Acknowledgments
 
-- [`pablodelucca/pixel-agents`](https://github.com/pablodelucca/pixel-agents) — the inspiration. Same concept, VS Code webview.
-- [`rullerzhou-afk/clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) — multi-agent hook-based pattern, desktop-pet form factor.
-- Claude Code's built-in [Buddy](https://dev.to/picklepixel/how-i-reverse-engineered-claude-codes-hidden-pet-system-8l7) ASCII pet — proves a single-character terminal pet is delightful; this extends it to multi-agent + zoomed-out scene.
+- [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) — the inspiration (VS Code webview)
+- [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) — multi-agent hook pattern (desktop pet)
+- Claude Code's [Buddy](https://dev.to/picklepixel/how-i-reverse-engineered-claude-codes-hidden-pet-system-8l7) — proves terminal pets are delightful
 
 ## License
 
