@@ -8,6 +8,8 @@ use crate::source::Activity;
 
 pub mod reducer;
 
+pub const MAX_FLOORS: usize = 5;
+
 /// `AgentSlot` strings (label, source, session_id) and paths (cwd) are
 /// stored as `Arc<str>` / `Arc<Path>` so `SceneState::clone()` is a series
 /// of pointer copies instead of heap allocations. At 30 fps with N agents
@@ -80,7 +82,7 @@ impl SceneState {
     pub fn next_free_desk(&self) -> Option<usize> {
         let occupied: std::collections::BTreeSet<usize> =
             self.agents.values().map(|a| a.desk_index).collect();
-        (0..self.max_desks).find(|i| !occupied.contains(i))
+        (0..self.max_desks * MAX_FLOORS).find(|i| !occupied.contains(i))
     }
 }
 
@@ -98,7 +100,7 @@ mod tests {
     fn next_free_desk_returns_none_when_full() {
         let mut s = SceneState::new(2);
         let now = SystemTime::now();
-        for i in 0..2 {
+        for i in 0..(2 * MAX_FLOORS) {
             let id = AgentId::from_transcript_path(&format!("p{i}"));
             s.agents.insert(
                 id,
@@ -123,5 +125,40 @@ mod tests {
             );
         }
         assert_eq!(s.next_free_desk(), None);
+    }
+
+    #[test]
+    fn next_free_desk_overflows_to_second_floor() {
+        let mut s = SceneState::new(4);
+        let now = SystemTime::now();
+        for i in 0..4 {
+            let id = AgentId::from_transcript_path(&format!("f{i}"));
+            s.agents.insert(
+                id,
+                AgentSlot {
+                    agent_id: id,
+                    source: Arc::from("cc"),
+                    session_id: Arc::from(format!("s{i}").as_str()),
+                    cwd: Arc::from(Path::new("/repo")),
+                    label: Arc::from(format!("a{i}").as_str()),
+                    state: ActivityState::Idle,
+                    state_started_at: now,
+                    created_at: now,
+                    last_event_at: now,
+                    exiting_at: None,
+                    pending_idle_at: None,
+                    desk_index: i,
+                    tool_call_count: 0,
+                    active_ms: 0,
+                    unknown_cwd: false,
+                    parent_id: None,
+                },
+            );
+        }
+        assert_eq!(
+            s.next_free_desk(),
+            Some(4),
+            "should overflow to desk 4 (floor 1)"
+        );
     }
 }
