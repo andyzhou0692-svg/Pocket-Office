@@ -1,6 +1,7 @@
 pub mod embedded_pack;
 pub mod floor;
 pub mod frame_cache;
+pub mod hit_test;
 pub mod layout;
 pub mod pathfind;
 pub mod pixel_painter;
@@ -8,6 +9,7 @@ pub mod pose;
 pub mod renderer;
 pub mod theme;
 pub mod tui_renderer;
+pub mod widgets;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
