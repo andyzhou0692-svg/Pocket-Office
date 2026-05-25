@@ -1,0 +1,7 @@
+---
+source: crates/ascii-agents/tests/golden_image.rs
+assertion_line: 161
+expression: png
+extension: png
+snapshot_kind: binary
+---
