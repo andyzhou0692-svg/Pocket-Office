@@ -24,7 +24,7 @@ A repo-specific iteration loop for visually redesigning a decoration in `ascii-a
    ↓
 2. cargo build --release --example snapshot
    ↓
-3. ./target/release/examples/snapshot --cols 192 --rows 64 /tmp/snap.png
+3. ./target/release/examples/snapshot --cols 192 --rows 80 /tmp/snap.png
    ↓
 4. .venv/bin/python3 scripts/crop-snapshot.py /tmp/snap.png --scale 3 -q <quadrant>
    ↓
@@ -53,7 +53,7 @@ The user is the final judge of "does it look like a fridge / coffee machine / et
 
 ### 2. Snapshot defaults hide the large sprite variants
 
-`examples/snapshot` defaults to 96×36 cells → buffer 96×70. Several layouts (pantry, possibly other future decor) have conditional **large vs. small** variants based on room width. The small variant is what you'll see at 96 wide. **Always render at `--cols 192 --rows 64` (or larger) to see the real thing.**
+`examples/snapshot` defaults to 192×80 cells → buffer 192×160. Several layouts (pantry, corridor appliances) have conditional variants based on room dimensions. Corridor items (vending machine, printer) only appear when `walkway_h ≥ 9–10`. **Use the default `--cols 192 --rows 80` to see everything.**
 
 Pantry-specific threshold: `pantry_room.width >= 36` triggers the 32×10 sprite; below that, the 20×8 `pantry_small.sprite` is used. Threshold lives in `crates/ascii-agents-core/src/layout.rs:compute()`.
 

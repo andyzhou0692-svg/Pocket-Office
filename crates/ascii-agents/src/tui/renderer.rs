@@ -268,8 +268,10 @@ pub fn draw_scene<B: Backend>(
         }
         if tooltip_agent.is_none() && pinned_agent.is_none() {
             if let Some((mx, my)) = mouse_pos {
-                if hit_test_coffee_machine(buf, scene.max_desks, mx, my) {
+                if hit_test_coffee_machine(buf, scene.max_desks, mx, my, floor.floor_seed) {
                     paint_coffee_tooltip(f, mx, my, scene_rect, theme);
+                } else if let Some(label) = hit_test_furniture(buf, scene.max_desks, mx, my, floor.floor_seed) {
+                    paint_furniture_tooltip(f, label, mx, my, scene_rect, theme);
                 }
             }
         }
@@ -677,6 +679,46 @@ pub(super) fn paint_elevator_indicator(
     }
 }
 
+fn paint_furniture_tooltip(
+    f: &mut ratatui::Frame<'_>,
+    label: &str,
+    mx: u16,
+    my: u16,
+    scene_rect: Rect,
+    theme: &crate::tui::theme::Theme,
+) {
+    use ratatui::text::Line;
+    use ratatui::widgets::Block;
+
+    let text = format!(" {} ", label);
+    let tip_w = text.len() as u16;
+    let tip_h = 1u16;
+    let mut tx = mx.saturating_add(2);
+    if tx.saturating_add(tip_w) > scene_rect.x + scene_rect.width {
+        tx = mx.saturating_sub(tip_w + 1);
+    }
+    let mut ty = my.saturating_sub(1);
+    if ty < scene_rect.y {
+        ty = my.saturating_add(1);
+    }
+    if let Some(r) = clip_widget_rect(
+        Rect {
+            x: tx,
+            y: ty,
+            width: tip_w,
+            height: tip_h,
+        },
+        scene_rect,
+    ) {
+        let block = Block::default().style(Style::default().bg(to_color(theme.ui.tooltip_bg)));
+        let line = Line::from(Span::styled(
+            text,
+            Style::default().fg(to_color(theme.ui.tooltip_title)),
+        ));
+        f.render_widget(Paragraph::new(line).block(block), r);
+    }
+}
+
 fn paint_coffee_tooltip(
     f: &mut ratatui::Frame<'_>,
     mx: u16,
@@ -719,13 +761,19 @@ fn paint_coffee_tooltip(
 /// Hit-test whether the mouse is over the pantry coffee machine.
 /// Returns true if `(mx, my)` (terminal cell coords) falls on the coffee
 /// machine section of the pantry counter sprite.
-pub fn hit_test_coffee_machine(buf: &RgbBuffer, max_desks: usize, mx: u16, my: u16) -> bool {
+pub fn hit_test_coffee_machine(
+    buf: &RgbBuffer,
+    max_desks: usize,
+    mx: u16,
+    my: u16,
+    floor_seed: u64,
+) -> bool {
     let buf_w = buf.width;
     let buf_h = buf.height;
     if buf_w < 20 || buf_h < 24 {
         return false;
     }
-    let Some(layout) = Layout::compute(buf_w, buf_h, max_desks) else {
+    let Some(layout) = Layout::compute_with_seed(buf_w, buf_h, max_desks, floor_seed) else {
         return false;
     };
     let pantry_wp = layout
@@ -747,6 +795,192 @@ pub fn hit_test_coffee_machine(buf: &RgbBuffer, max_desks: usize, mx: u16, my: u
     let coffee_y1 = sprite_y + ch;
     let cell_y = my * 2;
     mx >= coffee_x0 && mx < coffee_x1 && cell_y >= coffee_y0 && cell_y < coffee_y1
+}
+
+/// Hit-test all furniture items in the office. Returns a short label
+/// if `(mx, my)` (terminal cell coords) falls on any known item.
+/// The coffee machine is handled separately for its click-to-open
+/// behavior — this function covers the remaining decorations.
+pub fn hit_test_furniture(
+    buf: &RgbBuffer,
+    max_desks: usize,
+    mx: u16,
+    my: u16,
+    floor_seed: u64,
+) -> Option<&'static str> {
+    use crate::tui::layout::{WaypointKind, PlantKind, PodDecor, WallDecor, DESK_W, DESK_H};
+
+    let layout = Layout::compute_with_seed(buf.width, buf.height, max_desks, floor_seed)?;
+    let px = mx;
+    let py = my * 2;
+
+    let hit = |x: u16, y: u16, w: u16, h: u16| -> bool {
+        px >= x && px < x.saturating_add(w) && py >= y && py < y.saturating_add(h)
+    };
+
+    // Home desks
+    for desk in &layout.home_desks {
+        if hit(desk.x, desk.y, DESK_W + 2, DESK_H) {
+            return Some("Desk");
+        }
+    }
+
+    // Waypoints
+    for wp in &layout.waypoints {
+        let (w, h) = match wp.kind {
+            WaypointKind::Couch => (16, 7),
+            WaypointKind::Pantry => layout.pantry_counter_size,
+            WaypointKind::PhoneBooth => (6, 12),
+            WaypointKind::StandingDesk => (8, 8),
+            WaypointKind::VendingMachine => (4, 6),
+            WaypointKind::Printer => (5, 4),
+        };
+        let wx = wp.pos.x.saturating_sub(w / 2);
+        let wy = wp.pos.y.saturating_sub(h / 2);
+        if hit(wx, wy, w, h) {
+            return Some(match wp.kind {
+                WaypointKind::Couch => "Lounge Sofa",
+                WaypointKind::Pantry => "Pantry Counter",
+                WaypointKind::PhoneBooth => "Phone Booth",
+                WaypointKind::StandingDesk => "Standing Desk",
+                WaypointKind::VendingMachine => "Vending Machine",
+                WaypointKind::Printer => "Printer",
+            });
+        }
+    }
+
+    // Meeting sofas
+    for sofa in &layout.meeting_sofas {
+        if hit(sofa.x.saturating_sub(8), sofa.y.saturating_sub(3), 16, 7) {
+            return Some("Meeting Sofa");
+        }
+    }
+
+    // Meeting tables
+    for t in &layout.meeting_tables {
+        if hit(t.x.saturating_sub(6), t.y.saturating_sub(3), 12, 6) {
+            return Some("Meeting Table");
+        }
+    }
+
+    // Pantry table
+    if let Some(t) = layout.pantry_table {
+        if hit(t.x.saturating_sub(4), t.y.saturating_sub(2), 8, 5) {
+            return Some("Pantry Table");
+        }
+    }
+
+    // Pantry chairs
+    for chair in &layout.pantry_chairs {
+        if hit(chair.x.saturating_sub(2), chair.y.saturating_sub(2), 3, 3) {
+            return Some("Chair");
+        }
+    }
+
+    // Plants
+    for (kind, p) in &layout.plants {
+        if hit(p.x.saturating_sub(3), p.y.saturating_sub(3), 6, 6) {
+            return Some(match kind {
+                PlantKind::Ficus => "Ficus",
+                PlantKind::Tall => "Tall Plant",
+                PlantKind::Flower => "Flower Pot",
+                PlantKind::Succulent => "Succulent",
+            });
+        }
+    }
+
+    // Floor lamp
+    if let Some(lamp) = layout.floor_lamp {
+        if hit(lamp.x.saturating_sub(2), lamp.y.saturating_sub(3), 4, 6) {
+            return Some("Floor Lamp");
+        }
+    }
+
+    // Wall decor
+    for (kind, pos) in &layout.wall_decor {
+        let (w, h) = match kind {
+            WallDecor::Whiteboard => (14, 11),
+            WallDecor::Bookshelf => (10, 8),
+            WallDecor::BulletinBoard => (8, 6),
+            WallDecor::ExitSign => (6, 3),
+            WallDecor::MeetingScreen => (14, 12),
+        };
+        if hit(pos.x, pos.y, w, h) {
+            return Some(match kind {
+                WallDecor::Whiteboard => "Whiteboard",
+                WallDecor::Bookshelf => "Bookshelf",
+                WallDecor::BulletinBoard => "Bulletin Board",
+                WallDecor::ExitSign => "Exit Sign",
+                WallDecor::MeetingScreen => "Meeting Screen",
+            });
+        }
+    }
+
+    // Pod decor (aisle items)
+    for (kind, pos) in &layout.pod_decor {
+        let (w, h) = kind.size();
+        if hit(pos.x.saturating_sub(w / 2), pos.y.saturating_sub(h / 2), w, h) {
+            return Some(match kind {
+                PodDecor::PlantTall => "Tall Plant",
+                PodDecor::Whiteboard => "Whiteboard",
+                PodDecor::Tv => "TV Stand",
+                PodDecor::PhoneBooth => "Phone Booth",
+                PodDecor::StandingDesk => "Standing Desk",
+            });
+        }
+    }
+
+    // Lounge side table
+    if let Some(t) = layout.lounge_side_table {
+        if hit(t.x.saturating_sub(3), t.y.saturating_sub(2), 7, 4) {
+            return Some("Side Table");
+        }
+    }
+
+    // Meeting room procedural items (coat rack, doormat)
+    if let Some(mr) = layout.meeting_room {
+        if mr.width > 20 {
+            let cx = mr.x + mr.width - 5;
+            let cy = mr.y + mr.height / 2 - 4;
+            if hit(cx.saturating_sub(2), cy, 5, 8) {
+                return Some("Coat Rack");
+            }
+        }
+        if mr.width > 10 {
+            let mat_x = mr.x + mr.width + 1;
+            let mat_y = mr.y + mr.height / 2 - 2;
+            if hit(mat_x, mat_y, 4, 5) {
+                return Some("Doormat");
+            }
+        }
+    }
+
+    // Pantry room procedural items (water cooler, trash bin)
+    if let Some(pr) = layout.pantry_room {
+        if pr.height > 25 && pr.width > 12 {
+            let wx = pr.x + pr.width - 6;
+            let wy = pr.y + 8;
+            if hit(wx, wy, 3, 6) {
+                return Some("Water Cooler");
+            }
+        }
+        if pr.height > 20 {
+            let tx = pr.x + 3;
+            let ty = pr.y + pr.height - 14;
+            if hit(tx, ty, 4, 5) {
+                return Some("Trash Bin");
+            }
+        }
+    }
+
+    // Door / elevator (16×14 sprite)
+    if let Some(d) = layout.door {
+        if hit(d.x, d.y, 16, 14) {
+            return Some("Elevator");
+        }
+    }
+
+    None
 }
 
 /// Floating detail panel painted near the cursor when an agent is hovered.
@@ -1256,13 +1490,13 @@ mod tests {
     #[test]
     fn coffee_machine_hit_test_returns_false_for_tiny_buffer() {
         let buf = RgbBuffer::filled(10, 10, Rgb(0, 0, 0));
-        assert!(!hit_test_coffee_machine(&buf, 4, 5, 5));
+        assert!(!hit_test_coffee_machine(&buf, 4, 5, 5, 0));
     }
 
     #[test]
     fn coffee_machine_hit_test_returns_false_for_origin() {
         let buf = RgbBuffer::filled(160, 200, Rgb(0, 0, 0));
-        assert!(!hit_test_coffee_machine(&buf, 4, 0, 0));
+        assert!(!hit_test_coffee_machine(&buf, 4, 0, 0, 0));
     }
 
     #[test]
@@ -1284,7 +1518,7 @@ mod tests {
         };
         let mid_cell_y = (sprite_y + ch / 2) / 2;
         assert!(
-            hit_test_coffee_machine(&buf, 4, mid_x, mid_cell_y),
+            hit_test_coffee_machine(&buf, 4, mid_x, mid_cell_y, 0),
             "expected hit at coffee machine area ({mid_x}, {mid_cell_y})"
         );
     }

@@ -159,6 +159,7 @@ pub async fn run_tui(
                                 max_desks.load(std::sync::atomic::Ordering::Relaxed),
                                 m.column,
                                 m.row,
+                                renderer.current_floor_seed(),
                             ) {
                                 let _ = open::that("https://buymeacoffee.com/IvanWng97");
                             } else {

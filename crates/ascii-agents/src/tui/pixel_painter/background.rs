@@ -889,9 +889,7 @@ pub(super) fn paint_corridor_runner(
             let diamond = ((dx + dy) % 6 == 0) || ((dx - dy).rem_euclid(6) == 0);
             let color = if is_edge {
                 runner_edge
-            } else if is_inner_edge {
-                runner_stripe
-            } else if diamond {
+            } else if is_inner_edge || diamond {
                 runner_stripe
             } else {
                 runner_base

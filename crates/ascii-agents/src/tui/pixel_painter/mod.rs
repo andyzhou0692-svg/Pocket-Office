@@ -522,28 +522,40 @@ pub fn render_to_rgb_buffer(
             }
         }
 
-        // Coat rack near the meeting room door (2×7 dark pole + pegs)
+        // Coat rack: 1px pole, 3-wide base, bright coat blobs on hooks
         if mr.width > 20 {
             let cx = mr.x + mr.width - 5;
-            let cy = mr.y + mr.height / 2 - 3;
-            for dy in 0..7u16 {
+            let cy = mr.y + mr.height / 2 - 4;
+            let pole = wood_dark;
+            let base = wood;
+            let coats = [Rgb(200, 60, 60), Rgb(80, 120, 200), Rgb(240, 240, 240)];
+            // Pole (1px wide, 8 tall)
+            for dy in 0..8u16 {
                 let py = cy + dy;
                 if py < buf_h && cx < buf_w {
-                    buf.put(cx, py, wood_dark);
-                    if cx + 1 < buf_w {
-                        buf.put(cx + 1, py, wood_dark);
-                    }
+                    buf.put(cx, py, pole);
                 }
             }
-            // Pegs (small colored dots on each side)
-            for &dy in &[1u16, 3, 5] {
-                let py = cy + dy;
-                if py < buf_h {
-                    if cx > 0 && cx - 1 < buf_w {
-                        buf.put(cx - 1, py, accent);
-                    }
-                    if cx + 2 < buf_w {
-                        buf.put(cx + 2, py, wood);
+            // Base (3px wide)
+            let by = cy + 7;
+            for dx in 0..3u16 {
+                let px = cx.saturating_sub(1) + dx;
+                if px < buf_w && by < buf_h {
+                    buf.put(px, by, base);
+                }
+            }
+            // Coat blobs (2×2 colored blocks hanging from hooks)
+            for (i, &coat_color) in coats.iter().enumerate() {
+                let hook_y = cy + 1 + (i as u16) * 2;
+                let side: i16 = if i % 2 == 0 { -1 } else { 1 };
+                let hx = (cx as i16 + side) as u16;
+                for dy in 0..2u16 {
+                    for dx in 0..2u16 {
+                        let px = hx.wrapping_add(if side < 0 { dx.wrapping_sub(1) } else { dx });
+                        let py = hook_y + dy;
+                        if px < buf_w && py < buf_h {
+                            buf.put(px, py, coat_color);
+                        }
                     }
                 }
             }
@@ -570,7 +582,6 @@ pub fn render_to_rgb_buffer(
     if let Some(pr) = layout.pantry_room {
         let cooler_body = theme.office.building_light;
         let cooler_water = Rgb(100, 180, 230);
-        let wood_dark = theme.furniture.wood_trim;
 
         // Water cooler near the pantry wall (3×6)
         if pr.height > 25 && pr.width > 12 {
@@ -588,18 +599,30 @@ pub fn render_to_rgb_buffer(
             }
         }
 
-        // Small trash bin near the pantry counter (3×4)
+        // Trash bin near the pantry counter (4×5 with visible bag liner)
         if pr.height > 20 {
             let tx = pr.x + 3;
             let ty = pr.y + pr.height - 14;
-            let bin_body = Rgb(70, 70, 75);
-            let bin_rim = Rgb(90, 90, 95);
-            for dy in 0..4u16 {
-                for dx in 0..3u16 {
+            let bin_outer = Rgb(70, 70, 78);
+            let bin_rim = Rgb(100, 100, 108);
+            let bag_liner = Rgb(200, 200, 210);
+            let bag_fill = Rgb(160, 160, 170);
+            for dy in 0..5u16 {
+                for dx in 0..4u16 {
                     let px = tx + dx;
                     let py = ty + dy;
                     if px < buf_w && py < buf_h {
-                        buf.put(px, py, if dy == 0 { bin_rim } else { bin_body });
+                        let color = if dy == 0 {
+                            // Rim row — lighter metal rim with bag liner peek
+                            if dx == 0 || dx == 3 { bin_rim } else { bag_liner }
+                        } else if dy == 1 {
+                            // Bag liner visible
+                            if dx == 0 || dx == 3 { bin_outer } else { bag_fill }
+                        } else {
+                            // Bin body
+                            bin_outer
+                        };
+                        buf.put(px, py, color);
                     }
                 }
             }
@@ -702,26 +725,28 @@ pub fn render_to_rgb_buffer(
     // Meeting-room area rug — sized to span both sofas + the coffee
     // table with a small margin. Anchored at the TOP so y-sort paints
     // it before the furniture sitting on top of it.
-    if let (Some(table), Some(&top_sofa), Some(&bot_sofa)) = (
-        layout.meeting_table,
-        layout.meeting_sofas.first(),
-        layout.meeting_sofas.get(1),
-    ) {
-        let rug_w = 18u16;
-        let rug_h = (bot_sofa.y - top_sofa.y + 8).min(layout.buf_h - table.y + 8);
-        drawables.push(Drawable {
-            anchor_y: table.y.saturating_sub(rug_h / 2),
-            kind: DrawableKind::AreaRug {
-                pos: table,
-                width: rug_w,
-                height: rug_h,
-            },
-        });
+    // Meeting-room area rugs + sofas + tables. For dual-meeting layouts,
+    // sofas come in pairs (2 per room), tables 1 per room.
+    let sofas_per_room = if layout.meeting_tables.len() > 1 { 2 } else { layout.meeting_sofas.len() };
+    for (room_idx, &table) in layout.meeting_tables.iter().enumerate() {
+        let sofa_start = room_idx * sofas_per_room;
+        let top_sofa = layout.meeting_sofas.get(sofa_start);
+        let bot_sofa = layout.meeting_sofas.get(sofa_start + 1);
+        if let (Some(&ts), Some(&bs)) = (top_sofa, bot_sofa) {
+            let rug_w = 18u16;
+            let rug_h = (bs.y - ts.y + 8).min(layout.buf_h - table.y + 8);
+            drawables.push(Drawable {
+                anchor_y: table.y.saturating_sub(rug_h / 2),
+                kind: DrawableKind::AreaRug {
+                    pos: table,
+                    width: rug_w,
+                    height: rug_h,
+                },
+            });
+        }
     }
-
-    // Meeting sofas (couch sprite 14×5, centered → bottom = sofa.y + 2).
     for (i, &sofa) in layout.meeting_sofas.iter().enumerate() {
-        let mirrored = i > 0;
+        let mirrored = i % 2 != 0;
         drawables.push(Drawable {
             anchor_y: sofa.y + 2,
             kind: DrawableKind::MeetingSofa {
@@ -730,8 +755,7 @@ pub fn render_to_rgb_buffer(
             },
         });
     }
-    // Meeting table (drawn 11×5 centered).
-    if let Some(table) = layout.meeting_table {
+    for &table in &layout.meeting_tables {
         drawables.push(Drawable {
             anchor_y: table.y + 2,
             kind: DrawableKind::MeetingTable { pos: table },
@@ -800,6 +824,18 @@ pub fn render_to_rgb_buffer(
                 });
             }
             WaypointKind::PhoneBooth | WaypointKind::StandingDesk => {}
+            WaypointKind::VendingMachine => {
+                drawables.push(Drawable {
+                    anchor_y: wp.pos.y + 3,
+                    kind: DrawableKind::VendingMachine { pos: wp.pos },
+                });
+            }
+            WaypointKind::Printer => {
+                drawables.push(Drawable {
+                    anchor_y: wp.pos.y + 2,
+                    kind: DrawableKind::Printer { pos: wp.pos },
+                });
+            }
         }
     }
 
@@ -1020,7 +1056,10 @@ pub fn render_to_rgb_buffer(
                         // decor. waypoint_anchor positions them directly above
                         // the decor centre (sprite footprint sits just north
                         // of the decor's centre, head visible above).
-                        WaypointKind::PhoneBooth | WaypointKind::StandingDesk => {
+                        WaypointKind::PhoneBooth
+                        | WaypointKind::StandingDesk
+                        | WaypointKind::VendingMachine
+                        | WaypointKind::Printer => {
                             ("standing", waypoint_anchor(wp_obj.pos), 12u16)
                         }
                     };

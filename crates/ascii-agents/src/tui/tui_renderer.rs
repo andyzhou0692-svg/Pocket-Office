@@ -59,6 +59,11 @@ impl<B: Backend> TuiRenderer<B> {
         self.current_floor
     }
 
+    pub fn current_floor_seed(&self) -> u64 {
+        let nf = self.floor_ctxs.len();
+        FloorMeta::for_floor(self.current_floor, nf).floor_seed
+    }
+
     pub fn transition(&self) -> Option<&FloorTransition> {
         self.transition.as_ref()
     }

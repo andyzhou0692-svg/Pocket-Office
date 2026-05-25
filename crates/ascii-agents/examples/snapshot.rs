@@ -25,7 +25,7 @@ use ratatui::Terminal;
 use tokio::sync::{mpsc, RwLock};
 
 const COLS: u16 = 192;
-const ROWS: u16 = 64;
+const ROWS: u16 = 80;
 const CELL_W: u32 = 8;
 const CELL_H: u32 = 16;
 
@@ -89,6 +89,10 @@ struct SnapshotArgs {
     /// Color theme name.
     #[arg(long, default_value = "normal")]
     theme: String,
+
+    /// Floor seed — selects floor layout variant (0–4).
+    #[arg(long, default_value_t = 0)]
+    floor_seed: u64,
 }
 
 fn default_projects_root() -> String {
@@ -142,6 +146,7 @@ fn main() -> Result<()> {
             args.gif_fps,
             args.gif_duration,
             theme,
+            args.floor_seed,
         )?;
         println!("wrote {}", args.out.display());
         return Ok(());
@@ -163,7 +168,11 @@ fn main() -> Result<()> {
         theme,
         None,
         None,
-        ascii_agents::tui::floor::FloorMeta::ground(),
+        {
+            let mut m = ascii_agents::tui::floor::FloorMeta::ground();
+            m.floor_seed = args.floor_seed;
+            m
+        },
     )?;
 
     if args.debug_walkable {
@@ -576,6 +585,7 @@ fn save_as_gif(
     fps: u64,
     duration_secs: u64,
     theme: &ascii_agents::tui::theme::Theme,
+    floor_seed: u64,
 ) -> Result<()> {
     let frame_count = (duration_secs * fps) as usize;
     let frame_ms = 1000 / fps.max(1);
@@ -605,7 +615,11 @@ fn save_as_gif(
             theme,
             None,
             None,
-            ascii_agents::tui::floor::FloorMeta::ground(),
+            {
+                let mut m = ascii_agents::tui::floor::FloorMeta::ground();
+                m.floor_seed = floor_seed;
+                m
+            },
         )?;
 
         let term_buf = term.backend().buffer();

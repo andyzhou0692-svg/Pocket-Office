@@ -132,6 +132,12 @@ pub(super) enum DrawableKind<'a> {
         kind: crate::tui::layout::WallDecor,
         pos: Point,
     },
+    VendingMachine {
+        pos: Point,
+    },
+    Printer {
+        pos: Point,
+    },
     Cat {
         pos: Point,
         flip: bool,
@@ -465,6 +471,66 @@ pub(super) fn paint_drawable(
             };
             if let Some(f) = pack.animation(anim_name).and_then(|a| a.frames.first()) {
                 blit_frame(f, pos.x, pos.y, buf);
+            }
+        }
+        DrawableKind::VendingMachine { pos } => {
+            let body = Rgb(50, 55, 65);
+            let panel = Rgb(180, 60, 60);
+            let drinks = [
+                Rgb(220, 50, 50),
+                Rgb(50, 160, 50),
+                Rgb(50, 80, 200),
+                Rgb(220, 180, 40),
+            ];
+            let vx = pos.x.saturating_sub(2);
+            let vy = pos.y.saturating_sub(3);
+            for dy in 0..6u16 {
+                for dx in 0..4u16 {
+                    let px = vx + dx;
+                    let py = vy + dy;
+                    if px < buf.width && py < buf.height {
+                        let color = if dy == 0 {
+                            panel
+                        } else if (1..=3).contains(&dy) && (1..=2).contains(&dx) {
+                            let idx = ((dy - 1) * 2 + (dx - 1)) as usize;
+                            if idx < drinks.len() { drinks[idx] } else { body }
+                        } else if dy == 4 && dx == 2 {
+                            Rgb(180, 170, 100)
+                        } else if dy == 5 {
+                            Rgb(40, 42, 48)
+                        } else {
+                            body
+                        };
+                        buf.put(px, py, color);
+                    }
+                }
+            }
+        }
+        DrawableKind::Printer { pos } => {
+            let body_white = Rgb(220, 220, 225);
+            let top_dark = Rgb(60, 60, 68);
+            let glass = Rgb(130, 180, 200);
+            let paper = Rgb(245, 245, 240);
+            let tray = Rgb(180, 180, 185);
+            let px0 = pos.x.saturating_sub(2);
+            let py0 = pos.y.saturating_sub(2);
+            for dy in 0..4u16 {
+                for dx in 0..5u16 {
+                    let px = px0 + dx;
+                    let py = py0 + dy;
+                    if px < buf.width && py < buf.height {
+                        let color = if dy == 0 {
+                            if (1..=3).contains(&dx) { glass } else { top_dark }
+                        } else if dy == 3 {
+                            if (1..=3).contains(&dx) { paper } else { tray }
+                        } else if dx == 0 || dx == 4 {
+                            tray
+                        } else {
+                            body_white
+                        };
+                        buf.put(px, py, color);
+                    }
+                }
             }
         }
         DrawableKind::Cat {

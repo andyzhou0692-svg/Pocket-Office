@@ -18,6 +18,10 @@ pub enum WaypointKind {
     /// Aisle standing desk — agent stands at the desk (alternate
     /// workstation). Random which exact StandingDesk slot is used.
     StandingDesk,
+    /// Corridor vending machine — agent stands in front to grab a drink.
+    VendingMachine,
+    /// Corridor printer — agent stands in front while "printing."
+    Printer,
 }
 
 /// Wall-mounted / wall-leaning furniture, painted as decor in the top wall

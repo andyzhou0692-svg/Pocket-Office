@@ -69,7 +69,7 @@ The `test-renderer` feature is needed for the `e2e.rs` integration test. The dev
 python3 -m venv .venv
 .venv/bin/pip install -r requirements-dev.txt
 cargo build --release --example snapshot
-./target/release/examples/snapshot --cols 192 --rows 64 /tmp/snap.png
+./target/release/examples/snapshot --cols 192 --rows 80 /tmp/snap.png
 .venv/bin/python3 scripts/crop-snapshot.py /tmp/snap.png --scale 3
 ```
 
@@ -100,7 +100,7 @@ Bypass in an emergency with `git push --no-verify` or `SKIP_PREFLIGHT=1 git push
 - **Match the surrounding shell:** scripts in this repo target zsh (interactive) or POSIX sh. `shellcheck` any `.sh` you touch.
 - **macOS first.** BSD-flavored CLI, brew, launchd for daemons. The hook shim is Unix-socket specific (`std::os::unix::net::UnixStream`).
 - **Keep docs current.** When a change alters module structure, architecture, developer workflow, or the public API surface, update CLAUDE.md and README.md in the same commit. Stale docs cost more than the 5 minutes to update them.
-- **Sprite changes require visual verification.** After editing any `.sprite` file: (1) rebuild the snapshot example, (2) render at `--cols 192 --rows 64`, (3) crop the relevant quadrant with `scripts/crop-snapshot.py --scale 3`, (4) read the cropped PNG and self-critique — does a stranger recognize the intended pose/object? Iterate until it reads at half-block scale. Then rebuild the release binary (`cargo build --release --workspace`). Commit messages should include iteration history (which designs were tried and why they were rejected). See `.claude/skills/beautify-decoration/SKILL.md` for the full checklist.
+- **Sprite changes require visual verification.** After editing any `.sprite` file: (1) rebuild the snapshot example, (2) render at `--cols 192 --rows 80`, (3) crop the relevant quadrant with `scripts/crop-snapshot.py --scale 3`, (4) read the cropped PNG and self-critique — does a stranger recognize the intended pose/object? Iterate until it reads at half-block scale. Then rebuild the release binary (`cargo build --release --workspace`). Commit messages should include iteration history (which designs were tried and why they were rejected). See `.claude/skills/beautify-decoration/SKILL.md` for the full checklist.
 
 ## Architecture invariants
 
@@ -154,6 +154,8 @@ These are load-bearing; don't break them without updating the spec.
 - "How does the thinking pose work?" → `core::pose::derive` returns `Pose::SeatedThinking` when an Idle agent's `last_event_at` is within `THINKING_WINDOW_SECS = 20s` AND `last_event_at > created_at` (excludes freshly spawned agents). Renders as `seated` sprite + screen glow + animated `···` dots (3-phase, 800ms cycle via `effects::paint_thinking_dots`). Screen glow only paints when the agent's derived pose is seated (precomputed pose map avoids double A*).
 - "How do tooltip stats work?" → `AgentSlot.tool_call_count` increments on `ActivityStart` (excludes Task delegation). `AgentSlot.active_ms` accumulates on the next `ActivityStart` (measuring the previous span) and on `expire_pending_idles` (measuring to `pending_idle_at`, not `now`, to avoid grace-window inflation). Tooltip shows `⏱ duration · N calls · X% active`. Fresh agents (<5s) show `---%`.
 - "How does the coffee machine Easter egg work?" → `renderer::hit_test_coffee_machine` checks if a click falls on the coffee machine section of the pantry counter sprite (x offset 11–18 for large, 8–13 for small). Hover shows `paint_coffee_tooltip` ("☕ Buy Ivan a coffee"), click opens BMC via `open::that`.
+- "How do furniture hover tooltips work?" → `renderer::hit_test_furniture` tests mouse coords against all layout positions (desks, waypoints, plants, wall decor, pod decor, meeting sofas/table, coat rack, doormat, water cooler, trash bin, elevator). Returns `Option<&'static str>` label. `paint_furniture_tooltip` renders it. Checked after agent tooltip and coffee machine in the draw closure priority chain.
+- "How do the corridor appliances work?" → Vending machine (4×6) and printer (5×4) are painted procedurally in `pixel_painter/mod.rs`. Both are `WaypointKind` variants so idle agents can wander to them. Placement is conditional on corridor height (vending ≥10px, printer ≥9px). Layout positions stored in `SceneLayout.vending_machine` / `.printer`.
 - "How do multi-floor offices work?" → `tui/floor.rs` defines `FloorCtx` (per-floor render state), `FloorTransition` (slide animation), `FloorScene` (agent projection). `tui_renderer.rs` owns `Vec<FloorCtx>` + `Vec<RgbBuffer>` and switches between them. Floor membership derived from `desk_index / max_desks`. `next_free_desk` in `state/mod.rs` searches `0..max_desks * MAX_FLOORS`. PageUp/PageDown/↑↓/jk in `tui/mod.rs`. Slide transition composites two buffers via `flush_buffer_to_term_at_offset`.
 
 ## When refactoring

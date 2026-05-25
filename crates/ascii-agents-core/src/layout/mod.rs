@@ -66,7 +66,7 @@ pub struct SceneLayout {
     pub meeting_room: Option<Bounds>,
     pub pantry_room: Option<Bounds>,
     pub meeting_sofas: Vec<Point>,
-    pub meeting_table: Option<Point>,
+    pub meeting_tables: Vec<Point>,
     pub room_walls: Vec<(Point, Point)>,
     pub top_margin: u16,
     pub pantry_table: Option<Point>,
@@ -78,6 +78,8 @@ pub struct SceneLayout {
     /// paint (`pantry` vs `pantry_small`).
     pub pantry_counter_size: (u16, u16),
     pub corridor: Option<Bounds>,
+    pub vending_machine: Option<Point>,
+    pub printer: Option<Point>,
     pub walkable: WalkableMask,
 }
 
@@ -140,18 +142,27 @@ impl SceneLayout {
         // We derive a stable floor index from the seed for variant selection.
         let floor_variant = (floor_seed % 5) as u8;
 
-        // F1(0): Standard — 28% left for meeting + pantry (current default)
-        // F2(1): Open plan — no meeting room, 18% left for small kitchenette
-        // F3(2): Dense — no pantry, 20% left for meeting only
-        // F4(3): Senior — 35% left for bigger meeting + pantry, fewer desks
-        // F5(4): Lounge — no meeting, 22% left for pantry + open space
+        // F1(0): Standard — meeting + pantry, vertical wall between them
+        //        and the cubicle area, horizontal wall between meeting/pantry.
+        // F2(1): Open plan — pantry only, no vertical wall (open kitchen
+        //        corner, counter acts as divider). No meeting room.
+        // F3(2): Dense — two meeting rooms (top + bottom), no pantry.
+        //        Horizontal wall separates the two rooms. Each gets a door.
+        // F4(3): Senior — larger meeting + pantry (like Standard but wider).
+        // F5(4): Lounge — pantry only, no vertical wall (open break area).
         let (mid_x, has_meeting, has_pantry) = match floor_variant {
             0 => (buf_w * 28 / 100, true, true),
             1 => (buf_w * 18 / 100, false, true),
-            2 => (buf_w * 20 / 100, true, false),
+            2 => (buf_w * 22 / 100, true, false),
             3 => (buf_w * 35 / 100, true, true),
             _ => (buf_w * 22 / 100, false, true),
         };
+        // Open-plan floors (1, 4) have no vertical wall — the pantry
+        // counter/furniture visually defines the zone boundary.
+        let has_vertical_wall = has_meeting;
+        // Dense floor (variant 2): two meeting rooms stacked vertically.
+        // Only when tall enough for two rooms with furniture + door gaps.
+        let has_dual_meeting = floor_variant == 2 && usable_h >= 80;
 
         let mid_y_split = top_margin + usable_h / 2;
 
@@ -160,7 +171,22 @@ impl SceneLayout {
                 x: 0,
                 y: top_margin,
                 width: mid_x,
-                height: if has_pantry { usable_h / 2 } else { usable_h },
+                height: if has_pantry || has_dual_meeting {
+                    usable_h / 2
+                } else {
+                    usable_h
+                },
+            })
+        } else {
+            None
+        };
+        // Second meeting room for dense layout (below the first).
+        let meeting_room_2 = if has_dual_meeting {
+            Some(Bounds {
+                x: 0,
+                y: mid_y_split,
+                width: mid_x,
+                height: usable_h - usable_h / 2,
             })
         } else {
             None
@@ -366,7 +392,7 @@ impl SceneLayout {
         }
 
         const SOFA_H: u16 = 7;
-        let meeting_sofas = if let Some(mr) = meeting_room {
+        let mut meeting_sofas = if let Some(mr) = meeting_room {
             let cx = mr.x + mr.width / 2;
             let south_y =
                 (mr.y + mr.height * 80 / 100).min(mr.y + mr.height.saturating_sub(SOFA_H));
@@ -380,10 +406,29 @@ impl SceneLayout {
         } else {
             vec![]
         };
-        let meeting_table = meeting_room.map(|mr| Point {
-            x: mr.x + mr.width / 2,
-            y: mr.y + mr.height / 2,
-        });
+        let mut meeting_table_vec: Vec<Point> = meeting_room
+            .map(|mr| Point {
+                x: mr.x + mr.width / 2,
+                y: mr.y + mr.height / 2,
+            })
+            .into_iter()
+            .collect();
+        // Second meeting room furniture (dense layout).
+        if let Some(mr2) = meeting_room_2 {
+            let cx2 = mr2.x + mr2.width / 2;
+            let south2 =
+                (mr2.y + mr2.height * 80 / 100).min(mr2.y + mr2.height.saturating_sub(SOFA_H));
+            meeting_sofas.push(Point {
+                x: cx2,
+                y: mr2.y + mr2.height * 30 / 100,
+            });
+            meeting_sofas.push(Point { x: cx2, y: south2 });
+            meeting_table_vec.push(Point {
+                x: mr2.x + mr2.width / 2,
+                y: mr2.y + mr2.height / 2,
+            });
+        }
+        let meeting_tables = meeting_table_vec;
 
         // Doorway widths are ABSOLUTE pixels — using percentages here makes
         // the gap shrink to zero on smaller terminals, which after the
@@ -396,11 +441,13 @@ impl SceneLayout {
         const DOOR_GAP_V: u16 = 14;
         const DOOR_GAP_H: u16 = 14;
         let mut room_walls = Vec::new();
-        let has_left_zone = has_meeting || has_pantry;
-        if has_left_zone {
+        // Vertical wall: only when we have enclosed rooms (meeting or
+        // meeting+pantry). Open-plan/lounge pantry-only floors skip it
+        // — the counter is the visual boundary.
+        if has_vertical_wall {
             let v_x = mid_x;
             let v_top = top_margin;
-            let v_bot = if has_meeting && has_pantry {
+            let v_bot = if has_pantry || has_dual_meeting {
                 mid_y_split
             } else {
                 top_margin + usable_h
@@ -410,46 +457,50 @@ impl SceneLayout {
             let v_door_bot = (v_door_center + DOOR_GAP_V / 2).min(v_bot);
             room_walls.push((
                 Point { x: v_x, y: v_top },
-                Point {
-                    x: v_x,
-                    y: v_door_top,
-                },
+                Point { x: v_x, y: v_door_top },
             ));
             room_walls.push((
-                Point {
-                    x: v_x,
-                    y: v_door_bot,
-                },
+                Point { x: v_x, y: v_door_bot },
                 Point { x: v_x, y: v_bot },
             ));
-            if has_meeting && !has_pantry {
-                // Extend wall below meeting to floor
+            // Second meeting room or pantry below: extend wall with
+            // its own door gap.
+            if has_dual_meeting {
+                // Second meeting room: extend wall below horizontal.
+                // Start below the horizontal wall (4px thick + pad).
+                let v2_top = mid_y_split + 6;
+                let v2_bot = top_margin + usable_h;
+                let v2_center = v2_top + (v2_bot - v2_top) / 2;
+                let v2_door_top = v2_center.saturating_sub(DOOR_GAP_V / 2);
+                let v2_door_bot = (v2_center + DOOR_GAP_V / 2).min(v2_bot);
+                room_walls.push((
+                    Point { x: v_x, y: v2_top },
+                    Point { x: v_x, y: v2_door_top },
+                ));
+                room_walls.push((
+                    Point { x: v_x, y: v2_door_bot },
+                    Point { x: v_x, y: v2_bot },
+                ));
+            } else if !has_pantry {
+                // Single meeting, no pantry, no dual: extend wall to floor
                 room_walls.push((
                     Point { x: v_x, y: v_bot },
-                    Point {
-                        x: v_x,
-                        y: top_margin + usable_h,
-                    },
+                    Point { x: v_x, y: top_margin + usable_h },
                 ));
             }
         }
+        // Horizontal wall: separates meeting from pantry, or two meetings.
         let h_y = mid_y_split;
         let h_door_center = mid_x * 60 / 100;
         let h_door_left = h_door_center.saturating_sub(DOOR_GAP_H / 2);
         let h_door_right = (h_door_center + DOOR_GAP_H / 2).min(mid_x);
-        if has_meeting && has_pantry {
+        if (has_meeting && has_pantry) || has_dual_meeting {
             room_walls.push((
                 Point { x: 0, y: h_y },
-                Point {
-                    x: h_door_left,
-                    y: h_y,
-                },
+                Point { x: h_door_left, y: h_y },
             ));
             room_walls.push((
-                Point {
-                    x: h_door_right,
-                    y: h_y,
-                },
+                Point { x: h_door_right, y: h_y },
                 Point { x: mid_x, y: h_y },
             ));
         }
@@ -511,6 +562,39 @@ impl SceneLayout {
                     kind: wp_kind,
                 });
             }
+        }
+
+        // Corridor appliances — stored as centre points (same convention
+        // as Pantry/Couch). Painter derives top-left via sub(w/2, h/2).
+        // Sizes: vending 4×6, printer 5×4.
+        let vending_machine = if walkway.height >= 10 && walkway.width > 30 {
+            Some(Point {
+                x: right_x + 5,
+                y: walkway.y + 3,
+            })
+        } else {
+            None
+        };
+        let printer = if walkway.height >= 9 && right_w > 40 {
+            Some(Point {
+                x: right_x + right_w.saturating_sub(10),
+                y: walkway.y + 2,
+            })
+        } else {
+            None
+        };
+
+        if let Some(vm) = vending_machine {
+            waypoints.push(Waypoint {
+                pos: vm,
+                kind: WaypointKind::VendingMachine,
+            });
+        }
+        if let Some(pr) = printer {
+            waypoints.push(Waypoint {
+                pos: pr,
+                kind: WaypointKind::Printer,
+            });
         }
 
         // Plants scatter through the cubicle corridor edges + pantry.
@@ -647,7 +731,7 @@ impl SceneLayout {
                 },
             ),
         ];
-        if has_left_zone {
+        if has_meeting || has_pantry {
             wall_decor.push((
                 WallDecor::Whiteboard,
                 Point {
@@ -661,7 +745,7 @@ impl SceneLayout {
                 WallDecor::MeetingScreen,
                 Point {
                     x: mr.x + mr.width / 2 - 7,
-                    y: top_margin.saturating_sub(6),
+                    y: top_margin.saturating_sub(12),
                 },
             ));
         }
@@ -702,7 +786,7 @@ impl SceneLayout {
             door,
             &home_desks,
             &meeting_sofas,
-            meeting_table,
+            &meeting_tables,
             pantry_table,
             &pantry_chairs,
             &waypoints,
@@ -732,13 +816,15 @@ impl SceneLayout {
             meeting_room,
             pantry_room,
             meeting_sofas,
-            meeting_table,
+            meeting_tables,
             room_walls,
             top_margin,
             pantry_table,
             pantry_chairs,
             pantry_counter_size,
             corridor,
+            vending_machine,
+            printer,
             walkable,
         })
     }
@@ -806,6 +892,9 @@ mod tests {
                 // tighter check just confirms they're south of the
                 // top wall.
                 WaypointKind::PhoneBooth | WaypointKind::StandingDesk => {
+                    assert!(w.pos.y >= l.top_margin);
+                }
+                WaypointKind::VendingMachine | WaypointKind::Printer => {
                     assert!(w.pos.y >= l.top_margin);
                 }
             }

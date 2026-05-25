@@ -1,11 +1,16 @@
-# 14x6 wall-mounted meeting screen (TV / projector display) — hangs on
-# the back wall above the seating area. Bezel = M (dark frame), screen
-# face = j (powered-on dark wallpaper) with a c (cyan) accent strip to
-# read as "screen is on, showing slide deck."
+# 14x12 wall-mounted meeting screen — large widescreen TV.
+# Thin bezel (M), screen shows a slide deck: title bar (c), body text
+# lines (q), bar chart area (b/g accents), stand/soundbar at bottom (n).
 @frame 0
+. . M M M M M M M M M M . .
 M M M M M M M M M M M M M M
 M j j j j j j j j j j j j M
 M j c c c c c c c c c c j M
 M j j j j j j j j j j j j M
+M j q q q q j j j j j j j M
+M j q q q j j j b b b b j M
+M j j j j j j j b g b g j M
+M j q q q q j j b b b b j M
+M j q q q j j j b g b g j M
 M M M M M M M M M M M M M M
-. . n n . . . . . . n n . .
+. . . . n n n n n n . . . .

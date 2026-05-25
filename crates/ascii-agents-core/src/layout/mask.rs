@@ -15,7 +15,7 @@ pub(super) fn build_walkable_mask(
     door: Option<Point>,
     home_desks: &[Point],
     meeting_sofas: &[Point],
-    meeting_table: Option<Point>,
+    meeting_tables: &[Point],
     pantry_table: Option<Point>,
     pantry_chairs: &[Point],
     waypoints: &[Waypoint],
@@ -88,7 +88,7 @@ pub(super) fn build_walkable_mask(
         );
     }
 
-    if let Some(t) = meeting_table {
+    for t in meeting_tables {
         mask.mark_blocked(
             t.x.saturating_sub(6),
             t.y.saturating_sub(3),
@@ -123,6 +123,8 @@ pub(super) fn build_walkable_mask(
             WaypointKind::Pantry => pantry_counter_size,
             WaypointKind::PhoneBooth => (6, 12),
             WaypointKind::StandingDesk => (8, 8),
+            WaypointKind::VendingMachine => (4, 6),
+            WaypointKind::Printer => (5, 4),
         };
         // Pad=1 (not OBSTACLE_PAD_PX=2) — waypoint furniture paints in
         // Pass 1.5 (after characters) so a visitor's body is occluded
