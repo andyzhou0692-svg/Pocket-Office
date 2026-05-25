@@ -62,6 +62,7 @@ pub async fn run_tui(
             );
             if last_layout_sig != Some(sig) {
                 renderer.invalidate_routes();
+                renderer.cancel_transition();
                 last_layout_sig = Some(sig);
             }
             renderer.set_theme_picker(theme_picker);
@@ -122,6 +123,26 @@ pub async fn run_tui(
                                     if cur > 1 {
                                         max_desks
                                             .store(cur - 1, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                                (KeyCode::PageDown, _)
+                                | (KeyCode::Down, _)
+                                | (KeyCode::Char('j'), _) => {
+                                    let n_floors =
+                                        crate::tui::floor::num_floors(&snapshot);
+                                    let cur = renderer.current_floor();
+                                    if cur + 1 < n_floors
+                                        && renderer.transition().is_none()
+                                    {
+                                        renderer.navigate_floor(cur + 1, now);
+                                    }
+                                }
+                                (KeyCode::PageUp, _)
+                                | (KeyCode::Up, _)
+                                | (KeyCode::Char('k'), _) => {
+                                    let cur = renderer.current_floor();
+                                    if cur > 0 && renderer.transition().is_none() {
+                                        renderer.navigate_floor(cur - 1, now);
                                     }
                                 }
                                 _ => {}
