@@ -225,7 +225,17 @@ pub fn draw_scene<B: Backend>(
     // into PoseHistory for every walking/waypoint agent so the next
     // frame's snap-back lookup is fresh.
     render_to_rgb_buffer(
-        scene, &layout, pack, now, buf, cache, router, overlay, history, theme,
+        scene,
+        &layout,
+        pack,
+        now,
+        buf,
+        cache,
+        router,
+        overlay,
+        history,
+        theme,
+        crate::tui::floor::FloorMeta::ground(),
     );
 
     // Hit-test the cursor against each agent's current sprite footprint

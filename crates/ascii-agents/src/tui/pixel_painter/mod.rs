@@ -350,6 +350,7 @@ pub fn render_to_rgb_buffer(
     overlay: &mut OccupancyOverlay,
     history: &mut pose::PoseHistory,
     theme: &crate::tui::theme::Theme,
+    floor: crate::tui::floor::FloorMeta,
 ) {
     let agents: Vec<_> = scene.agents.values().cloned().collect();
     let buf_w = layout.buf_w;
@@ -375,15 +376,11 @@ pub fn render_to_rgb_buffer(
         top_wall_h,
         door_x_range,
         theme,
+        floor.altitude,
     );
 
-    // Artificial light pass — at night the floor dims toward navy and
-    // ceiling fluorescents + the floor lamp halo paint the visible
-    // bright spots. During the day the dim is near-zero and the pools
-    // are subtle ambient highlights. The wall-clock-based darkness
-    // already handles "after hours" cleanly — an activity-based boost
-    // flickers because Active flips on/off per tool call.
-    dim_floor_overlay(buf, top_wall_h, buf_h, look.darkness * 0.45, theme);
+    let dim_strength = (0.45 - floor.sunlight_boost).max(0.1);
+    dim_floor_overlay(buf, top_wall_h, buf_h, look.darkness * dim_strength, theme);
     let pool_strength = 0.15 + 0.30 * look.darkness;
     for desk in &layout.home_desks {
         paint_ceiling_pool(
@@ -782,9 +779,14 @@ pub fn render_to_rgb_buffer(
         .iter()
         .all(|a| matches!(a.state, ActivityState::Idle));
 
-    if let Some((pos, flip, anim_name, frame_idx)) =
-        cat_position(layout, pack, now, &idle_desk_indices, all_idle)
-    {
+    if let Some((pos, flip, anim_name, frame_idx)) = cat_position(
+        layout,
+        pack,
+        now,
+        &idle_desk_indices,
+        all_idle,
+        floor.cat_seed,
+    ) {
         drawables.push(Drawable {
             anchor_y: pos.y + 3,
             kind: DrawableKind::Cat {

@@ -20,7 +20,7 @@ use ratatui::Terminal;
 
 use ratatui::layout::Rect;
 
-use crate::tui::floor::{build_floor_scene, num_floors, FloorCtx, FloorTransition};
+use crate::tui::floor::{build_floor_scene, num_floors, FloorCtx, FloorMeta, FloorTransition};
 use crate::tui::layout::Layout;
 use crate::tui::pathfind::Router;
 use crate::tui::pixel_painter::render_to_rgb_buffer;
@@ -228,6 +228,9 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             from_buf.ensure_size(buf_w, buf_h, self.theme.surface.bg_fallback);
             to_buf.ensure_size(buf_w, buf_h, self.theme.surface.bg_fallback);
 
+            let from_meta = FloorMeta::for_floor(from_floor, nf);
+            let to_meta = FloorMeta::for_floor(to_floor, nf);
+
             if let Some(layout) = Layout::compute(buf_w, buf_h, from_scene.max_desks) {
                 from_ctx.router.set_preferred_zone(layout.corridor);
                 render_to_rgb_buffer(
@@ -241,6 +244,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     &mut from_ctx.overlay,
                     &mut from_ctx.history,
                     self.theme,
+                    from_meta,
                 );
             }
 
@@ -257,6 +261,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     &mut to_ctx.overlay,
                     &mut to_ctx.history,
                     self.theme,
+                    to_meta,
                 );
             }
 

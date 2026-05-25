@@ -117,6 +117,15 @@ impl SceneLayout {
     /// Returns `None` if the buffer is too small for even one cubicle and the
     /// fixed lounge area. Caller should paint a "terminal too small" message.
     pub fn compute(buf_w: u16, buf_h: u16, num_agents: usize) -> Option<Self> {
+        Self::compute_with_seed(buf_w, buf_h, num_agents, 0)
+    }
+
+    pub fn compute_with_seed(
+        buf_w: u16,
+        buf_h: u16,
+        num_agents: usize,
+        floor_seed: u64,
+    ) -> Option<Self> {
         const MIN_W: u16 = DESK_W + DESK_GAP_X * 2;
         let min_h: u16 = 40 + MIN_TOP_MARGIN;
         if buf_w < MIN_W || buf_h < min_h {
@@ -293,7 +302,7 @@ impl SceneLayout {
         // golden-ratio hash which (empirically) never picked Tv or
         // PhoneBooth at common buffer sizes — slots were stuck on
         // PlantTall / Whiteboard / StandingDesk.
-        let mut slot_idx: usize = 0;
+        let mut slot_idx: usize = (floor_seed % 7) as usize;
         let mut push_slot = |pod_decor: &mut Vec<(PodDecor, Point)>, x: u16, y: u16| {
             let kind = PodDecor::ALL[slot_idx % PodDecor::ALL.len()];
             slot_idx += 1;

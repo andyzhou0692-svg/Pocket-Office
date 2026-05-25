@@ -66,6 +66,7 @@ pub(super) fn paint_floor_and_walls(
     top_wall_h: u16,
     skip_window_x_range: Option<(u16, u16)>,
     theme: &Theme,
+    altitude: f32,
 ) {
     let window_frame = theme.surface.window_frame;
     let carpet_base = theme.surface.carpet_base;
@@ -123,6 +124,7 @@ pub(super) fn paint_floor_and_walls(
                 now,
                 theme,
                 weather,
+                altitude,
             );
             if look.spill_strength > 0.0 {
                 paint_window_light_spill(
@@ -421,6 +423,7 @@ fn paint_floor_to_ceiling_window(
     now: SystemTime,
     theme: &Theme,
     weather: Weather,
+    altitude: f32,
 ) {
     let building_dark = theme.office.building_dark;
     let building_light = theme.office.building_light;
@@ -442,8 +445,11 @@ fn paint_floor_to_ceiling_window(
     const SKYLINE_PATTERN: &[u8] = &[8, 14, 11, 15, 6, 13, 9, 12, 7, 15, 10, 13];
     const PATTERN_MAX: u16 = 15;
     let glass_h = h.saturating_sub(2);
-    let min_bh = (glass_h / 5).max(3);
-    let max_bh = (glass_h * 50 / 100).max(min_bh + 4);
+    let alt_shrink = (glass_h as f32 * 0.3 * altitude) as u16;
+    let min_bh = (glass_h / 5).saturating_sub(alt_shrink).max(2);
+    let max_bh = (glass_h * 50 / 100)
+        .saturating_sub(alt_shrink)
+        .max(min_bh + 3);
     let bh_range = max_bh.saturating_sub(min_bh);
     let sky_norm = (glass_h as f32) * 0.7;
     let sky_row: Vec<Rgb> = (0..glass_h)

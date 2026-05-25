@@ -150,6 +150,7 @@ pub(super) fn cat_position(
     now: SystemTime,
     idle_desk_indices: &[usize],
     all_idle: bool,
+    cat_seed: u64,
 ) -> Option<(Point, bool, &'static str, usize)> {
     pack.animation("cat_walk")?;
     layout.corridor?;
@@ -160,7 +161,7 @@ pub(super) fn cat_position(
         .unwrap_or(0);
 
     const CYCLE_MS: u64 = 40_000;
-    let cycle_n = elapsed_ms / CYCLE_MS;
+    let cycle_n = (elapsed_ms / CYCLE_MS).wrapping_add(cat_seed);
     let frac = (elapsed_ms % CYCLE_MS) as f32 / CYCLE_MS as f32;
 
     // Gather all interesting spots the cat can visit.
