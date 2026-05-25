@@ -270,7 +270,9 @@ pub fn draw_scene<B: Backend>(
             if let Some((mx, my)) = mouse_pos {
                 if hit_test_coffee_machine(buf, scene.max_desks, mx, my, floor.floor_seed) {
                     paint_coffee_tooltip(f, mx, my, scene_rect, theme);
-                } else if let Some(label) = hit_test_furniture(buf, scene.max_desks, mx, my, floor.floor_seed) {
+                } else if let Some(label) =
+                    hit_test_furniture(buf, scene.max_desks, mx, my, floor.floor_seed)
+                {
                     paint_furniture_tooltip(f, label, mx, my, scene_rect, theme);
                 }
             }
@@ -808,7 +810,7 @@ pub fn hit_test_furniture(
     my: u16,
     floor_seed: u64,
 ) -> Option<&'static str> {
-    use crate::tui::layout::{WaypointKind, PlantKind, PodDecor, WallDecor, DESK_W, DESK_H};
+    use crate::tui::layout::{PlantKind, PodDecor, WallDecor, WaypointKind, DESK_H, DESK_W};
 
     let layout = Layout::compute_with_seed(buf.width, buf.height, max_desks, floor_seed)?;
     let px = mx;
@@ -919,7 +921,12 @@ pub fn hit_test_furniture(
     // Pod decor (aisle items)
     for (kind, pos) in &layout.pod_decor {
         let (w, h) = kind.size();
-        if hit(pos.x.saturating_sub(w / 2), pos.y.saturating_sub(h / 2), w, h) {
+        if hit(
+            pos.x.saturating_sub(w / 2),
+            pos.y.saturating_sub(h / 2),
+            w,
+            h,
+        ) {
             return Some(match kind {
                 PodDecor::PlantTall => "Tall Plant",
                 PodDecor::Whiteboard => "Whiteboard",

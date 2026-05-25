@@ -456,10 +456,16 @@ impl SceneLayout {
             let v_door_bot = (v_door_center + DOOR_GAP_V / 2).min(v_bot);
             room_walls.push((
                 Point { x: v_x, y: v_top },
-                Point { x: v_x, y: v_door_top },
+                Point {
+                    x: v_x,
+                    y: v_door_top,
+                },
             ));
             room_walls.push((
-                Point { x: v_x, y: v_door_bot },
+                Point {
+                    x: v_x,
+                    y: v_door_bot,
+                },
                 Point { x: v_x, y: v_bot },
             ));
             // Second meeting room or pantry below: extend wall with
@@ -474,17 +480,26 @@ impl SceneLayout {
                 let v2_door_bot = (v2_center + DOOR_GAP_V / 2).min(v2_bot);
                 room_walls.push((
                     Point { x: v_x, y: v2_top },
-                    Point { x: v_x, y: v2_door_top },
+                    Point {
+                        x: v_x,
+                        y: v2_door_top,
+                    },
                 ));
                 room_walls.push((
-                    Point { x: v_x, y: v2_door_bot },
+                    Point {
+                        x: v_x,
+                        y: v2_door_bot,
+                    },
                     Point { x: v_x, y: v2_bot },
                 ));
             } else if !has_pantry {
                 // Single meeting, no pantry, no dual: extend wall to floor
                 room_walls.push((
                     Point { x: v_x, y: v_bot },
-                    Point { x: v_x, y: top_margin + usable_h },
+                    Point {
+                        x: v_x,
+                        y: top_margin + usable_h,
+                    },
                 ));
             }
         }
@@ -496,10 +511,16 @@ impl SceneLayout {
         if (has_meeting && has_pantry) || has_dual_meeting {
             room_walls.push((
                 Point { x: 0, y: h_y },
-                Point { x: h_door_left, y: h_y },
+                Point {
+                    x: h_door_left,
+                    y: h_y,
+                },
             ));
             room_walls.push((
-                Point { x: h_door_right, y: h_y },
+                Point {
+                    x: h_door_right,
+                    y: h_y,
+                },
                 Point { x: mid_x, y: h_y },
             ));
         }

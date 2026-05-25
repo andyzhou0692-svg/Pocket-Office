@@ -614,10 +614,18 @@ pub fn render_to_rgb_buffer(
                     if px < buf_w && py < buf_h {
                         let color = if dy == 0 {
                             // Rim row — lighter metal rim with bag liner peek
-                            if dx == 0 || dx == 3 { bin_rim } else { bag_liner }
+                            if dx == 0 || dx == 3 {
+                                bin_rim
+                            } else {
+                                bag_liner
+                            }
                         } else if dy == 1 {
                             // Bag liner visible
-                            if dx == 0 || dx == 3 { bin_outer } else { bag_fill }
+                            if dx == 0 || dx == 3 {
+                                bin_outer
+                            } else {
+                                bag_fill
+                            }
                         } else {
                             // Bin body
                             bin_outer
@@ -727,7 +735,11 @@ pub fn render_to_rgb_buffer(
     // it before the furniture sitting on top of it.
     // Meeting-room area rugs + sofas + tables. For dual-meeting layouts,
     // sofas come in pairs (2 per room), tables 1 per room.
-    let sofas_per_room = if layout.meeting_tables.len() > 1 { 2 } else { layout.meeting_sofas.len() };
+    let sofas_per_room = if layout.meeting_tables.len() > 1 {
+        2
+    } else {
+        layout.meeting_sofas.len()
+    };
     for (room_idx, &table) in layout.meeting_tables.iter().enumerate() {
         let sofa_start = room_idx * sofas_per_room;
         let top_sofa = layout.meeting_sofas.get(sofa_start);
@@ -1059,9 +1071,7 @@ pub fn render_to_rgb_buffer(
                         WaypointKind::PhoneBooth
                         | WaypointKind::StandingDesk
                         | WaypointKind::VendingMachine
-                        | WaypointKind::Printer => {
-                            ("standing", waypoint_anchor(wp_obj.pos), 12u16)
-                        }
+                        | WaypointKind::Printer => ("standing", waypoint_anchor(wp_obj.pos), 12u16),
                     };
                     let anchor = with_breath(
                         Point {

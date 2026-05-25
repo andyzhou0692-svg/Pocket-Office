@@ -493,7 +493,11 @@ pub(super) fn paint_drawable(
                             panel
                         } else if (1..=3).contains(&dy) && (1..=2).contains(&dx) {
                             let idx = ((dy - 1) * 2 + (dx - 1)) as usize;
-                            if idx < drinks.len() { drinks[idx] } else { body }
+                            if idx < drinks.len() {
+                                drinks[idx]
+                            } else {
+                                body
+                            }
                         } else if dy == 4 && dx == 2 {
                             Rgb(180, 170, 100)
                         } else if dy == 5 {
@@ -520,9 +524,17 @@ pub(super) fn paint_drawable(
                     let py = py0 + dy;
                     if px < buf.width && py < buf.height {
                         let color = if dy == 0 {
-                            if (1..=3).contains(&dx) { glass } else { top_dark }
+                            if (1..=3).contains(&dx) {
+                                glass
+                            } else {
+                                top_dark
+                            }
                         } else if dy == 3 {
-                            if (1..=3).contains(&dx) { paper } else { tray }
+                            if (1..=3).contains(&dx) {
+                                paper
+                            } else {
+                                tray
+                            }
                         } else if dx == 0 || dx == 4 {
                             tray
                         } else {
