@@ -38,6 +38,23 @@ fn to_color(c: Rgb) -> Color {
     Color::Rgb(c.0, c.1, c.2)
 }
 
+/// Mutable per-frame render state, borrowed from `TuiRenderer`. Replaces
+/// the 14-parameter `draw_scene` signature with a single struct pass.
+pub struct DrawCtx<'a> {
+    pub buf: &'a mut RgbBuffer,
+    pub cache: &'a mut FrameCache,
+    pub router: &'a mut dyn Router,
+    pub overlay: &'a mut OccupancyOverlay,
+    pub history: &'a mut pose::PoseHistory,
+    pub mouse_pos: Option<(u16, u16)>,
+    pub pinned_agent: Option<AgentId>,
+    pub ticker: &'a TickerQueue,
+    pub theme: &'a crate::tui::theme::Theme,
+    pub theme_picker: Option<usize>,
+    pub floor_info: Option<(usize, usize)>,
+    pub floor: crate::tui::floor::FloorMeta,
+}
+
 /// Persistent scrolling ticker queue. Messages append to the end and scroll
 /// off the left naturally — like a news crawl. The queue rebuilds only when
 /// the set of active tool details changes, preserving scroll continuity.
@@ -171,24 +188,12 @@ pub fn teardown_terminal(term: &mut Term) -> Result<()> {
 //   * `flush_to_terminal` — ratatui half-block compression + label overlay
 //     + bulletin notice + footer. Terminal-specific, runs inside
 //     `term.draw`.
-#[allow(clippy::too_many_arguments)]
 pub fn draw_scene<B: Backend>(
     term: &mut Terminal<B>,
     scene: &SceneState,
     pack: &Pack,
     now: SystemTime,
-    buf: &mut RgbBuffer,
-    cache: &mut FrameCache,
-    router: &mut dyn Router,
-    overlay: &mut OccupancyOverlay,
-    history: &mut pose::PoseHistory,
-    mouse_pos: Option<(u16, u16)>,
-    pinned_agent: Option<AgentId>,
-    ticker: &TickerQueue,
-    theme: &crate::tui::theme::Theme,
-    theme_picker: Option<usize>,
-    floor_info: Option<(usize, usize)>,
-    floor: crate::tui::floor::FloorMeta,
+    ctx: &mut DrawCtx<'_>,
 ) -> Result<()> {
     let term_size = term.size()?;
     let full_rect = Rect {
@@ -203,6 +208,10 @@ pub fn draw_scene<B: Backend>(
         width: full_rect.width,
         height: full_rect.height.saturating_sub(1),
     };
+    let theme = ctx.theme;
+    let floor_info = ctx.floor_info;
+    let floor = ctx.floor;
+
     if scene_rect.width < 20 || scene_rect.height < 12 {
         term.draw(|f| paint_footer(f, scene, full_rect, theme, floor_info))?;
         return Ok(());
@@ -210,43 +219,63 @@ pub fn draw_scene<B: Backend>(
 
     let buf_w = scene_rect.width;
     let buf_h = scene_rect.height * 2;
-    buf.ensure_size(buf_w, buf_h, theme.surface.bg_fallback);
+    ctx.buf.ensure_size(buf_w, buf_h, theme.surface.bg_fallback);
     let Some(layout) = Layout::compute_with_seed(buf_w, buf_h, scene.max_desks, floor.floor_seed)
     else {
         term.draw(|f| paint_footer(f, scene, full_rect, theme, floor_info))?;
         return Ok(());
     };
 
-    // Bias the router toward the corridor (the office "main aisle") so
-    // walkers naturally use the hallway instead of cutting diagonally
-    // across the cubicle floor. Cheap call — invalidates the cache only
-    // when the zone actually changes (layout resize).
-    router.set_preferred_zone(layout.corridor);
+    ctx.router.set_preferred_zone(layout.corridor);
 
-    // Pure pixel pass — no ratatui types touched. Pixel pass writes
-    // into PoseHistory for every walking/waypoint agent so the next
-    // frame's snap-back lookup is fresh.
     render_to_rgb_buffer(
-        scene, &layout, pack, now, buf, cache, router, overlay, history, theme, floor,
+        scene,
+        &layout,
+        pack,
+        now,
+        ctx.buf,
+        ctx.cache,
+        ctx.router,
+        ctx.overlay,
+        ctx.history,
+        theme,
+        floor,
     );
 
-    // Hit-test the cursor against each agent's current sprite footprint
-    // so the tooltip + focus ring know who's under the pointer. Cell-
-    // accurate (one terminal cell = 2 vertical pixels in the half-block
-    // buffer).
-    let hovered = mouse_pos
-        .and_then(|(mx, my)| hit_test_agent(scene, &layout, now, router, overlay, history, mx, my));
+    let mouse_pos = ctx.mouse_pos;
+    let pinned_agent = ctx.pinned_agent;
+    let hovered = mouse_pos.and_then(|(mx, my)| {
+        hit_test_agent(
+            scene,
+            &layout,
+            now,
+            ctx.router,
+            ctx.overlay,
+            ctx.history,
+            mx,
+            my,
+        )
+    });
 
-    // Terminal-flush pass — half-block + widgets, inside ratatui's draw.
+    let buf = &ctx.buf;
+    let ticker = ctx.ticker;
+    let theme_picker = ctx.theme_picker;
     term.draw(|f| {
         paint_footer(f, scene, full_rect, theme, floor_info);
         flush_buffer_to_term(f, buf, scene_rect);
         paint_label_widgets(
-            f, scene, &layout, now, router, overlay, history, scene_rect, hovered, theme,
+            f,
+            scene,
+            &layout,
+            now,
+            ctx.router,
+            ctx.overlay,
+            ctx.history,
+            scene_rect,
+            hovered,
+            theme,
         );
-        paint_wall_display(
-            f, scene, &layout, scene_rect, now, ticker, theme, floor_info,
-        );
+        paint_wall_display(f, scene, &layout, scene_rect, now, ticker, theme, floor_info);
         if let Some(door) = layout.door {
             let (current, _) = floor_info.unwrap_or((1, 1));
             paint_elevator_indicator(f, door, current, scene_rect, theme);

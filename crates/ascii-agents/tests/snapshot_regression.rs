@@ -18,7 +18,7 @@ use std::time::{Duration, SystemTime};
 
 use ascii_agents::tui::embedded_pack::load_sprite_pack;
 use ascii_agents::tui::frame_cache::FrameCache;
-use ascii_agents::tui::renderer::{draw_scene, TickerQueue};
+use ascii_agents::tui::renderer::{draw_scene, DrawCtx, TickerQueue};
 use ascii_agents_core::source::Activity;
 use ascii_agents_core::sprite::{Rgb, RgbBuffer};
 use ascii_agents_core::state::ActivityState;
@@ -84,28 +84,26 @@ fn render_pixel_hash(now: SystemTime) -> u64 {
     let mut cache = FrameCache::new();
     let mut router = ascii_agents::tui::pathfind::AStarRouter::new();
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
-    draw_scene(
-        &mut term,
-        &scene,
-        &pack,
-        now,
-        &mut buf,
-        &mut cache,
-        &mut router,
-        &mut overlay,
-        &mut ascii_agents::tui::pose::PoseHistory::new(),
-        None,
-        None,
-        &TickerQueue::new(),
-        &ascii_agents::tui::theme::NORMAL,
-        None,
-        None,
-        ascii_agents::tui::floor::FloorMeta::ground(),
-    )
-    .expect("render");
+    let ticker = TickerQueue::new();
+    let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let mut draw_ctx = DrawCtx {
+        buf: &mut buf,
+        cache: &mut cache,
+        router: &mut router,
+        overlay: &mut overlay,
+        history: &mut history,
+        mouse_pos: None,
+        pinned_agent: None,
+        ticker: &ticker,
+        theme: &ascii_agents::tui::theme::NORMAL,
+        theme_picker: None,
+        floor_info: None,
+        floor: ascii_agents::tui::floor::FloorMeta::ground(),
+    };
+    draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).expect("render");
 
     let mut hasher = DefaultHasher::new();
-    for px in &buf.pixels {
+    for px in &draw_ctx.buf.pixels {
         px.0.hash(&mut hasher);
         px.1.hash(&mut hasher);
         px.2.hash(&mut hasher);
@@ -156,25 +154,24 @@ fn render_produces_distinct_wall_band_and_floor_regions() {
     let mut cache = FrameCache::new();
     let mut router = ascii_agents::tui::pathfind::AStarRouter::new();
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
-    draw_scene(
-        &mut term,
-        &scene,
-        &pack,
-        now,
-        &mut buf,
-        &mut cache,
-        &mut router,
-        &mut overlay,
-        &mut ascii_agents::tui::pose::PoseHistory::new(),
-        None,
-        None,
-        &TickerQueue::new(),
-        &ascii_agents::tui::theme::NORMAL,
-        None,
-        None,
-        ascii_agents::tui::floor::FloorMeta::ground(),
-    )
-    .expect("render");
+    let ticker = TickerQueue::new();
+    let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let mut draw_ctx = DrawCtx {
+        buf: &mut buf,
+        cache: &mut cache,
+        router: &mut router,
+        overlay: &mut overlay,
+        history: &mut history,
+        mouse_pos: None,
+        pinned_agent: None,
+        ticker: &ticker,
+        theme: &ascii_agents::tui::theme::NORMAL,
+        theme_picker: None,
+        floor_info: None,
+        floor: ascii_agents::tui::floor::FloorMeta::ground(),
+    };
+    draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).expect("render");
+    let buf = &*draw_ctx.buf;
 
     // Non-trivial color diversity — guards against an "all black" render or
     // a paint pass that collapsed every pixel to one color.
@@ -242,27 +239,25 @@ fn render_changes_when_an_agent_state_changes() {
     let mut cache = FrameCache::new();
     let mut router = ascii_agents::tui::pathfind::AStarRouter::new();
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
-    draw_scene(
-        &mut term,
-        &scene_idle,
-        &pack,
-        now,
-        &mut buf,
-        &mut cache,
-        &mut router,
-        &mut overlay,
-        &mut ascii_agents::tui::pose::PoseHistory::new(),
-        None,
-        None,
-        &TickerQueue::new(),
-        &ascii_agents::tui::theme::NORMAL,
-        None,
-        None,
-        ascii_agents::tui::floor::FloorMeta::ground(),
-    )
-    .expect("render");
+    let ticker = TickerQueue::new();
+    let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let mut draw_ctx = DrawCtx {
+        buf: &mut buf,
+        cache: &mut cache,
+        router: &mut router,
+        overlay: &mut overlay,
+        history: &mut history,
+        mouse_pos: None,
+        pinned_agent: None,
+        ticker: &ticker,
+        theme: &ascii_agents::tui::theme::NORMAL,
+        theme_picker: None,
+        floor_info: None,
+        floor: ascii_agents::tui::floor::FloorMeta::ground(),
+    };
+    draw_scene(&mut term, &scene_idle, &pack, now, &mut draw_ctx).expect("render");
     let mut hasher = DefaultHasher::new();
-    for px in &buf.pixels {
+    for px in &draw_ctx.buf.pixels {
         px.0.hash(&mut hasher);
         px.1.hash(&mut hasher);
         px.2.hash(&mut hasher);

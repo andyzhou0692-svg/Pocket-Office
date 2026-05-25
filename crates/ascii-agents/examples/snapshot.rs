@@ -10,7 +10,7 @@ use std::time::{Duration, SystemTime};
 use anyhow::Result;
 use ascii_agents::tui::embedded_pack::load_sprite_pack;
 use ascii_agents::tui::frame_cache::FrameCache;
-use ascii_agents::tui::renderer::{draw_scene, TickerQueue};
+use ascii_agents::tui::renderer::{draw_scene, DrawCtx, TickerQueue};
 use ascii_agents_core::source::jsonl::JsonlWatcher;
 use ascii_agents_core::source::{Activity, AgentEvent};
 use ascii_agents_core::sprite::{Rgb, RgbBuffer};
@@ -152,28 +152,25 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    draw_scene(
-        &mut term,
-        &scene,
-        &pack,
-        now,
-        &mut buf,
-        &mut cache,
-        &mut router,
-        &mut overlay,
-        &mut history,
-        None,
-        None,
-        &ticker,
+    let mut draw_ctx = DrawCtx {
+        buf: &mut buf,
+        cache: &mut cache,
+        router: &mut router,
+        overlay: &mut overlay,
+        history: &mut history,
+        mouse_pos: None,
+        pinned_agent: None,
+        ticker: &ticker,
         theme,
-        None,
-        None,
-        {
+        theme_picker: None,
+        floor_info: None,
+        floor: {
             let mut m = ascii_agents::tui::floor::FloorMeta::ground();
             m.floor_seed = args.floor_seed;
             m
         },
-    )?;
+    };
+    draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx)?;
 
     if args.debug_walkable {
         debug_paint_walkable_overlay(&mut term, &scene)?;
@@ -599,28 +596,25 @@ fn save_as_gif(
 
     for i in 0..frame_count {
         let now = start_now + Duration::from_millis(i as u64 * frame_ms);
-        draw_scene(
-            term,
-            scene,
-            pack,
-            now,
+        let mut draw_ctx = DrawCtx {
             buf,
             cache,
             router,
             overlay,
             history,
-            None,
-            None,
-            &ticker,
+            mouse_pos: None,
+            pinned_agent: None,
+            ticker: &ticker,
             theme,
-            None,
-            None,
-            {
+            theme_picker: None,
+            floor_info: None,
+            floor: {
                 let mut m = ascii_agents::tui::floor::FloorMeta::ground();
                 m.floor_seed = floor_seed;
                 m
             },
-        )?;
+        };
+        draw_scene(term, scene, pack, now, &mut draw_ctx)?;
 
         let term_buf = term.backend().buffer();
         let mut rgba = RgbaImage::new(img_w, img_h);

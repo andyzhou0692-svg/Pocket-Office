@@ -24,7 +24,7 @@ use crate::tui::floor::{build_floor_scene, num_floors, FloorCtx, FloorMeta, Floo
 use crate::tui::layout::Layout;
 use crate::tui::pathfind::Router;
 use crate::tui::pixel_painter::render_to_rgb_buffer;
-use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset};
+use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset, DrawCtx};
 
 pub struct TuiRenderer<B: Backend> {
     pub terminal: Terminal<B>,
@@ -319,25 +319,21 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             floor_scene.agents.insert(agent.agent_id, agent);
         }
 
-        let ctx = &mut self.floor_ctxs[self.current_floor];
-        let buf = &mut self.floor_bufs[self.current_floor];
-        draw_scene(
-            &mut self.terminal,
-            &floor_scene,
-            pack,
-            now,
-            buf,
-            &mut ctx.cache,
-            &mut ctx.router,
-            &mut ctx.overlay,
-            &mut ctx.history,
-            self.mouse_pos,
-            self.pinned_agent,
-            &self.ticker,
-            self.theme,
-            self.theme_picker,
+        let fctx = &mut self.floor_ctxs[self.current_floor];
+        let mut draw_ctx = DrawCtx {
+            buf: &mut self.floor_bufs[self.current_floor],
+            cache: &mut fctx.cache,
+            router: &mut fctx.router,
+            overlay: &mut fctx.overlay,
+            history: &mut fctx.history,
+            mouse_pos: self.mouse_pos,
+            pinned_agent: self.pinned_agent,
+            ticker: &self.ticker,
+            theme: self.theme,
+            theme_picker: self.theme_picker,
             floor_info,
-            FloorMeta::for_floor(self.current_floor, nf),
-        )
+            floor: FloorMeta::for_floor(self.current_floor, nf),
+        };
+        draw_scene(&mut self.terminal, &floor_scene, pack, now, &mut draw_ctx)
     }
 }
