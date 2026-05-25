@@ -39,9 +39,11 @@ Running multiple AI agents in the terminal is like managing a sweatshop you can'
 | | Feature | Description |
 |---|---|---|
 | 🏢 | **Multi-agent office** | Each CC session gets a desk; overflow agents work from sofas and floor seats |
-| 🎭 | **Animated characters** | Typing, waiting (`?` bubble), sleeping (z's), walking with A\*-routed pathfinding |
+| 🎭 | **Animated characters** | Typing, thinking (`···`), waiting (`?`), sleeping (z's), walking with A\*-routed pathfinding |
 | 💡 | **Per-tool monitor glow** | Edit = blue, Bash = orange, Read = cyan — scannable at a glance |
 | 🎨 | **Per-agent identity** | Deterministic shirt/hair/skin palette from session hash, 16 curated outfits |
+| 🌧️ | **Weather effects** | Rain, storm, snow, fog, overcast, windy — cycles every 10 min + sunset golden hour |
+| 📊 | **Tooltip stats** | Hover any agent to see session duration, tool call count, and active time % |
 | 🐱 | **Office cat** | Roams desks, pantry, sofas; sleeps near idle agents with z's |
 | ☕ | **Desk personalization** | Coffee cup (10min), plant (30min), photo frame (1hr) appear over time |
 | 🛡️ | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block Claude Code |

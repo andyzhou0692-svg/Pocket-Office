@@ -39,8 +39,9 @@ crates/
 │       ├── pose.rs         routed pose layer (PoseHistory, derive_with_routing, snap-back) — re-exports core::pose
 │       ├── pathfind.rs     Router trait + AStarRouter with selective cache invalidation
 │       └── pixel_painter/  pure-pixel pass — split into focused child modules:
-│                           mod.rs (orchestrator), background.rs, drawable.rs
-│                           (y-sort), effects.rs, palette.rs (tool_glow_tint), anchors.rs
+│                           mod.rs (orchestrator), background.rs (weather, sunset, skyline),
+│                           drawable.rs (y-sort), effects.rs (glow/z's/dots/steam/dust/bubble),
+│                           palette.rs (tool_glow_tint), anchors.rs (breath, walk position)
 └── ascii-agents-hook/      tiny shim CC invokes — stdin JSON → Unix socket, 200ms write timeout
 │   └── sprites/default/    coworking-lounge pack (embedded via include_str!): seated, typing ×2,
 │                           standing, walking ×2, walking_back ×2, working_couch ×2,
@@ -55,7 +56,7 @@ scripts/                    preflight.sh (CI mirror), crop-snapshot.py (visual v
 ```
 cargo build --workspace                                              # debug build
 cargo build --release --workspace                                    # release build
-cargo test --workspace --features ascii-agents-core/test-renderer    # all tests (147+)
+cargo test --workspace --features ascii-agents-core/test-renderer    # all tests (200+)
 cargo run --release --example snapshot -- /tmp/snap.png              # render TUI to PNG
 ./target/release/ascii-agents run --headless --projects-root ~/.claude/projects   # live test against real CC
 ```
@@ -146,7 +147,11 @@ These are load-bearing; don't break them without updating the spec.
 - "How does the cat behave?" → `pixel_painter/drawable.rs::cat_position` — 40s cycle, picks a destination from all spots (desks, pantry, sofas, couch, corridor), walks there (35%), sits/sleeps (65%). Sleeps with z's near idle agents. Sprites: `cat_walk` (8×6 side view), `cat_sit` (6×6 front), `cat_sleep` (6×4 curled).
 - "How does desk personalization work?" → `drawable.rs::paint_desk_personalization` — procedural pixel items appear on desks based on `session_age_secs`: coffee cup (10min), plant (30min), photo frame (1hr).
 - "How does the crash log work?" → `main.rs::install_crash_hook` sets a panic hook that restores the terminal, writes a timestamped backtrace to `~/.cache/ascii-agents/crash.log`.
-- "How does the theme system work?" → `tui/theme/mod.rs` defines the `Theme` struct (~100 color roles in 7 groups). Each theme is a `pub static Theme` in its own file (e.g. `theme/cyberpunk.rs`). `ALL_THEMES` is the registry slice. `--theme` CLI flag resolves via `theme_by_name()`. The `&'static Theme` threads through `TuiRenderer` → `draw_scene` → `render_to_rgb_buffer` → all paint functions. Press `[t]` in the TUI for a live preview picker. `set_theme()` flushes the `FrameCache` so character recolors update immediately. 6 themes: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox.
+- "How does the theme system work?" → `tui/theme/mod.rs` defines the `Theme` struct (~100 color roles in 7 groups). Each theme is a `pub static Theme` in its own file (e.g. `theme/cyberpunk.rs`). `ALL_THEMES` is the registry slice. `--theme` CLI flag resolves via `theme_by_name()`. The `&'static Theme` threads through `TuiRenderer` → `draw_scene` → `render_to_rgb_buffer` → all paint functions. Press `[t]` in the TUI for a live preview picker (j/k or ↑↓ to navigate). `set_theme()` flushes the `FrameCache` so character recolors update immediately. 6 themes: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox.
+- "How does weather work?" → `pixel_painter/background.rs::weather_state` picks from 7 variants (Clear/Rain/Storm/Snow/Fog/Overcast/Windy) via splitmix64 hash of `wallclock / 600` (changes every 10 min). Effects paint on window glass after the skyline. `sunset_strength()` adds a time-based golden-hour tint at ~6am/6pm, scaled down by existing twilight intensity to avoid double-orange. City light twinkle is 6–14s cycles at 70% lit.
+- "How does the thinking pose work?" → `core::pose::derive` returns `Pose::SeatedThinking` when an Idle agent's `last_event_at` is within `THINKING_WINDOW_SECS = 20s` AND `last_event_at > created_at` (excludes freshly spawned agents). Renders as `seated` sprite + screen glow + animated `···` dots (3-phase, 800ms cycle via `effects::paint_thinking_dots`). Screen glow only paints when the agent's derived pose is seated (precomputed pose map avoids double A*).
+- "How do tooltip stats work?" → `AgentSlot.tool_call_count` increments on `ActivityStart` (excludes Task delegation). `AgentSlot.active_ms` accumulates on the next `ActivityStart` (measuring the previous span) and on `expire_pending_idles` (measuring to `pending_idle_at`, not `now`, to avoid grace-window inflation). Tooltip shows `⏱ duration · N calls · X% active`. Fresh agents (<5s) show `---%`.
+- "How does the coffee machine Easter egg work?" → `renderer::hit_test_coffee_machine` checks if a click falls on the coffee machine section of the pantry counter sprite (x offset 11–18 for large, 8–13 for small). Hover shows `paint_coffee_tooltip` ("☕ Buy Ivan a coffee"), click opens BMC via `open::that`.
 
 ## When refactoring
 
