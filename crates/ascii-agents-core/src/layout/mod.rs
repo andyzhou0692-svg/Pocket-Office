@@ -78,8 +78,6 @@ pub struct SceneLayout {
     /// paint (`pantry` vs `pantry_small`).
     pub pantry_counter_size: (u16, u16),
     pub corridor: Option<Bounds>,
-    pub vending_machine: Option<Point>,
-    pub printer: Option<Point>,
     pub walkable: WalkableMask,
 }
 
@@ -99,6 +97,7 @@ pub const MAX_VISIBLE_DESKS: usize = 16;
 pub const DESK_GAP_X: u16 = 11;
 pub const DESK_GAP_Y: u16 = 14;
 pub const MIN_TOP_MARGIN: u16 = 20;
+const MIN_DUAL_MEETING_H: u16 = 80;
 
 /// Number of desks per side in a pod (`POD_SIDE * POD_SIDE` total).
 pub const POD_SIDE: u16 = 2;
@@ -162,7 +161,7 @@ impl SceneLayout {
         let has_vertical_wall = has_meeting;
         // Dense floor (variant 2): two meeting rooms stacked vertically.
         // Only when tall enough for two rooms with furniture + door gaps.
-        let has_dual_meeting = floor_variant == 2 && usable_h >= 80;
+        let has_dual_meeting = floor_variant == 2 && usable_h >= MIN_DUAL_MEETING_H;
 
         let mid_y_split = top_margin + usable_h / 2;
 
@@ -823,8 +822,6 @@ impl SceneLayout {
             pantry_chairs,
             pantry_counter_size,
             corridor,
-            vending_machine,
-            printer,
             walkable,
         })
     }

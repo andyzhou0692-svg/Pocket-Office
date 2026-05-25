@@ -907,7 +907,7 @@ pub fn render_to_rgb_buffer(
             WallDecor::BulletinBoard => 6,
             WallDecor::ExitSign => 3,
             WallDecor::Whiteboard => 11,
-            WallDecor::MeetingScreen => 6,
+            WallDecor::MeetingScreen => 12,
         };
         drawables.push(Drawable {
             anchor_y: pos.y + h,
