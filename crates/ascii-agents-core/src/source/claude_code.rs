@@ -1,14 +1,15 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use async_trait::async_trait;
+use serde_json::Value;
 
+use crate::source::decoder::{describe_tool_target, make_tool_detail};
 use crate::source::hook::HookSocketListener;
 use crate::source::jsonl::JsonlWatcher;
-use crate::source::{Source, TaggedSender};
+use crate::source::{Activity, AgentEvent, Source, TaggedSender};
+use crate::AgentId;
 
-/// Source that listens for Claude Code activity via hooks (primary) and
-/// transcript JSONL files (fallback).
 pub struct ClaudeCodeSource {
     pub socket_path: PathBuf,
     pub projects_root: PathBuf,
@@ -22,7 +23,6 @@ impl ClaudeCodeSource {
         if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
             return PathBuf::from(format!("{dir}/ascii-agents.sock"));
         }
-        // Safety: getuid is always safe on Unix.
         let uid = unsafe { libc::getuid() };
         PathBuf::from(format!("/tmp/ascii-agents-{uid}.sock"))
     }
@@ -44,16 +44,15 @@ impl Source for ClaudeCodeSource {
 
     async fn run(self: Box<Self>, tx: TaggedSender) -> Result<()> {
         let socket = HookSocketListener::bind(self.socket_path.clone()).await?;
-        let watcher = JsonlWatcher::new(self.projects_root.clone());
+        let watcher = JsonlWatcher::new(self.projects_root.clone())
+            .with_decoder(decode_cc_line)
+            .with_label_deriver(cc_derive_label);
 
         let tx_hook = tx.clone();
         let tx_jsonl = tx.clone();
         let hook_task = tokio::spawn(async move { socket.run(tx_hook).await });
         let jsonl_task = tokio::spawn(async move { watcher.run(tx_jsonl).await });
 
-        // When either sub-task ends, explicitly abort the other so it doesn't
-        // keep running orphaned in the tokio runtime. Surface whichever inner
-        // error (if any) triggered the early exit.
         let hook_abort = hook_task.abort_handle();
         let jsonl_abort = jsonl_task.abort_handle();
 
@@ -70,5 +69,85 @@ impl Source for ClaudeCodeSource {
             }
         };
         inner
+    }
+}
+
+/// Decode one CC JSONL transcript line into 0..N AgentEvents.
+pub fn decode_cc_line(transcript_path: &str, source: &str, v: Value) -> Result<Vec<AgentEvent>> {
+    let agent_id = AgentId::from_parts(source, transcript_path);
+    let Some(obj) = v.as_object() else {
+        return Ok(vec![]);
+    };
+
+    let mut out = Vec::new();
+    let ty = obj.get("type").and_then(|s| s.as_str()).unwrap_or("");
+
+    if let Some(name) = obj.get("attributionAgent").and_then(|v| v.as_str()) {
+        let label = name.rsplit(':').next().unwrap_or(name).to_string();
+        out.push(AgentEvent::Rename { agent_id, label });
+    }
+
+    let Some(message) = obj.get("message").and_then(|m| m.as_object()) else {
+        return Ok(out);
+    };
+    let content = message.get("content");
+    match (ty, content) {
+        ("assistant", Some(Value::Array(blocks))) => {
+            for block in blocks {
+                let Some(bobj) = block.as_object() else {
+                    continue;
+                };
+                let btype = bobj.get("type").and_then(|s| s.as_str()).unwrap_or("");
+                if btype != "tool_use" {
+                    continue;
+                }
+                let id = bobj.get("id").and_then(|s| s.as_str()).map(String::from);
+                let name = bobj.get("name").and_then(|s| s.as_str()).unwrap_or("?");
+                let input = bobj.get("input");
+                let target = describe_tool_target(name, input);
+                out.push(AgentEvent::ActivityStart {
+                    agent_id,
+                    activity: Activity::Typing,
+                    tool_use_id: id,
+                    detail: Some(make_tool_detail(name, target)),
+                });
+            }
+        }
+        ("user", Some(Value::Array(blocks))) => {
+            for block in blocks {
+                let Some(bobj) = block.as_object() else {
+                    continue;
+                };
+                let btype = bobj.get("type").and_then(|s| s.as_str()).unwrap_or("");
+                if btype != "tool_result" {
+                    continue;
+                }
+                let id = bobj
+                    .get("tool_use_id")
+                    .and_then(|s| s.as_str())
+                    .map(String::from);
+                out.push(AgentEvent::ActivityEnd {
+                    agent_id,
+                    tool_use_id: id,
+                });
+            }
+        }
+        _ => {}
+    }
+    Ok(out)
+}
+
+/// CC label: subagent paths → "subagent", otherwise cwd basename.
+pub fn cc_derive_label(path: &Path, _source: &str, cwd: &Path) -> String {
+    let is_subagent = path.to_string_lossy().contains("subagents");
+    if is_subagent {
+        "subagent".to_string()
+    } else if cwd != Path::new("") && cwd != Path::new("/") {
+        cwd.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("claude-code")
+            .to_string()
+    } else {
+        "claude-code".to_string()
     }
 }

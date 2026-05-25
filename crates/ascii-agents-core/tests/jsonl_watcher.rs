@@ -392,16 +392,12 @@ async fn stale_file_emits_session_start_when_written_to() {
     handle.abort();
 }
 
-struct CustomNamingStrategy;
-
-impl ascii_agents_core::source::jsonl::NamingStrategy for CustomNamingStrategy {
-    fn derive_label(&self, _path: &std::path::Path, _source: &str, _cwd: &std::path::Path) -> String {
-        "custom-label-ok".to_string()
-    }
+fn custom_label(_path: &std::path::Path, _source: &str, _cwd: &std::path::Path) -> String {
+    "custom-label-ok".to_string()
 }
 
 #[tokio::test]
-async fn watcher_custom_naming_strategy() {
+async fn watcher_custom_label_deriver() {
     let dir = TempDir::new().unwrap();
     let projects_root = dir.path().to_path_buf();
     let project_dir = projects_root.join("proj-y");
@@ -409,8 +405,7 @@ async fn watcher_custom_naming_strategy() {
     let transcript = project_dir.join("ses-xyz.jsonl");
 
     let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(32);
-    let watcher = JsonlWatcher::new(projects_root.clone())
-        .with_naming_strategy(std::sync::Arc::new(CustomNamingStrategy));
+    let watcher = JsonlWatcher::new(projects_root.clone()).with_label_deriver(custom_label);
     let handle = tokio::spawn(async move { watcher.run(tx).await });
 
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -447,6 +442,9 @@ async fn watcher_custom_naming_strategy() {
             Ok(None) | Err(_) => {}
         }
     }
-    assert!(got_custom_rename, "expected Rename event with custom label from custom naming strategy");
+    assert!(
+        got_custom_rename,
+        "expected Rename event with custom label from label deriver fn"
+    );
     handle.abort();
 }
