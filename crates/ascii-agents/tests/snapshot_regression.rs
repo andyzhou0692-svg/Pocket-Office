@@ -86,6 +86,7 @@ fn render_pixel_hash(now: SystemTime) -> u64 {
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
     let ticker = TickerQueue::new();
     let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -101,6 +102,8 @@ fn render_pixel_hash(now: SystemTime) -> u64 {
         floor: ascii_agents::tui::floor::FloorMeta::ground(),
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).expect("render");
 
@@ -158,6 +161,7 @@ fn render_produces_distinct_wall_band_and_floor_regions() {
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
     let ticker = TickerQueue::new();
     let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -173,6 +177,8 @@ fn render_produces_distinct_wall_band_and_floor_regions() {
         floor: ascii_agents::tui::floor::FloorMeta::ground(),
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).expect("render");
     let buf = &*draw_ctx.buf;
@@ -245,6 +251,7 @@ fn render_changes_when_an_agent_state_changes() {
     let mut overlay = ascii_agents_core::walkable::OccupancyOverlay::new();
     let ticker = TickerQueue::new();
     let mut history = ascii_agents::tui::pose::PoseHistory::new();
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -260,6 +267,8 @@ fn render_changes_when_an_agent_state_changes() {
         floor: ascii_agents::tui::floor::FloorMeta::ground(),
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, &scene_idle, &pack, now, &mut draw_ctx).expect("render");
     let mut hasher = DefaultHasher::new();

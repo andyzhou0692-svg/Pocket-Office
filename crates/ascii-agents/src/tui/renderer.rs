@@ -86,6 +86,11 @@ pub struct DrawCtx<'a> {
     pub floor: crate::tui::floor::FloorMeta,
     pub cat_pet: Option<&'a CatPetState>,
     pub last_cat_pos: Option<(Point, &'static str)>,
+    pub chitchat_state: &'a mut std::collections::HashMap<
+        (usize, usize),
+        crate::tui::chitchat::ActiveChitchat,
+    >,
+    pub chitchat_bubbles: Vec<crate::tui::chitchat::ChitchatBubble>,
 }
 
 /// Clip a widget rect to fit inside `bounds`. Returns `None` if the rect
@@ -191,7 +196,7 @@ pub fn draw_scene<B: Backend>(
 
     ctx.router.set_preferred_zone(layout.corridor);
 
-    ctx.last_cat_pos = render_to_rgb_buffer(
+    let pixel_result = render_to_rgb_buffer(
         scene,
         &layout,
         pack,
@@ -204,7 +209,10 @@ pub fn draw_scene<B: Backend>(
         theme,
         floor,
         ctx.cat_pet,
+        ctx.chitchat_state,
     );
+    ctx.last_cat_pos = pixel_result.cat_pos;
+    ctx.chitchat_bubbles = pixel_result.chitchat_bubbles;
 
     let mouse_pos = ctx.mouse_pos;
     let pinned_agent = ctx.pinned_agent;

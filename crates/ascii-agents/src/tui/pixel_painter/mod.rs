@@ -19,10 +19,18 @@ use ascii_agents_core::state::ActivityState;
 use ascii_agents_core::walkable::OccupancyOverlay;
 use ascii_agents_core::{AgentSlot, SceneState};
 
+use crate::tui::chitchat::{self, ActiveChitchat, ChitchatBubble};
 use crate::tui::frame_cache::FrameCache;
 use crate::tui::layout::{Layout, Point, DESK_W};
 use crate::tui::pathfind::Router;
 use crate::tui::pose::{self, Pose};
+
+/// Result of the pure-pixel pass — carries both the resolved cat position
+/// (for hit-testing) and any active chitchat bubbles (for widget rendering).
+pub struct PixelPassResult {
+    pub cat_pos: Option<(Point, &'static str)>,
+    pub chitchat_bubbles: Vec<ChitchatBubble>,
+}
 
 mod anchors;
 mod background;
@@ -103,7 +111,8 @@ pub fn render_to_rgb_buffer(
     theme: &crate::tui::theme::Theme,
     floor: crate::tui::floor::FloorMeta,
     cat_pet: Option<&crate::tui::renderer::CatPetState>,
-) -> Option<(Point, &'static str)> {
+    chitchat_state: &mut HashMap<(usize, usize), ActiveChitchat>,
+) -> PixelPassResult {
     let agents: Vec<_> = scene.agents.values().cloned().collect();
     let buf_w = layout.buf_w;
     let buf_h = layout.buf_h;
@@ -737,6 +746,7 @@ pub fn render_to_rgb_buffer(
     // rank for crowded waypoints — stable across frames thanks to
     // BTreeMap iteration order.
     let mut wp_rank: HashMap<usize, usize> = HashMap::new();
+    let mut waypoint_visitors: Vec<(usize, ascii_agents_core::AgentId, Point)> = Vec::new();
     for agent in &agents {
         let Some(desk) = layout.home_desks.get(agent.desk_index).copied() else {
             continue;
@@ -852,6 +862,9 @@ pub fn render_to_rgb_buffer(
                         agent.agent_id,
                         now,
                     );
+                    if chitchat::supports_chitchat(kind) {
+                        waypoint_visitors.push((wp, agent.agent_id, anchor));
+                    }
                     drawables.push(Drawable {
                         anchor_y: anchor.y + sprite_h,
                         kind: DrawableKind::Character {
@@ -931,7 +944,17 @@ pub fn render_to_rgb_buffer(
         paint_drawable(d, buf, pack, cache, now, theme);
     }
 
-    resolved_cat_pos
+    let chitchat_bubbles = chitchat::update_and_collect(
+        chitchat_state,
+        floor.floor_idx,
+        &waypoint_visitors,
+        now,
+    );
+
+    PixelPassResult {
+        cat_pos: resolved_cat_pos,
+        chitchat_bubbles,
+    }
 }
 
 #[cfg(test)]

@@ -87,6 +87,7 @@ fn render_hash(scene: &SceneState, now: SystemTime, theme: &Theme, floor: FloorM
     let mut overlay = OccupancyOverlay::new();
     let ticker = TickerQueue::new();
     let mut history = PoseHistory::new();
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -102,6 +103,8 @@ fn render_hash(scene: &SceneState, now: SystemTime, theme: &Theme, floor: FloorM
         floor,
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, scene, &pack, now, &mut draw_ctx).unwrap();
 

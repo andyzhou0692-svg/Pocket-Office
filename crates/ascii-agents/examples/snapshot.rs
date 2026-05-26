@@ -152,6 +152,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -171,6 +172,8 @@ fn main() -> Result<()> {
         },
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx)?;
 
@@ -596,6 +599,7 @@ fn save_as_gif(
     let mut encoder = GifEncoder::new(file);
     encoder.set_repeat(Repeat::Infinite)?;
 
+    let mut chitchat_state = std::collections::HashMap::new();
     for i in 0..frame_count {
         let now = start_now + Duration::from_millis(i as u64 * frame_ms);
         let mut draw_ctx = DrawCtx {
@@ -617,6 +621,8 @@ fn save_as_gif(
             },
             cat_pet: None,
             last_cat_pos: None,
+            chitchat_state: &mut chitchat_state,
+            chitchat_bubbles: Vec::new(),
         };
         draw_scene(term, scene, pack, now, &mut draw_ctx)?;
 

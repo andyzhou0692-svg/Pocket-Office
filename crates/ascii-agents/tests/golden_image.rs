@@ -92,6 +92,7 @@ fn render_hash(scene: &SceneState, now: SystemTime, t: &theme::Theme, floor_seed
     let mut history = PoseHistory::new();
     let mut floor = FloorMeta::ground();
     floor.floor_seed = floor_seed;
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -107,6 +108,8 @@ fn render_hash(scene: &SceneState, now: SystemTime, t: &theme::Theme, floor_seed
         floor,
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, scene, &pack, now, &mut draw_ctx).unwrap();
 

@@ -40,6 +40,8 @@ pub struct TuiRenderer<B: Backend> {
     cached_layout: Option<Layout>,
     cat_pet: Option<CatPetState>,
     last_cat_pos: Option<(Point, &'static str)>,
+    chitchat_state:
+        std::collections::HashMap<(usize, usize), crate::tui::chitchat::ActiveChitchat>,
 }
 
 impl<B: Backend> TuiRenderer<B> {
@@ -58,6 +60,7 @@ impl<B: Backend> TuiRenderer<B> {
             cached_layout: None,
             cat_pet: None,
             last_cat_pos: None,
+            chitchat_state: std::collections::HashMap::new(),
         }
     }
 
@@ -263,6 +266,10 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             let from_meta = FloorMeta::for_floor(from_floor, nf);
             let to_meta = FloorMeta::for_floor(to_floor, nf);
 
+            // Transitions hide text overlays, so use a throwaway
+            // chitchat state — bubbles won't be rendered anyway.
+            let mut transition_chitchat = std::collections::HashMap::new();
+
             if let Some(layout) =
                 Layout::compute_with_seed(buf_w, buf_h, from_scene.max_desks, from_meta.floor_seed)
             {
@@ -280,6 +287,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     self.theme,
                     from_meta,
                     None,
+                    &mut transition_chitchat,
                 );
             }
 
@@ -300,6 +308,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     self.theme,
                     to_meta,
                     None,
+                    &mut transition_chitchat,
                 );
             }
 
@@ -365,6 +374,8 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             floor: FloorMeta::for_floor(self.current_floor, nf),
             cat_pet: self.cat_pet.as_ref(),
             last_cat_pos: None,
+            chitchat_state: &mut self.chitchat_state,
+            chitchat_bubbles: Vec::new(),
         };
         let result = draw_scene(&mut self.terminal, &floor_scene, pack, now, &mut draw_ctx);
         self.last_cat_pos = draw_ctx.last_cat_pos;

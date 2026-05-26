@@ -97,6 +97,7 @@ fn render_and_get_buffer(
     let mut overlay = OccupancyOverlay::new();
     let ticker = TickerQueue::new();
     let mut history = PoseHistory::new();
+    let mut chitchat_state = std::collections::HashMap::new();
     let mut draw_ctx = DrawCtx {
         buf: &mut buf,
         cache: &mut cache,
@@ -112,6 +113,8 @@ fn render_and_get_buffer(
         floor: FloorMeta::ground(),
         cat_pet: None,
         last_cat_pos: None,
+        chitchat_state: &mut chitchat_state,
+        chitchat_bubbles: Vec::new(),
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).unwrap();
     let buffer = term.backend().buffer().clone();
