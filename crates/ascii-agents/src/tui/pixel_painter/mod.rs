@@ -854,17 +854,14 @@ pub fn render_to_rgb_buffer(
                         | WaypointKind::VendingMachine
                         | WaypointKind::Printer => ("standing", waypoint_anchor(wp_obj.pos), 12u16),
                     };
-                    let anchor = with_breath(
-                        Point {
-                            x: anchor_base.x.saturating_add_signed(dx),
-                            y: anchor_base.y,
-                        },
-                        agent.agent_id,
-                        now,
-                    );
+                    let anchor_no_breath = Point {
+                        x: anchor_base.x.saturating_add_signed(dx),
+                        y: anchor_base.y,
+                    };
                     if chitchat::supports_chitchat(kind) {
-                        waypoint_visitors.push((wp, agent.agent_id, anchor));
+                        waypoint_visitors.push((wp, agent.agent_id, anchor_no_breath));
                     }
+                    let anchor = with_breath(anchor_no_breath, agent.agent_id, now);
                     drawables.push(Drawable {
                         anchor_y: anchor.y + sprite_h,
                         kind: DrawableKind::Character {
