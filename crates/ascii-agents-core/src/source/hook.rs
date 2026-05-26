@@ -36,10 +36,12 @@ impl HookSocketListener {
     pub async fn run(self, tx: TaggedSender) -> Result<()> {
         let sem = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNS));
         loop {
-            let permit = Arc::clone(&sem)
-                .acquire_owned()
-                .await
-                .expect("semaphore closed");
+            let permit = match Arc::clone(&sem).acquire_owned().await {
+                Ok(p) => p,
+                Err(_) => {
+                    anyhow::bail!("hook socket semaphore closed unexpectedly");
+                }
+            };
             match self.listener.accept().await {
                 Ok((stream, _addr)) => {
                     let tx = tx.clone();

@@ -1103,3 +1103,163 @@ fn unknown_cwd_agent_uses_faster_stale_timeout() {
         "unknown_cwd agent should reap after STALE_UNKNOWN_CWD_TIMEOUT"
     );
 }
+
+// --- parent-child cascade --------------------------------------------------
+
+#[test]
+fn session_end_cascade_marks_all_descendants_exiting() {
+    let mut scene = SceneState::new(8);
+    let mut r = Reducer::new();
+    let parent = AgentId::from_transcript_path("/p/cascade-parent.jsonl");
+    let child_a = AgentId::from_parts("claude-code", "/p/cascade-parent/subagents/agent-a.jsonl");
+    let child_b = AgentId::from_parts("claude-code", "/p/cascade-parent/subagents/agent-b.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(2_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: parent,
+            source: "claude-code".into(),
+            session_id: "p".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: child_a,
+            source: "claude-code".into(),
+            session_id: "ca".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: Some(parent),
+        },
+        t0 + Duration::from_millis(100),
+        Transport::Jsonl,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: child_b,
+            source: "claude-code".into(),
+            session_id: "cb".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: Some(parent),
+        },
+        t0 + Duration::from_millis(200),
+        Transport::Jsonl,
+    );
+
+    assert!(scene.agents.get(&child_a).unwrap().exiting_at.is_none());
+    assert!(scene.agents.get(&child_b).unwrap().exiting_at.is_none());
+
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd { agent_id: parent },
+        t0 + Duration::from_secs(5),
+        Transport::Hook,
+    );
+
+    assert!(
+        scene.agents.get(&parent).unwrap().exiting_at.is_some(),
+        "parent must be marked exiting"
+    );
+    assert!(
+        scene.agents.get(&child_a).unwrap().exiting_at.is_some(),
+        "child_a must cascade to exiting when parent ends"
+    );
+    assert!(
+        scene.agents.get(&child_b).unwrap().exiting_at.is_some(),
+        "child_b must cascade to exiting when parent ends"
+    );
+}
+
+// --- hook-wins dedup -------------------------------------------------------
+
+#[test]
+fn hook_wins_dedup_drops_jsonl_duplicate_within_window() {
+    let mut scene = SceneState::new(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/dedup-hw.jsonl");
+    start(&mut r, &mut scene, id);
+
+    let t0 = SystemTime::now();
+
+    // Hook event first — establishes the tool_use_id in the dedup map.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            activity: Activity::Typing,
+            tool_use_id: Some("dedup-1".into()),
+            detail: Some("Edit: hook.rs".into()),
+        },
+        t0,
+        Transport::Hook,
+    );
+    assert_eq!(scene.agents.get(&id).unwrap().tool_call_count, 1);
+
+    // JSONL event with same tool_use_id within 500ms — must be dropped.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            activity: Activity::Reading,
+            tool_use_id: Some("dedup-1".into()),
+            detail: Some("Edit: jsonl.rs".into()),
+        },
+        t0 + Duration::from_millis(200),
+        Transport::Jsonl,
+    );
+
+    // tool_call_count should still be 1 — JSONL duplicate was dropped.
+    assert_eq!(
+        scene.agents.get(&id).unwrap().tool_call_count,
+        1,
+        "JSONL duplicate inside hook-wins window must be dropped"
+    );
+    // State should still reflect the hook event.
+    match &scene.agents.get(&id).unwrap().state {
+        ActivityState::Active { detail, .. } => {
+            assert_eq!(detail.as_deref(), Some("Edit: hook.rs"));
+        }
+        other => panic!("expected Active from hook, got {other:?}"),
+    }
+}
+
+// --- sweep_stale -----------------------------------------------------------
+
+#[test]
+fn sweep_stale_marks_old_agent_exiting_on_tick() {
+    use ascii_agents_core::state::reducer::STALE_IDLE_TIMEOUT;
+    let mut scene = SceneState::new(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/stale-sweep.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_500_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "sw".into(),
+            cwd: PathBuf::from("/old-project"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    assert!(scene.agents.get(&id).unwrap().exiting_at.is_none());
+
+    // Tick well past the idle stale timeout with no intervening events.
+    r.tick(
+        &mut scene,
+        t0 + STALE_IDLE_TIMEOUT + Duration::from_secs(60),
+    );
+    assert!(
+        scene.agents.get(&id).unwrap().exiting_at.is_some(),
+        "tick past STALE_IDLE_TIMEOUT should mark agent exiting"
+    );
+}

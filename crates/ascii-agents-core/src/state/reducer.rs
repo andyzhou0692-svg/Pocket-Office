@@ -133,6 +133,12 @@ impl Reducer {
         // Active("Delegating") so it doesn't look idle/asleep while its
         // subagents do the visible work. When the last Task drains, the
         // next normal hook/JSONL event will reset its state.
+        //
+        // `handled_by_task_tracking`: when an ActivityEnd drains
+        // active_tasks, the general ActivityEnd arm below must be
+        // skipped — otherwise it would redundantly re-arm
+        // pending_idle_at or arm it while tasks are still in flight.
+        let mut handled_by_task_tracking = false;
         match &event {
             AgentEvent::ActivityStart {
                 agent_id,
@@ -159,14 +165,17 @@ impl Reducer {
                 tool_use_id: Some(tuid),
             } => {
                 if let Some(set) = self.active_tasks.get_mut(agent_id) {
-                    set.remove(tuid);
-                    if set.is_empty() {
+                    if set.remove(tuid) {
+                        handled_by_task_tracking = true;
                         if let Some(slot) = scene.agents.get_mut(agent_id) {
-                            // Debounce: stay visually Active for
-                            // ACTIVE_GRACE_WINDOW; expire_pending_idles
-                            // flips to Idle if no new tool starts inside
-                            // the window.
-                            slot.pending_idle_at = Some(now);
+                            slot.last_event_at = now;
+                            if set.is_empty() {
+                                // Debounce: stay visually Active for
+                                // ACTIVE_GRACE_WINDOW; expire_pending_idles
+                                // flips to Idle if no new tool starts
+                                // inside the window.
+                                slot.pending_idle_at = Some(now);
+                            }
                         }
                     }
                 }
@@ -260,9 +269,17 @@ impl Reducer {
                 }
             }
             AgentEvent::ActivityEnd { agent_id, .. } => {
-                if let Some(slot) = scene.agents.get_mut(&agent_id) {
-                    slot.pending_idle_at = Some(now);
-                    slot.last_event_at = now;
+                // Skip if this end was already processed by task tracking above.
+                if !handled_by_task_tracking {
+                    if let Some(slot) = scene.agents.get_mut(&agent_id) {
+                        // Only arm the idle debounce when actually Active — an
+                        // ActivityEnd arriving while Idle or Waiting is a stale
+                        // duplicate and should not re-arm the timer.
+                        if matches!(slot.state, ActivityState::Active { .. }) {
+                            slot.pending_idle_at = Some(now);
+                        }
+                        slot.last_event_at = now;
+                    }
                 }
             }
             AgentEvent::Waiting { agent_id, reason } => {
@@ -289,6 +306,8 @@ impl Reducer {
                         slot.exiting_at = Some(now);
                     }
                 }
+                let mut visited = HashSet::new();
+                visited.insert(agent_id);
                 let mut frontier = vec![agent_id];
                 while let Some(parent) = frontier.pop() {
                     let children: Vec<AgentId> = scene
@@ -297,12 +316,14 @@ impl Reducer {
                         .filter(|s| s.parent_id == Some(parent) && s.exiting_at.is_none())
                         .map(|s| s.agent_id)
                         .collect();
-                    for cid in &children {
-                        if let Some(slot) = scene.agents.get_mut(cid) {
-                            slot.exiting_at = Some(now);
+                    for cid in children {
+                        if visited.insert(cid) {
+                            if let Some(slot) = scene.agents.get_mut(&cid) {
+                                slot.exiting_at = Some(now);
+                            }
+                            frontier.push(cid);
                         }
                     }
-                    frontier.extend(children);
                 }
             }
         }

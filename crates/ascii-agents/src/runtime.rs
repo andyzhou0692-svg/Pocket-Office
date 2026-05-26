@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
@@ -60,14 +60,14 @@ async fn run_async(
     let (tx, rx) = mpsc::channel::<(Transport, AgentEvent)>(256);
     let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::new(max_desks)));
 
-    tokio::spawn(reducer_task(rx, scene_tx, max_desks));
+    let max_desks_shared = Arc::new(AtomicUsize::new(max_desks));
+
+    tokio::spawn(reducer_task(rx, scene_tx, Arc::clone(&max_desks_shared)));
 
     let _source_handles = SourceManager::new()
         .with_source(Box::new(cc_src))
         .with_source(Box::new(ag_src))
         .spawn(tx);
-
-    let max_desks_shared = Arc::new(AtomicUsize::new(max_desks));
 
     if headless {
         headless_loop(scene_rx).await
@@ -79,22 +79,23 @@ async fn run_async(
 async fn reducer_task(
     mut rx: TaggedReceiver,
     scene_tx: watch::Sender<Arc<SceneState>>,
-    max_desks: usize,
+    max_desks: Arc<AtomicUsize>,
 ) {
     let mut reducer = Reducer::new();
-    let mut scene = SceneState::new(max_desks);
+    let mut scene = SceneState::new(max_desks.load(Ordering::Relaxed));
     // 1-Hz tick so exit-grace sweeps run even when no new events arrive.
     let mut sweep_interval = tokio::time::interval(Duration::from_secs(1));
     sweep_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
+        // Sync max_desks from the shared atomic so TUI +/- key changes
+        // are visible to next_free_desk() inside the reducer.
+        scene.max_desks = max_desks.load(Ordering::Relaxed);
         tokio::select! {
             event = rx.recv() => {
                 let Some((transport, ev)) = event else { break };
                 let now = SystemTime::now();
                 tracing::debug!(?transport, ?ev, "event");
                 reducer.apply(&mut scene, ev, now, transport);
-                // Send a fresh Arc snapshot. send() ignores errors when
-                // there are no active receivers — that's fine.
                 let _ = scene_tx.send(Arc::new(scene.clone()));
             }
             _ = sweep_interval.tick() => {
