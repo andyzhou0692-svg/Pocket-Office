@@ -30,6 +30,7 @@ pub async fn run_tui(
     floor_caps: Arc<[std::sync::atomic::AtomicUsize; ascii_agents_core::state::MAX_FLOORS]>,
     theme: &'static theme::Theme,
     config_path: std::path::PathBuf,
+    desk_cap: Option<usize>,
 ) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
@@ -67,6 +68,8 @@ pub async fn run_tui(
             // own layout seed, so different variants may have different
             // desk counts. fetch_max ensures capacity only grows (monotone)
             // to prevent orphaning agents already assigned to higher desks.
+            // If the user set a desk cap (config or CLI), each floor is
+            // clamped to that value.
             if let Some(layout) = renderer.cached_layout() {
                 use ascii_agents_core::layout::{SceneLayout, MAX_VISIBLE_DESKS};
                 use ascii_agents_core::state::MAX_FLOORS;
@@ -74,10 +77,13 @@ pub async fn run_tui(
                 let buf_h = layout.buf_h;
                 for floor_idx in 0..MAX_FLOORS {
                     let seed = (floor_idx as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
-                    let capacity =
+                    let mut capacity =
                         SceneLayout::compute_with_seed(buf_w, buf_h, MAX_VISIBLE_DESKS, seed)
                             .map(|l| l.home_desks.len())
                             .unwrap_or(MAX_VISIBLE_DESKS);
+                    if let Some(cap) = desk_cap {
+                        capacity = capacity.min(cap);
+                    }
                     if capacity > 0 {
                         floor_caps[floor_idx]
                             .fetch_max(capacity, std::sync::atomic::Ordering::Relaxed);

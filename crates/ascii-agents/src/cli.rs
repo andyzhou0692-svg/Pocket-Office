@@ -30,9 +30,9 @@ pub enum Cmd {
         projects_root: Option<PathBuf>,
         #[arg(long)]
         pack_dir: Option<PathBuf>,
-        /// Initial desk capacity seed (auto-computed from terminal size).
-        #[arg(long, default_value_t = 16, hide = true)]
-        max_desks: usize,
+        /// Cap desks per floor (auto-computed from terminal size if unset).
+        #[arg(long, hide = true)]
+        max_desks: Option<usize>,
         /// Skip the TUI entirely — useful for CI / scripting.
         /// Prints a JSON snapshot of SceneState every 200ms when it changes.
         #[arg(long, default_value_t = false)]
@@ -60,7 +60,7 @@ impl Cli {
             socket: None,
             projects_root: None,
             pack_dir: None,
-            max_desks: 16,
+            max_desks: None,
             headless: false,
         });
         (level, theme, cmd)
@@ -85,7 +85,7 @@ mod tests {
             cmd,
             Cmd::Run {
                 headless: false,
-                max_desks: 16,
+                max_desks: None,
                 ..
             }
         ));

@@ -49,17 +49,18 @@ fn main() -> Result<()> {
             socket,
             projects_root,
             pack_dir,
-            max_desks,
+            max_desks: cli_max_desks,
             headless,
         } => {
             let cfg_path = config::config_path();
             let cfg = config::load(&cfg_path);
             let theme_name = config::resolve_theme(&cfg, cli_theme);
+            let desk_cap = cli_max_desks.or(cfg.max_desks);
             runtime::run(
                 socket,
                 projects_root,
                 pack_dir,
-                max_desks,
+                desk_cap,
                 headless,
                 theme_name,
                 cfg_path,

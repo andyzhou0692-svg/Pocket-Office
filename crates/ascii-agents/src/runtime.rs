@@ -23,11 +23,15 @@ use tokio::sync::{mpsc, watch};
 ///   - swapping in a v2 daemon means publishing the same Arc over a socket
 pub type SceneRx = watch::Receiver<Arc<SceneState>>;
 
+/// Bootstrap desk capacity — used only before the first TUI frame
+/// auto-computes the real per-floor capacity from terminal dimensions.
+const BOOTSTRAP_DESKS: usize = 16;
+
 pub fn run(
     socket: Option<PathBuf>,
     projects_root: Option<PathBuf>,
     pack_dir: Option<PathBuf>,
-    max_desks: usize,
+    desk_cap: Option<usize>,
     headless: bool,
     theme_name: String,
     config_path: PathBuf,
@@ -42,7 +46,7 @@ pub fn run(
             socket,
             projects_root,
             pack_dir,
-            max_desks,
+            desk_cap,
             headless,
             theme,
             config_path,
@@ -55,7 +59,7 @@ async fn run_async(
     socket: Option<PathBuf>,
     projects_root: Option<PathBuf>,
     pack_dir: Option<PathBuf>,
-    max_desks: usize,
+    desk_cap: Option<usize>,
     headless: bool,
     theme: &'static crate::tui::theme::Theme,
     config_path: PathBuf,
@@ -71,10 +75,11 @@ async fn run_async(
     let ag_src = AntigravitySource::default_paths();
 
     let (tx, rx) = mpsc::channel::<(Transport, AgentEvent)>(256);
-    let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::uniform(max_desks)));
+    let boot = desk_cap.unwrap_or(BOOTSTRAP_DESKS);
+    let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::uniform(boot)));
 
     let floor_caps: Arc<[AtomicUsize; MAX_FLOORS]> =
-        Arc::new(std::array::from_fn(|_| AtomicUsize::new(max_desks)));
+        Arc::new(std::array::from_fn(|_| AtomicUsize::new(boot)));
 
     tokio::spawn(reducer_task(rx, scene_tx, Arc::clone(&floor_caps)));
 
@@ -86,7 +91,7 @@ async fn run_async(
     if headless {
         headless_loop(scene_rx).await
     } else {
-        crate::tui::run_tui(scene_rx, pack_dir, floor_caps, theme, config_path).await
+        crate::tui::run_tui(scene_rx, pack_dir, floor_caps, theme, config_path, desk_cap).await
     }
 }
 

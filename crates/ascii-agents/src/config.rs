@@ -5,6 +5,11 @@ use anyhow::Result;
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppConfig {
     pub theme: Option<String>,
+    /// Optional per-floor desk cap. When set, each floor holds at most
+    /// this many desks — excess agents overflow to additional floors.
+    /// When absent, capacity is fully auto-computed from terminal size.
+    #[serde(rename = "max-desks")]
+    pub max_desks: Option<usize>,
 }
 
 pub fn config_path() -> PathBuf {
@@ -125,6 +130,7 @@ mod tests {
     fn resolve_cli_wins_over_config() {
         let cfg = AppConfig {
             theme: Some("normal".into()),
+            ..AppConfig::default()
         };
         let theme = resolve_theme(&cfg, Some("dracula".into()));
         assert_eq!(theme, "dracula");
@@ -134,6 +140,7 @@ mod tests {
     fn resolve_config_wins_over_default() {
         let cfg = AppConfig {
             theme: Some("gruvbox".into()),
+            ..AppConfig::default()
         };
         let theme = resolve_theme(&cfg, None);
         assert_eq!(theme, "gruvbox");
@@ -150,6 +157,7 @@ mod tests {
     fn resolve_invalid_config_theme_falls_back_to_default() {
         let cfg = AppConfig {
             theme: Some("does-not-exist".into()),
+            ..AppConfig::default()
         };
         let theme = resolve_theme(&cfg, None);
         assert_eq!(theme, "normal");

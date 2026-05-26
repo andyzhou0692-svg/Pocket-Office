@@ -79,11 +79,13 @@ Settings are stored in `~/.config/ascii-agents/config.toml` (respects `$XDG_CONF
 
 ```toml
 theme = "cyberpunk"
+max-desks = 8
 ```
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `theme` | `"normal"` | Color theme — `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox` |
+| `max-desks` | auto | Cap desks per floor. If unset, auto-computed from terminal size. Excess agents overflow to additional floors. |
 
 CLI flags override config: `ascii-agents run --theme dracula`
 
