@@ -1,6 +1,0 @@
----
-source: crates/ascii-agents/src/tui/widgets.rs
-assertion_line: 930
-expression: line
----
- 2a    [p]ause [t]heme [q]uit

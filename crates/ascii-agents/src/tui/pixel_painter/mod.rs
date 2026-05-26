@@ -153,7 +153,13 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
     );
 
     let dim_strength = (0.45 - ctx.floor.sunlight_boost).max(0.1);
-    dim_floor_overlay(ctx.buf, top_wall_h, buf_h, look.darkness * dim_strength, ctx.theme);
+    dim_floor_overlay(
+        ctx.buf,
+        top_wall_h,
+        buf_h,
+        look.darkness * dim_strength,
+        ctx.theme,
+    );
     let pool_strength = 0.15 + 0.30 * look.darkness;
     for desk in &ctx.layout.home_desks {
         paint_ceiling_pool(
@@ -289,7 +295,8 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
                     let py = by + dy;
                     if px < buf_w && py < buf_h {
                         let on_edge = dx == 0 || dx == 7 || dy == 0 || dy == 4;
-                        ctx.buf.put(px, py, if on_edge { wall_color } else { accent });
+                        ctx.buf
+                            .put(px, py, if on_edge { wall_color } else { accent });
                     }
                 }
             }
@@ -346,7 +353,8 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
                     let py = mat_y + dy;
                     if px < buf_w && py < buf_h {
                         let on_border = dx == 0 || dx == 3 || dy == 0 || dy == 4;
-                        ctx.buf.put(px, py, if on_border { mat_color } else { mat_accent });
+                        ctx.buf
+                            .put(px, py, if on_border { mat_color } else { mat_accent });
                     }
                 }
             }
@@ -428,13 +436,29 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
         );
     }
     for wp in &ctx.layout.waypoints {
-        paint_shadow(ctx.buf, wp.pos.x, wp.pos.y + 2, 7, 2, shadow_strength, ctx.theme);
+        paint_shadow(
+            ctx.buf,
+            wp.pos.x,
+            wp.pos.y + 2,
+            7,
+            2,
+            shadow_strength,
+            ctx.theme,
+        );
     }
     for (_, p) in &ctx.layout.plants {
         paint_shadow(ctx.buf, p.x, p.y + 3, 3, 1, shadow_strength, ctx.theme);
     }
     if let Some(lamp) = ctx.layout.floor_lamp {
-        paint_shadow(ctx.buf, lamp.x, lamp.y + 5, 2, 1, shadow_strength, ctx.theme);
+        paint_shadow(
+            ctx.buf,
+            lamp.x,
+            lamp.y + 5,
+            2,
+            1,
+            shadow_strength,
+            ctx.theme,
+        );
     }
 
     // Build per-frame occupancy from STATIONARY agent positions only.
@@ -452,7 +476,8 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
         };
         if let Pose::AtWaypoint { wp, .. } = pose {
             if let Some(w) = ctx.layout.waypoints.get(wp) {
-                ctx.overlay.add(w.pos.x.saturating_sub(4), w.pos.y.saturating_sub(6), 8, 12);
+                ctx.overlay
+                    .add(w.pos.x.saturating_sub(4), w.pos.y.saturating_sub(6), 8, 12);
             }
         }
     }
@@ -473,14 +498,21 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
         .iter()
         .filter(|a| a.desk_index < ctx.layout.home_desks.len() && a.exiting_at.is_none())
         .map(|a| {
-            let p = pose::derive_with_routing(a, ctx.now, ctx.layout, ctx.router, ctx.overlay, ctx.history);
+            let p = pose::derive_with_routing(
+                a,
+                ctx.now,
+                ctx.layout,
+                ctx.router,
+                ctx.overlay,
+                ctx.history,
+            );
             let seated = matches!(p, Some(Pose::SeatedTyping { .. } | Pose::SeatedThinking));
             (a.desk_index, seated)
         })
         .collect();
     for (i, &desk) in ctx.layout.home_desks.iter().enumerate() {
-        let is_last_col =
-            desk.x + DESK_W + 2 + DESK_W >= ctx.layout.cubicle_band.x + ctx.layout.cubicle_band.width;
+        let is_last_col = desk.x + DESK_W + 2 + DESK_W
+            >= ctx.layout.cubicle_band.x + ctx.layout.cubicle_band.width;
         let occupant = agents
             .iter()
             .find(|a| a.desk_index == i && a.exiting_at.is_none());
@@ -772,8 +804,14 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
         let Some(desk) = ctx.layout.home_desks.get(agent.desk_index).copied() else {
             continue;
         };
-        let Some(p) = pose::derive_with_routing(agent, ctx.now, ctx.layout, ctx.router, ctx.overlay, ctx.history)
-        else {
+        let Some(p) = pose::derive_with_routing(
+            agent,
+            ctx.now,
+            ctx.layout,
+            ctx.router,
+            ctx.overlay,
+            ctx.history,
+        ) else {
             continue;
         };
         match p {
@@ -976,8 +1014,12 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
         paint_drawable(d, ctx.buf, ctx.pack, ctx.cache, ctx.now, ctx.theme);
     }
 
-    let chitchat_bubbles =
-        chitchat::update_and_collect(ctx.chitchat_state, ctx.floor.floor_idx, &waypoint_visitors, ctx.now);
+    let chitchat_bubbles = chitchat::update_and_collect(
+        ctx.chitchat_state,
+        ctx.floor.floor_idx,
+        &waypoint_visitors,
+        ctx.now,
+    );
 
     PixelPassResult {
         cat_pos: resolved_cat_pos,
