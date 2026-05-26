@@ -974,6 +974,132 @@ mod tests {
     }
 
     #[test]
+    fn coffee_lifecycle_cup_persists_through_active() {
+        let (test_slot, _) = slot(ActivityState::Idle, 0);
+        let l = layout();
+        let cycle = cycle_ms_for(test_slot.agent_id);
+        let trip_n = first_trip_cycle_to_kind(test_slot.agent_id, &l, WaypointKind::Pantry)
+            .expect("agent should visit Pantry within 2000 cycles");
+        // Place the idle anchor far enough back that the pantry walk-back completed.
+        // Use one full cycle past the pantry trip so the cup persists.
+        let idle_elapsed_ms = (trip_n + 1) * cycle + 100;
+        let started = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let last_idle = started; // wander cycle anchor
+        let now = started + Duration::from_millis(idle_elapsed_ms);
+        // Build an Active agent whose last_idle_at preserves the wander anchor.
+        let created = started - Duration::from_secs(60);
+        let s = AgentSlot {
+            agent_id: test_slot.agent_id,
+            source: std::sync::Arc::from("claude-code"),
+            session_id: std::sync::Arc::from("abc"),
+            cwd: std::sync::Arc::from(PathBuf::from("/repo").as_path()),
+            label: std::sync::Arc::from("cc"),
+            state: typing(),
+            state_started_at: now - Duration::from_millis(500),
+            created_at: created,
+            last_event_at: now - Duration::from_millis(500),
+            exiting_at: None,
+            pending_idle_at: None,
+            last_idle_at: Some(last_idle),
+            desk_index: 0,
+            tool_call_count: 1,
+            active_ms: 0,
+            unknown_cwd: false,
+            parent_id: None,
+        };
+        let coffee = has_desk_coffee(&s, now, &l);
+        assert!(
+            coffee.has_cup,
+            "coffee cup must persist through Active state via last_idle_at anchor"
+        );
+    }
+
+    #[test]
+    fn coffee_lifecycle_exit_carries_cup() {
+        let (test_slot, _) = slot(ActivityState::Idle, 0);
+        let l = layout();
+        let cycle = cycle_ms_for(test_slot.agent_id);
+        let trip_n = first_trip_cycle_to_kind(test_slot.agent_id, &l, WaypointKind::Pantry)
+            .expect("agent should visit Pantry within 2000 cycles");
+        // Place idle anchor so that a pantry trip completed (one cycle past).
+        let idle_elapsed_ms = (trip_n + 1) * cycle + 100;
+        let started = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let now = started + Duration::from_millis(idle_elapsed_ms);
+        let created = started - Duration::from_secs(60);
+        let s = AgentSlot {
+            agent_id: test_slot.agent_id,
+            source: std::sync::Arc::from("claude-code"),
+            session_id: std::sync::Arc::from("abc"),
+            cwd: std::sync::Arc::from(PathBuf::from("/repo").as_path()),
+            label: std::sync::Arc::from("cc"),
+            state: ActivityState::Idle,
+            state_started_at: started,
+            created_at: created,
+            last_event_at: started,
+            exiting_at: Some(now),
+            pending_idle_at: None,
+            last_idle_at: Some(started),
+            desk_index: 0,
+            tool_call_count: 0,
+            active_ms: 0,
+            unknown_cwd: false,
+            parent_id: None,
+        };
+        // Probe 500ms into exit animation.
+        let probe = now + Duration::from_millis(500);
+        match derive(&s, probe, &l).expect("pose") {
+            Pose::Walking {
+                carrying_coffee, ..
+            } => {
+                assert!(
+                    carrying_coffee,
+                    "exit walk must carry coffee when desk had a cup"
+                );
+            }
+            other => panic!("expected Walking (exit), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn coffee_lifecycle_entry_no_cup() {
+        let id = AgentId::from_transcript_path("/p/entry-coffee.jsonl");
+        let now0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+        let s = AgentSlot {
+            agent_id: id,
+            source: std::sync::Arc::from("claude-code"),
+            session_id: std::sync::Arc::from("abc"),
+            cwd: std::sync::Arc::from(PathBuf::from("/repo").as_path()),
+            label: std::sync::Arc::from("cc"),
+            state: ActivityState::Idle,
+            state_started_at: now0,
+            created_at: now0,
+            last_event_at: now0,
+            exiting_at: None,
+            pending_idle_at: None,
+            last_idle_at: Some(now0),
+            desk_index: 0,
+            tool_call_count: 0,
+            active_ms: 0,
+            unknown_cwd: false,
+            parent_id: None,
+        };
+        // Probe during entry animation (1500ms after creation).
+        let probe = now0 + Duration::from_millis(1500);
+        let l = layout();
+        match derive(&s, probe, &l).expect("pose") {
+            Pose::Walking {
+                carrying_coffee, ..
+            } => {
+                assert!(
+                    !carrying_coffee,
+                    "entry walk must not carry coffee — agent just arrived"
+                );
+            }
+            other => panic!("expected Walking (entry), got {other:?}"),
+        }
+    }
+
+    #[test]
     fn no_desk_coffee_when_active() {
         let (s, now) = slot(typing(), 10_000);
         let l = layout();
