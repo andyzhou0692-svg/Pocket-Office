@@ -53,7 +53,7 @@ fn populated_scene(now: SystemTime) -> SceneState {
             detail: Some("Bash ls".into()),
         },
     ];
-    for (i, (label, state)) in labels.iter().zip(states.into_iter()).enumerate() {
+    for (i, (label, state)) in labels.iter().zip(states).enumerate() {
         let id = AgentId::from_parts("cc", &format!("/tmp/test/{label}"));
         s.agents.insert(
             id,
