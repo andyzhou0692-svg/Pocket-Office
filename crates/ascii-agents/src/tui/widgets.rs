@@ -86,10 +86,10 @@ impl TickerQueue {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0);
-        let char_count = self.buffer.chars().count();
-        let offset = (elapsed_ms / 150) as usize % char_count;
-        let doubled = format!("{}{}", self.buffer, self.buffer);
-        doubled.chars().skip(offset).take(width).collect()
+        let chars: Vec<char> = self.buffer.chars().collect();
+        let len = chars.len();
+        let offset = (elapsed_ms / 150) as usize % len;
+        (0..width).map(|i| chars[(offset + i) % len]).collect()
     }
 }
 
