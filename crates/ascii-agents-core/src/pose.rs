@@ -311,9 +311,12 @@ const COFFEE_STEAM_WINDOW_MS: u64 = 120_000;
 /// phase of a pantry trip. It persists through subsequent non-trip cycles
 /// until the agent starts a new trip to a non-pantry destination.
 ///
-/// Returns `DeskCoffee { has_cup: false, has_steam: false }` when the agent
-/// is not Idle, is in the thinking window, or hasn't visited the pantry
-/// recently.
+/// Returns `DeskCoffee { has_cup: false, has_steam: false }` when the
+/// agent hasn't visited the pantry recently.
+///
+/// For non-Idle agents, uses `last_idle_at` as the wander cycle anchor
+/// so the desk cup persists across Active tool calls — the cup stays
+/// on the desk while you work, just like a real office.
 pub fn has_desk_coffee(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) -> DeskCoffee {
     let no_coffee = DeskCoffee {
         has_cup: false,
@@ -324,22 +327,18 @@ pub fn has_desk_coffee(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) 
         return no_coffee;
     }
 
-    // For Active/Waiting agents, check coffee from their last Idle epoch
-    // using state_started_at as the Idle-start anchor. For Idle agents
-    // in the thinking window, use the same anchor (they just became Idle).
-    // This preserves the desk cup across Active tool calls.
+    // Use the most recent Idle-start as the wander cycle anchor.
+    // For Idle agents this is state_started_at; for Active/Waiting
+    // agents it's last_idle_at (set by the reducer on every Idle
+    // transition). This preserves the exact cycle_n across state
+    // boundaries so the desk cup doesn't flicker.
     let idle_anchor = if matches!(slot.state, crate::state::ActivityState::Idle) {
         slot.state_started_at
     } else {
-        // Non-idle: the previous Idle epoch started at the state_started_at
-        // BEFORE the current state. We don't have that timestamp directly,
-        // but we can approximate: the agent was idle before their current
-        // active state, so use created_at as a stable base. The wander
-        // cycle is deterministic from agent_id, so the cycle history is
-        // the same regardless of which epoch anchor we use — only the
-        // phase within a cycle changes. For cup persistence we only care
-        // about "did any past cycle visit the pantry", not the exact phase.
-        slot.created_at
+        match slot.last_idle_at {
+            Some(t) => t,
+            None => return no_coffee,
+        }
     };
     let elapsed_ms = now
         .duration_since(idle_anchor)
@@ -494,6 +493,11 @@ mod tests {
         // created_at well before `started` so the entry-animation override
         // doesn't fire in tests that probe regular state→pose mapping.
         let created = started - Duration::from_secs(60);
+        let last_idle_at = if matches!(state, ActivityState::Idle) {
+            Some(started)
+        } else {
+            None
+        };
         let s = AgentSlot {
             agent_id: id,
             source: std::sync::Arc::from("claude-code"),
@@ -506,6 +510,7 @@ mod tests {
             last_event_at: created,
             exiting_at: None,
             pending_idle_at: None,
+            last_idle_at,
             desk_index: 0,
             tool_call_count: 0,
             active_ms: 0,
@@ -716,6 +721,7 @@ mod tests {
             last_event_at: now0,
             exiting_at: None,
             pending_idle_at: None,
+            last_idle_at: Some(now0),
             desk_index: 0,
             tool_call_count: 0,
             active_ms: 0,

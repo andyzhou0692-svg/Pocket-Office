@@ -57,6 +57,10 @@ pub struct AgentSlot {
     /// state to Idle. Hides the per-tool-call Active flicker that rapid
     /// PreToolUse → PostToolUse chains produce in CC.
     pub pending_idle_at: Option<SystemTime>,
+    /// Timestamp when the agent last entered Idle state. Used by
+    /// `has_desk_coffee` to derive the wander cycle anchor for non-Idle
+    /// agents (so the desk cup persists across Active tool calls).
+    pub last_idle_at: Option<SystemTime>,
     pub desk_index: usize,
     pub tool_call_count: u32,
     pub active_ms: u64,
@@ -116,6 +120,7 @@ mod tests {
                     last_event_at: now,
                     exiting_at: None,
                     pending_idle_at: None,
+                    last_idle_at: None,
                     desk_index: i,
                     tool_call_count: 0,
                     active_ms: 0,
@@ -147,6 +152,7 @@ mod tests {
                     last_event_at: now,
                     exiting_at: None,
                     pending_idle_at: None,
+                    last_idle_at: None,
                     desk_index: i,
                     tool_call_count: 0,
                     active_ms: 0,

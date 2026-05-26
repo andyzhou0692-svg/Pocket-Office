@@ -70,6 +70,7 @@ fn populated_scene(now: SystemTime) -> SceneState {
                 last_event_at: now,
                 exiting_at: None,
                 pending_idle_at: None,
+                last_idle_at: None,
                 tool_call_count: i as u32,
                 active_ms: 0,
                 unknown_cwd: false,

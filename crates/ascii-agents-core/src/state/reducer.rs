@@ -233,6 +233,7 @@ impl Reducer {
                         created_at: now,
                         exiting_at: None,
                         pending_idle_at: None,
+                        last_idle_at: Some(now),
                         desk_index,
                         tool_call_count: 0,
                         active_ms: 0,
@@ -366,6 +367,7 @@ impl Reducer {
                     }
                     slot.state = ActivityState::Idle;
                     slot.state_started_at = now;
+                    slot.last_idle_at = Some(now);
                 }
                 slot.pending_idle_at = None;
             }
