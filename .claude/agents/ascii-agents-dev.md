@@ -31,12 +31,12 @@ Specialized coding agent for the ascii-agents repo. Knows the architecture, conv
 | Area | Files |
 |---|---|
 | Orchestrator | `tui/renderer.rs` (DrawCtx, draw_scene, half-block flush) |
-| Widgets | `tui/widgets.rs` (footer, labels, tooltips, TickerQueue, elevator indicator) |
+| Widgets | `tui/widgets/mod.rs` (TickerQueue), `hud.rs` (footer, wall display, elevator, theme picker), `tooltip.rs` (hover, cat, coffee, furniture, labels, chitchat) |
 | Hit-test | `tui/hit_test.rs` (agent, coffee, cat, furniture) |
-| Pixel painter | `tui/pixel_painter/mod.rs` (orchestrator), `background.rs`, `drawable.rs`, `effects.rs`, `palette.rs`, `anchors.rs`, `furniture.rs` |
-| Layout | `core/layout/mod.rs` (compute_with_seed + 4 helpers), `mask.rs`, `decor.rs` |
+| Pixel painter | `tui/pixel_painter/mod.rs` (PixelCtx, orchestrator), `background/` (time_of_day.rs, lighting.rs), `drawable.rs`, `effects.rs`, `palette.rs`, `anchors.rs`, `furniture.rs` |
+| Layout | `core/layout/mod.rs` (struct defs, accessors), `compute.rs` (compute_with_seed + 4 helpers), `mask.rs`, `decor.rs` |
 | Pose | `core/pose.rs` (derive, idle_pose, carrying_coffee, wander personality) |
-| State | `core/state/mod.rs` (AgentSlot, SceneState), `reducer.rs` |
+| State | `core/state/mod.rs` (AgentSlot, SceneState, floor_capacities), `reducer.rs` |
 
 ## Exit Criteria (MANDATORY before every commit)
 

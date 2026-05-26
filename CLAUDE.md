@@ -20,7 +20,8 @@ crates/
 │   ├── sprite/             .sprite parser, pack.toml loader, half-block blitter, animator
 │   ├── render/             Renderer trait + TestRenderer (feature = "test-renderer")
 │   ├── layout/             zone-based office geometry (terminal-agnostic):
-│   │                       mod.rs (SceneLayout::compute, Bounds, Point, constants),
+│   │                       mod.rs (SceneLayout struct, Bounds, Point, constants, accessors),
+│   │                       compute.rs (compute_with_seed + 4 private helpers),
 │   │                       decor.rs (WaypointKind, WallDecor, PlantKind, PodDecor),
 │   │                       mask.rs (build_walkable_mask — obstacle stamping for A*)
 │   ├── pose.rs             pure state→pose derivation + wander state machine (no terminal deps)
@@ -32,7 +33,10 @@ crates/
 │   ├── install/            settings.json merge, atomic write, advisory lock, stow-symlink safe
 │   └── tui/                ratatui App + TuiRenderer (Renderer trait impl)
 │       ├── renderer.rs     draw_scene orchestrator (DrawCtx struct), half-block flush, terminal lifecycle
-│       ├── widgets.rs      ratatui widget paint fns: footer, labels, tooltips, wall display, TickerQueue, theme picker, elevator indicator
+│       ├── widgets/        ratatui widget paint fns, split into sub-modules:
+│       │                   mod.rs (TickerQueue, shared helpers), hud.rs (footer, wall display,
+│       │                   elevator indicator, theme picker), tooltip.rs (hover, cat, coffee,
+│       │                   furniture, labels, chitchat bubbles)
 │       ├── hit_test.rs     mouse hit-test: agent hover, coffee machine click, furniture tooltips
 │       ├── tui_renderer.rs Renderer trait impl — owns cross-frame state (RgbBuffer, FrameCache, Router, PoseHistory, TickerQueue, Theme, cached Layout)
 │       ├── theme/          color theme system — one file per theme, Theme struct in mod.rs
@@ -41,7 +45,7 @@ crates/
 │       ├── pose.rs         routed pose layer (PoseHistory, derive_with_routing, snap-back) — re-exports core::pose
 │       ├── pathfind.rs     Router trait + AStarRouter with selective cache invalidation
 │       └── pixel_painter/  pure-pixel pass — split into focused child modules:
-│                           mod.rs (orchestrator), background.rs (weather, sunset, skyline),
+│                           mod.rs (PixelCtx struct, orchestrator), background/ (weather, sunset, skyline),
 │                           drawable.rs (y-sort), effects.rs (glow/z's/dots/steam/dust/bubble),
 │                           palette.rs (tool_glow_tint), anchors.rs (breath, walk position, character_anchor),
 │                           furniture.rs (coffee table, area rug, side table, pantry table/chair)
