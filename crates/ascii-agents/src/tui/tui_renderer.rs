@@ -41,6 +41,12 @@ pub struct TuiRenderer<B: Backend> {
     cat_pet: Option<CatPetState>,
     last_cat_pos: Option<(Point, &'static str)>,
     chitchat_state: std::collections::HashMap<(usize, usize), crate::tui::chitchat::ActiveChitchat>,
+    /// Persistent set of agents that have visited the pantry and carry a
+    /// coffee cup back to their desk. Replaces the stateless
+    /// `has_desk_coffee` cycle-scanning. Cleared on agent exit.
+    coffee_holders: std::collections::HashSet<ascii_agents_core::AgentId>,
+    /// Timestamp when each agent first returned with coffee (for steam).
+    coffee_fetched_at: std::collections::HashMap<ascii_agents_core::AgentId, SystemTime>,
 }
 
 impl<B: Backend> TuiRenderer<B> {
@@ -60,6 +66,8 @@ impl<B: Backend> TuiRenderer<B> {
             cat_pet: None,
             last_cat_pos: None,
             chitchat_state: std::collections::HashMap::new(),
+            coffee_holders: std::collections::HashSet::new(),
+            coffee_fetched_at: std::collections::HashMap::new(),
         }
     }
 
@@ -265,9 +273,11 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             let from_meta = FloorMeta::for_floor(from_floor, nf);
             let to_meta = FloorMeta::for_floor(to_floor, nf);
 
-            // Transitions hide text overlays, so use a throwaway
-            // chitchat state — bubbles won't be rendered anyway.
+            // Transitions hide text overlays, so use throwaway coffee
+            // and chitchat state — they won't be rendered anyway.
             let mut transition_chitchat = std::collections::HashMap::new();
+            let empty_coffee = std::collections::HashSet::new();
+            let empty_fetched = std::collections::HashMap::new();
 
             if let Some(layout) =
                 Layout::compute_with_seed(buf_w, buf_h, MAX_VISIBLE_DESKS, from_meta.floor_seed)
@@ -287,6 +297,8 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     from_meta,
                     None,
                     &mut transition_chitchat,
+                    &empty_coffee,
+                    &empty_fetched,
                 );
             }
 
@@ -308,6 +320,8 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     to_meta,
                     None,
                     &mut transition_chitchat,
+                    &empty_coffee,
+                    &empty_fetched,
                 );
             }
 
@@ -357,6 +371,12 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             floor_scene.agents.insert(agent.agent_id, agent);
         }
 
+        // Evict coffee state for agents no longer in the scene.
+        self.coffee_holders
+            .retain(|id| scene.agents.contains_key(id));
+        self.coffee_fetched_at
+            .retain(|id, _| scene.agents.contains_key(id));
+
         let fctx = &mut self.floor_ctxs[self.current_floor];
         let mut draw_ctx = DrawCtx {
             buf: &mut self.floor_bufs[self.current_floor],
@@ -375,9 +395,18 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             last_cat_pos: None,
             chitchat_state: &mut self.chitchat_state,
             chitchat_bubbles: Vec::new(),
+            coffee_holders: &self.coffee_holders,
+            coffee_fetched_at: &self.coffee_fetched_at,
+            new_coffee_carriers: Vec::new(),
         };
         let result = draw_scene(&mut self.terminal, &floor_scene, pack, now, &mut draw_ctx);
         self.last_cat_pos = draw_ctx.last_cat_pos;
+        // Persist newly detected coffee carriers.
+        for id in draw_ctx.new_coffee_carriers {
+            if self.coffee_holders.insert(id) {
+                self.coffee_fetched_at.insert(id, now);
+            }
+        }
         if let Ok(ref layout_opt) = result {
             self.cached_layout = layout_opt.clone();
         }

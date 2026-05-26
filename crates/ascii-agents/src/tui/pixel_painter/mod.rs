@@ -25,11 +25,17 @@ use crate::tui::layout::{Layout, Point, DESK_W};
 use crate::tui::pathfind::Router;
 use crate::tui::pose::{self, Pose};
 
-/// Result of the pure-pixel pass — carries both the resolved cat position
-/// (for hit-testing) and any active chitchat bubbles (for widget rendering).
+/// Result of the pure-pixel pass — carries the resolved cat position
+/// (for hit-testing), active chitchat bubbles (for widget rendering),
+/// and agent ids that were seen carrying coffee this frame (so the
+/// caller can persist them into `coffee_holders`).
 pub struct PixelPassResult {
     pub cat_pos: Option<(Point, &'static str)>,
     pub chitchat_bubbles: Vec<ChitchatBubble>,
+    /// Agent ids observed in `Walking { carrying_coffee: true }` this
+    /// frame. The caller inserts them into the persistent
+    /// `coffee_holders` set and records `coffee_fetched_at`.
+    pub new_coffee_carriers: Vec<ascii_agents_core::AgentId>,
 }
 
 mod anchors;
@@ -112,11 +118,17 @@ pub fn render_to_rgb_buffer(
     floor: crate::tui::floor::FloorMeta,
     cat_pet: Option<&crate::tui::renderer::CatPetState>,
     chitchat_state: &mut HashMap<(usize, usize), ActiveChitchat>,
+    coffee_holders: &std::collections::HashSet<ascii_agents_core::AgentId>,
+    coffee_fetched_at: &HashMap<ascii_agents_core::AgentId, SystemTime>,
 ) -> PixelPassResult {
     let agents: Vec<_> = scene.agents.values().cloned().collect();
     let buf_w = layout.buf_w;
     let buf_h = layout.buf_h;
     let mut resolved_cat_pos: Option<(Point, &'static str)> = None;
+    let mut new_coffee_carriers: Vec<ascii_agents_core::AgentId> = Vec::new();
+
+    /// Steam window — 120 seconds after the walk-back completes.
+    const COFFEE_STEAM_WINDOW_SECS: u64 = 120;
 
     // Compute time-of-day once per frame and pass to every paint
     // helper that depends on it. Avoids recomputing the chrono local
@@ -480,11 +492,13 @@ pub fn render_to_rgb_buffer(
             .and_then(|a| now.duration_since(a.created_at).ok())
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let coffee = occupant
-            .map(|a| ascii_agents_core::pose::has_desk_coffee(a, now, layout))
-            .unwrap_or(ascii_agents_core::pose::DeskCoffee {
-                has_cup: false,
-                has_steam: false,
+        let has_coffee = occupant.is_some_and(|a| coffee_holders.contains(&a.agent_id));
+        let coffee_steam = has_coffee
+            && occupant.is_some_and(|a| {
+                coffee_fetched_at
+                    .get(&a.agent_id)
+                    .and_then(|t| now.duration_since(*t).ok())
+                    .is_some_and(|d| d.as_secs() < COFFEE_STEAM_WINDOW_SECS)
             });
         drawables.push(Drawable {
             anchor_y: desk.y + 8,
@@ -494,8 +508,8 @@ pub fn render_to_rgb_buffer(
                 has_cabinet: i % 2 == 0,
                 screen_glow,
                 session_age_secs,
-                has_coffee: coffee.has_cup,
-                coffee_steam: coffee.has_steam,
+                has_coffee,
+                coffee_steam,
             },
         });
     }
@@ -910,8 +924,16 @@ pub fn render_to_rgb_buffer(
                 to,
                 t_x1000,
                 frame,
-                carrying_coffee,
+                mut carrying_coffee,
             } => {
+                // Exit walks: core sets carrying_coffee=false (no
+                // render-side state), but we know from coffee_holders.
+                if agent.exiting_at.is_some() && coffee_holders.contains(&agent.agent_id) {
+                    carrying_coffee = true;
+                }
+                if carrying_coffee {
+                    new_coffee_carriers.push(agent.agent_id);
+                }
                 let pos = walking_position(from, to, t_x1000);
                 let walker_anchor = walking_anchor(pos);
                 let dx = to.x as i32 - from.x as i32;
@@ -961,6 +983,7 @@ pub fn render_to_rgb_buffer(
     PixelPassResult {
         cat_pos: resolved_cat_pos,
         chitchat_bubbles,
+        new_coffee_carriers,
     }
 }
 
@@ -985,7 +1008,7 @@ mod tests {
             last_event_at: now,
             exiting_at: None,
             pending_idle_at: None,
-            last_idle_at: None,
+
             desk_index: 0,
             tool_call_count: 0,
             active_ms: 0,

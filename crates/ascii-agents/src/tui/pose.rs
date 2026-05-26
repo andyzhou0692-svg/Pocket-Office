@@ -308,7 +308,7 @@ mod tests {
             created_at,
             exiting_at: None,
             pending_idle_at: None,
-            last_idle_at: None,
+
             desk_index: 0,
             tool_call_count: 0,
             active_ms: 0,
@@ -470,7 +470,7 @@ mod tests {
             last_event_at: now - Duration::from_secs(60),
             exiting_at: None,
             pending_idle_at: None,
-            last_idle_at: None,
+
             desk_index: 0,
             tool_call_count: 0,
             active_ms: 0,

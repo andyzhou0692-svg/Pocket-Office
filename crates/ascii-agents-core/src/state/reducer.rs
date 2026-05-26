@@ -233,7 +233,6 @@ impl Reducer {
                         created_at: now,
                         exiting_at: None,
                         pending_idle_at: None,
-                        last_idle_at: Some(now),
                         desk_index,
                         tool_call_count: 0,
                         active_ms: 0,
@@ -354,20 +353,14 @@ impl Reducer {
                 .duration_since(pending)
                 .is_ok_and(|d| d >= ACTIVE_GRACE_WINDOW)
             {
-                if matches!(
-                    slot.state,
-                    ActivityState::Active { .. } | ActivityState::Waiting { .. }
-                ) {
-                    if matches!(slot.state, ActivityState::Active { .. }) {
-                        let elapsed = pending
-                            .duration_since(slot.state_started_at)
-                            .unwrap_or_default()
-                            .as_millis() as u64;
-                        slot.active_ms += elapsed;
-                    }
+                if matches!(slot.state, ActivityState::Active { .. }) {
+                    let elapsed = pending
+                        .duration_since(slot.state_started_at)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    slot.active_ms += elapsed;
                     slot.state = ActivityState::Idle;
                     slot.state_started_at = now;
-                    slot.last_idle_at = Some(now);
                 }
                 slot.pending_idle_at = None;
             }

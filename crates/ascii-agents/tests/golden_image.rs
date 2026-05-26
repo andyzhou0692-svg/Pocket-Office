@@ -70,7 +70,7 @@ fn populated_scene(now: SystemTime) -> SceneState {
                 last_event_at: now,
                 exiting_at: None,
                 pending_idle_at: None,
-                last_idle_at: None,
+
                 tool_call_count: i as u32,
                 active_ms: 0,
                 unknown_cwd: false,
@@ -111,6 +111,9 @@ fn render_hash(scene: &SceneState, now: SystemTime, t: &theme::Theme, floor_seed
         last_cat_pos: None,
         chitchat_state: &mut chitchat_state,
         chitchat_bubbles: Vec::new(),
+        coffee_holders: &std::collections::HashSet::new(),
+        coffee_fetched_at: &std::collections::HashMap::new(),
+        new_coffee_carriers: Vec::new(),
     };
     draw_scene(&mut term, scene, &pack, now, &mut draw_ctx).unwrap();
 

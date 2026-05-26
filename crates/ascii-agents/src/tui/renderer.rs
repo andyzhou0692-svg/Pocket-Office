@@ -90,6 +90,12 @@ pub struct DrawCtx<'a> {
     pub chitchat_state:
         &'a mut std::collections::HashMap<(usize, usize), crate::tui::chitchat::ActiveChitchat>,
     pub chitchat_bubbles: Vec<crate::tui::chitchat::ChitchatBubble>,
+    pub coffee_holders: &'a std::collections::HashSet<ascii_agents_core::AgentId>,
+    pub coffee_fetched_at:
+        &'a std::collections::HashMap<ascii_agents_core::AgentId, std::time::SystemTime>,
+    /// New coffee carriers detected this frame — caller uses these to
+    /// update the persistent `coffee_holders` set.
+    pub new_coffee_carriers: Vec<ascii_agents_core::AgentId>,
 }
 
 /// Clip a widget rect to fit inside `bounds`. Returns `None` if the rect
@@ -211,9 +217,12 @@ pub fn draw_scene<B: Backend>(
         floor,
         ctx.cat_pet,
         ctx.chitchat_state,
+        ctx.coffee_holders,
+        ctx.coffee_fetched_at,
     );
     ctx.last_cat_pos = pixel_result.cat_pos;
     ctx.chitchat_bubbles = pixel_result.chitchat_bubbles;
+    ctx.new_coffee_carriers = pixel_result.new_coffee_carriers;
 
     let mouse_pos = ctx.mouse_pos;
     let pinned_agent = ctx.pinned_agent;

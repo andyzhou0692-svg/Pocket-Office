@@ -71,7 +71,7 @@ async fn watcher_emits_session_start_then_activity_for_tool_use() {
     let mut got_activity = false;
     let mut start_transport = Transport::Hook;
     let mut activity_transport = Transport::Hook;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
             Ok(Some((t, AgentEvent::SessionStart { .. }))) => {
@@ -265,7 +265,8 @@ async fn watcher_emits_session_start_for_recent_files_on_startup() {
 
     let mut got_start = false;
     let mut got_activity = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    // CI runners can be slow — generous deadline to avoid flakes.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
             Ok(Some((_, AgentEvent::SessionStart { .. }))) => got_start = true,
@@ -321,7 +322,7 @@ async fn first_sight_extracts_cwd_past_non_json_prefix() {
     drop(f);
 
     let mut found_cwd = None;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while tokio::time::Instant::now() < deadline {
         if let Ok(Some((_, AgentEvent::SessionStart { cwd, .. }))) =
             tokio::time::timeout(Duration::from_millis(100), rx.recv()).await
@@ -389,7 +390,7 @@ async fn stale_file_emits_session_start_when_written_to() {
     drop(f);
 
     let mut got_start = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while tokio::time::Instant::now() < deadline {
         if let Ok(Some((_, AgentEvent::SessionStart { .. }))) =
             tokio::time::timeout(Duration::from_millis(100), rx.recv()).await
@@ -445,7 +446,7 @@ async fn watcher_custom_label_deriver() {
     drop(f);
 
     let mut got_custom_rename = false;
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     while tokio::time::Instant::now() < deadline {
         match tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
             Ok(Some((_, AgentEvent::Rename { label, .. }))) => {

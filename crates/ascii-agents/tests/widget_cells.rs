@@ -69,7 +69,7 @@ fn fixture_scene(now: SystemTime) -> SceneState {
                 created_at,
                 exiting_at: None,
                 pending_idle_at: None,
-                last_idle_at: None,
+
                 desk_index: i,
                 tool_call_count: 0,
                 active_ms: 0,
@@ -116,6 +116,9 @@ fn render_and_get_buffer(
         last_cat_pos: None,
         chitchat_state: &mut chitchat_state,
         chitchat_bubbles: Vec::new(),
+        coffee_holders: &std::collections::HashSet::new(),
+        coffee_fetched_at: &std::collections::HashMap::new(),
+        new_coffee_carriers: Vec::new(),
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).unwrap();
     let buffer = term.backend().buffer().clone();

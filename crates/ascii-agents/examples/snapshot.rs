@@ -174,6 +174,9 @@ fn main() -> Result<()> {
         last_cat_pos: None,
         chitchat_state: &mut chitchat_state,
         chitchat_bubbles: Vec::new(),
+        coffee_holders: &std::collections::HashSet::new(),
+        coffee_fetched_at: &std::collections::HashMap::new(),
+        new_coffee_carriers: Vec::new(),
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx)?;
 
@@ -508,7 +511,7 @@ fn sample_scene(now: SystemTime, max_desks: usize) -> SceneState {
                 last_event_at: now - *age,
                 exiting_at: None,
                 pending_idle_at: None,
-                last_idle_at: None,
+
                 desk_index: i,
                 tool_call_count: 0,
                 active_ms: 0,
@@ -624,6 +627,9 @@ fn save_as_gif(
             last_cat_pos: None,
             chitchat_state: &mut chitchat_state,
             chitchat_bubbles: Vec::new(),
+            coffee_holders: &std::collections::HashSet::new(),
+            coffee_fetched_at: &std::collections::HashMap::new(),
+            new_coffee_carriers: Vec::new(),
         };
         draw_scene(term, scene, pack, now, &mut draw_ctx)?;
 

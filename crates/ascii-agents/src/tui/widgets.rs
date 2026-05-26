@@ -836,7 +836,7 @@ mod tests {
             last_event_at: SystemTime::UNIX_EPOCH,
             exiting_at: None,
             pending_idle_at: None,
-            last_idle_at: None,
+
             desk_index: 0,
             tool_call_count: 0,
             active_ms: 0,
