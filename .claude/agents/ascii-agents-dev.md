@@ -37,6 +37,7 @@ Specialized coding agent for the ascii-agents repo. Knows the architecture, conv
 | Layout | `core/layout/mod.rs` (struct defs, accessors), `compute.rs` (compute_with_seed + 4 helpers), `mask.rs`, `decor.rs` |
 | Pose | `core/pose.rs` (derive, idle_pose, carrying_coffee, wander personality) |
 | State | `core/state/mod.rs` (AgentSlot, SceneState, floor_capacities), `reducer.rs` |
+| Config | `config.rs` (AppConfig, load/save/resolve, XDG-aware path) |
 
 ## Exit Criteria (MANDATORY before every commit)
 

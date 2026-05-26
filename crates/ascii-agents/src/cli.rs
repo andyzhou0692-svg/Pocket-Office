@@ -16,8 +16,8 @@ pub struct Cli {
     pub log_level: String,
 
     /// Color theme: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox.
-    #[arg(long, global = true, default_value = "normal")]
-    pub theme: String,
+    #[arg(long, global = true)]
+    pub theme: Option<String>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -30,12 +30,9 @@ pub enum Cmd {
         projects_root: Option<PathBuf>,
         #[arg(long)]
         pack_dir: Option<PathBuf>,
-        /// Cap on simultaneously-tracked sessions. Bumped from 8 to 16 so
-        /// the initial-seed pass (1-hour window of recent CC transcripts)
-        /// doesn't fill every slot before the user's live session is even
-        /// detected.
-        #[arg(long, default_value_t = 16)]
-        max_desks: usize,
+        /// Cap desks per floor (auto-computed from terminal size if unset).
+        #[arg(long, hide = true)]
+        max_desks: Option<usize>,
         /// Skip the TUI entirely — useful for CI / scripting.
         /// Prints a JSON snapshot of SceneState every 200ms when it changes.
         #[arg(long, default_value_t = false)]
@@ -56,14 +53,14 @@ pub enum Cmd {
 }
 
 impl Cli {
-    pub fn cmd_or_default(self) -> (String, String, Cmd) {
+    pub fn cmd_or_default(self) -> (String, Option<String>, Cmd) {
         let level = self.log_level;
         let theme = self.theme;
         let cmd = self.cmd.unwrap_or(Cmd::Run {
             socket: None,
             projects_root: None,
             pack_dir: None,
-            max_desks: 16,
+            max_desks: None,
             headless: false,
         });
         (level, theme, cmd)
@@ -79,16 +76,16 @@ mod tests {
         let cli = Cli {
             cmd: None,
             log_level: "info".into(),
-            theme: "normal".into(),
+            theme: None,
         };
         let (level, theme, cmd) = cli.cmd_or_default();
         assert_eq!(level, "info");
-        assert_eq!(theme, "normal");
+        assert!(theme.is_none());
         assert!(matches!(
             cmd,
             Cmd::Run {
                 headless: false,
-                max_desks: 16,
+                max_desks: None,
                 ..
             }
         ));
@@ -99,11 +96,11 @@ mod tests {
         let cli = Cli {
             cmd: Some(Cmd::UninstallHooks { settings: None }),
             log_level: "debug".into(),
-            theme: "cyberpunk".into(),
+            theme: Some("cyberpunk".into()),
         };
         let (level, theme, cmd) = cli.cmd_or_default();
         assert_eq!(level, "debug");
-        assert_eq!(theme, "cyberpunk");
+        assert_eq!(theme.as_deref(), Some("cyberpunk"));
         assert!(matches!(cmd, Cmd::UninstallHooks { .. }));
     }
 }

@@ -3,6 +3,7 @@
 //! the primary entry point.
 
 pub mod cli;
+pub mod config;
 pub mod install;
 pub mod runtime;
 pub mod tui;

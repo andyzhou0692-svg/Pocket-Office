@@ -21,7 +21,9 @@ tokio              = { workspace = true, features = ["rt-multi-thread", "macros"
 ratatui            = { workspace = true }
 crossterm          = { workspace = true }
 clap               = { workspace = true }
+serde              = { workspace = true }
 serde_json         = { workspace = true }
+toml               = { workspace = true }
 anyhow             = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }

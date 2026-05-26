@@ -23,7 +23,7 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#themes">Themes</a> · <a href="#install">Install</a> · <a href="#how-it-works">How It Works</a>
+  <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#supported-tools">Supported Tools</a> · <a href="#themes--configuration">Themes & Configuration</a> · <a href="#how-it-works">How It Works</a>
 </p>
 
 ---
@@ -33,45 +33,6 @@
 Running multiple AI agents in the terminal is like managing a sweatshop you can't see. They type, they wait, they finish — and you have no idea who's doing what unless you scroll through logs like a bureaucrat.
 
 **ascii-agents** puts them all in a tiny pixel-art office you can watch from above. A little bit *Black Mirror*, a little bit *The Sims* — and somehow the most intuitive multi-agent dashboard you'll ever use.
-
-## Features
-
-| | Feature | Description |
-|---|---|---|
-| 🏢 | **Multi-agent office** | Each CC session gets a desk; overflow agents auto-fill new floors |
-| 🛗 | **Multi-floor office** | PageUp/PageDown/↑↓/jk to navigate floors with slide transition |
-| 🎭 | **Animated characters** | Typing, thinking (`···`), waiting (`?`), sleeping (z's), walking with A\*-routed pathfinding |
-| 💡 | **Per-tool monitor glow** | Edit = blue, Bash = orange, Read = cyan — scannable at a glance |
-| 🎨 | **Per-agent identity** | Deterministic shirt/hair/skin palette from session hash, 16 curated outfits |
-| 🌧️ | **Weather effects** | Rain, storm, snow, fog, overcast, windy — cycles every 10 min + sunset golden hour |
-| 📊 | **Tooltip stats** | Hover any agent to see session duration, tool call count, and active time % |
-| 🏷️ | **Furniture tooltips** | Hover any item — desks, sofas, plants, vending machine, printer — to see its name |
-| 🐱 | **Office cat** | Roams desks, pantry, sofas; sleeps near idle agents. Click to pet — pixel-art hearts float up |
-| ☕ | **Coffee run** | Idle agents visit the pantry, carry a cup back to their desk. Cup stays while you work; taken on exit |
-| 💬 | **Pantry chitchat** | 2+ idle agents at the same waypoint trigger speech bubbles with dev-humor snippets |
-| 🪴 | **Desk personalization** | Plant (30min), photo frame (1hr) appear over time |
-| 🛡️ | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block Claude Code |
-
-## Supported Tools
-
-| Tool | Status | Notes |
-|---|---|---|
-| [**Claude Code**](https://code.claude.com) | ✅ Supported | Hook shim + JSONL watcher |
-| [**Antigravity CLI**](https://github.com/antiGravity-AI/antigravity-cli) | ✅ Supported | JSONL watcher |
-| [**Codex CLI**](https://github.com/openai/codex) | 🔜 Planned | Same hook pattern as CC |
-| [**Copilot CLI**](https://github.com/github/copilot-cli) | 🔜 Planned | Identical event names |
-| [**OpenCode**](https://github.com/opencode-ai/opencode) | 🔜 Planned | Any LLM (DeepSeek / GPT / Claude / Gemini) |
-| [**Cursor CLI**](https://cursor.com/cli) | 🔜 Planned | NDJSON stream |
-
-> Adding a new tool? Implement the [`Source` trait](#contributing) — one file, one channel, done.
-
-## Themes
-
-Press `t` to switch themes with live preview. 6 built-in:
-
-<p align="center">
-  <img src="docs/images/themes-composite.png" alt="6 themes: Normal, Cyberpunk, Dracula, Tokyo Night, Catppuccin, Gruvbox" width="800" />
-</p>
 
 ## Quick Start
 
@@ -113,6 +74,59 @@ cargo build --release
 ```
 
 </details>
+
+## Features
+
+| | Feature | Description |
+|---|---|---|
+| 🏢 | **Multi-agent office** | Each CC session gets a desk; overflow agents auto-fill new floors |
+| 🛗 | **Multi-floor office** | PageUp/PageDown/↑↓/jk to navigate floors with slide transition |
+| 🎭 | **Animated characters** | Typing, thinking (`···`), waiting (`?`), sleeping (z's), walking with A\*-routed pathfinding |
+| 💡 | **Per-tool monitor glow** | Edit = blue, Bash = orange, Read = cyan — scannable at a glance |
+| 🎨 | **Per-agent identity** | Deterministic shirt/hair/skin palette from session hash, 16 curated outfits |
+| 🌧️ | **Weather effects** | Rain, storm, snow, fog, overcast, windy — cycles every 10 min + sunset golden hour |
+| 📊 | **Tooltip stats** | Hover any agent to see session duration, tool call count, and active time % |
+| 🏷️ | **Furniture tooltips** | Hover any item — desks, sofas, plants, vending machine, printer — to see its name |
+| 🐱 | **Office cat** | Roams desks, pantry, sofas; sleeps near idle agents. Click to pet — pixel-art hearts float up |
+| ☕ | **Coffee run** | Idle agents visit the pantry, carry a cup back to their desk. Cup stays while you work; taken on exit |
+| 💬 | **Pantry chitchat** | 2+ idle agents at the same waypoint trigger speech bubbles with dev-humor snippets |
+| 🪴 | **Desk personalization** | Plant (30min), photo frame (1hr) appear over time |
+| 🛡️ | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block Claude Code |
+
+## Supported Tools
+
+| Tool | Status | Notes |
+|---|---|---|
+| [**Claude Code**](https://code.claude.com) | ✅ Supported | Hook shim + JSONL watcher |
+| [**Antigravity CLI**](https://github.com/antiGravity-AI/antigravity-cli) | ✅ Supported | JSONL watcher |
+| [**Codex CLI**](https://github.com/openai/codex) | 🔜 Planned | Same hook pattern as CC |
+| [**Copilot CLI**](https://github.com/github/copilot-cli) | 🔜 Planned | Identical event names |
+| [**OpenCode**](https://github.com/opencode-ai/opencode) | 🔜 Planned | Any LLM (DeepSeek / GPT / Claude / Gemini) |
+| [**Cursor CLI**](https://cursor.com/cli) | 🔜 Planned | NDJSON stream |
+
+> Adding a new tool? Implement the [`Source` trait](#contributing) — one file, one channel, done.
+
+## Themes & Configuration
+
+Press `t` to switch themes with live preview. Your choice persists across sessions. 6 built-in:
+
+<p align="center">
+  <img src="docs/images/themes-composite.png" alt="6 themes: Normal, Cyberpunk, Dracula, Tokyo Night, Catppuccin, Gruvbox" width="800" />
+</p>
+
+Settings are stored in `~/.config/ascii-agents/config.toml` (respects `$XDG_CONFIG_HOME`):
+
+```toml
+theme = "cyberpunk"
+max-desks = 8
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `theme` | `"normal"` | Color theme — `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox` |
+| `max-desks` | auto | Cap desks per floor. If unset, auto-computed from terminal size. Excess agents overflow to additional floors. |
+
+CLI flags override config: `ascii-agents run --theme dracula`
 
 ## How It Works
 
