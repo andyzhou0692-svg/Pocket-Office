@@ -99,6 +99,8 @@ fn render_pixel_hash(now: SystemTime) -> u64 {
         theme_picker: None,
         floor_info: None,
         floor: ascii_agents::tui::floor::FloorMeta::ground(),
+        cat_pet: None,
+        last_cat_pos: None,
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).expect("render");
 
@@ -169,6 +171,8 @@ fn render_produces_distinct_wall_band_and_floor_regions() {
         theme_picker: None,
         floor_info: None,
         floor: ascii_agents::tui::floor::FloorMeta::ground(),
+        cat_pet: None,
+        last_cat_pos: None,
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).expect("render");
     let buf = &*draw_ctx.buf;
@@ -254,6 +258,8 @@ fn render_changes_when_an_agent_state_changes() {
         theme_picker: None,
         floor_info: None,
         floor: ascii_agents::tui::floor::FloorMeta::ground(),
+        cat_pet: None,
+        last_cat_pos: None,
     };
     draw_scene(&mut term, &scene_idle, &pack, now, &mut draw_ctx).expect("render");
     let mut hasher = DefaultHasher::new();

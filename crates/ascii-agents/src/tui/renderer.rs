@@ -26,20 +26,48 @@ use ratatui::style::Color;
 use ratatui::Terminal;
 
 use crate::tui::frame_cache::FrameCache;
-use crate::tui::layout::Layout;
+use crate::tui::layout::{Layout, Point};
 use crate::tui::pathfind::Router;
 use crate::tui::pixel_painter::render_to_rgb_buffer;
 use crate::tui::pose;
 
 // Re-exports from sibling modules for backwards compatibility.
 pub(crate) use crate::tui::hit_test::hit_test_agent;
-pub use crate::tui::hit_test::{hit_test_coffee_machine, hit_test_from_tui, hit_test_furniture};
+pub use crate::tui::hit_test::{
+    hit_test_cat, hit_test_coffee_machine, hit_test_from_tui, hit_test_furniture,
+};
 pub(crate) use crate::tui::widgets::paint_hover_tooltip;
 pub use crate::tui::widgets::TickerQueue;
 pub(super) use crate::tui::widgets::{
-    paint_coffee_tooltip, paint_elevator_indicator, paint_footer, paint_furniture_tooltip,
-    paint_label_widgets, paint_theme_picker, paint_wall_display,
+    paint_cat_tooltip, paint_coffee_tooltip, paint_elevator_indicator, paint_footer,
+    paint_furniture_tooltip, paint_label_widgets, paint_theme_picker, paint_wall_display,
 };
+
+/// Duration (ms) the cat stays frozen in place after being petted.
+pub const PET_DURATION_MS: u64 = 2000;
+
+/// State for the "pet the cat" interaction. Lives on `TuiRenderer`
+/// (render-side only) — petting is a local visual effect, not a data
+/// model concern. Same pattern as `mouse_pos` and `pinned_agent`.
+pub struct CatPetState {
+    pub petted_at: SystemTime,
+    pub pet_pos: Point,
+}
+
+impl CatPetState {
+    pub fn is_active(&self, now: SystemTime) -> bool {
+        now.duration_since(self.petted_at)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(PET_DURATION_MS + 1)
+            < PET_DURATION_MS
+    }
+
+    pub fn elapsed_ms(&self, now: SystemTime) -> u64 {
+        now.duration_since(self.petted_at)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0)
+    }
+}
 
 /// Mutable per-frame render state, borrowed from `TuiRenderer`. Replaces
 /// the 14-parameter `draw_scene` signature with a single struct pass.
@@ -56,6 +84,8 @@ pub struct DrawCtx<'a> {
     pub theme_picker: Option<usize>,
     pub floor_info: Option<(usize, usize)>,
     pub floor: crate::tui::floor::FloorMeta,
+    pub cat_pet: Option<&'a CatPetState>,
+    pub last_cat_pos: Option<(Point, &'static str)>,
 }
 
 /// Clip a widget rect to fit inside `bounds`. Returns `None` if the rect
@@ -161,7 +191,7 @@ pub fn draw_scene<B: Backend>(
 
     ctx.router.set_preferred_zone(layout.corridor);
 
-    render_to_rgb_buffer(
+    ctx.last_cat_pos = render_to_rgb_buffer(
         scene,
         &layout,
         pack,
@@ -173,6 +203,7 @@ pub fn draw_scene<B: Backend>(
         ctx.history,
         theme,
         floor,
+        ctx.cat_pet,
     );
 
     let mouse_pos = ctx.mouse_pos;
@@ -232,6 +263,13 @@ pub fn draw_scene<B: Backend>(
             if let Some((mx, my)) = mouse_pos {
                 if hit_test_coffee_machine(&layout, mx, my) {
                     paint_coffee_tooltip(f, mx, my, scene_rect, theme);
+                } else if let Some((cat_pos, anim)) = ctx.last_cat_pos {
+                    if hit_test_cat(cat_pos, anim, mx, my) {
+                        let on_cooldown = ctx.cat_pet.is_some_and(|p| p.is_active(now));
+                        paint_cat_tooltip(f, anim, on_cooldown, mx, my, scene_rect, theme);
+                    } else if let Some(label) = hit_test_furniture(&layout, mx, my) {
+                        paint_furniture_tooltip(f, label, mx, my, scene_rect, theme);
+                    }
                 } else if let Some(label) = hit_test_furniture(&layout, mx, my) {
                     paint_furniture_tooltip(f, label, mx, my, scene_rect, theme);
                 }

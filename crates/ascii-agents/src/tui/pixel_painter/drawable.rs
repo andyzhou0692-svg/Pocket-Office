@@ -23,7 +23,7 @@ use ascii_agents_core::sprite::{Rgb, RgbBuffer};
 use ascii_agents_core::AgentSlot;
 
 use super::effects::{
-    paint_coffee_steam, paint_screen_glow, paint_sleep_z, paint_thinking_dots,
+    paint_coffee_steam, paint_pet_hearts, paint_screen_glow, paint_sleep_z, paint_thinking_dots,
     paint_waiting_bubble, paint_walking_dust,
 };
 use super::furniture::{
@@ -143,6 +143,7 @@ pub(super) enum DrawableKind<'a> {
         flip: bool,
         anim_name: &'static str,
         frame_idx: usize,
+        pet_elapsed_ms: Option<u64>,
     },
 }
 
@@ -550,6 +551,7 @@ pub(super) fn paint_drawable(
             flip,
             anim_name,
             frame_idx,
+            pet_elapsed_ms,
         } => {
             let Some(anim) = pack.animation(anim_name) else {
                 return;
@@ -565,7 +567,9 @@ pub(super) fn paint_drawable(
             let px = pos.x.saturating_sub(final_frame.width / 2);
             let py = pos.y.saturating_sub(final_frame.height / 2);
             blit_frame(&final_frame, px, py, buf);
-            if *anim_name == "cat_sleep" {
+            if let Some(elapsed) = pet_elapsed_ms {
+                paint_pet_hearts(buf, *pos, *elapsed, theme);
+            } else if *anim_name == "cat_sleep" {
                 paint_sleep_z(buf, *pos, now, 0xCAFE, theme);
             }
         }

@@ -102,10 +102,12 @@ pub fn render_to_rgb_buffer(
     history: &mut pose::PoseHistory,
     theme: &crate::tui::theme::Theme,
     floor: crate::tui::floor::FloorMeta,
-) {
+    cat_pet: Option<&crate::tui::renderer::CatPetState>,
+) -> Option<(Point, &'static str)> {
     let agents: Vec<_> = scene.agents.values().cloned().collect();
     let buf_w = layout.buf_w;
     let buf_h = layout.buf_h;
+    let mut resolved_cat_pos: Option<(Point, &'static str)> = None;
 
     // Compute time-of-day once per frame and pass to every paint
     // helper that depends on it. Avoids recomputing the chrono local
@@ -694,23 +696,41 @@ pub fn render_to_rgb_buffer(
         .iter()
         .all(|a| matches!(a.state, ActivityState::Idle));
 
-    if let Some((pos, flip, anim_name, frame_idx)) = cat_position(
-        layout,
-        pack,
-        now,
-        &idle_desk_indices,
-        all_idle,
-        floor.floor_seed,
-    ) {
-        drawables.push(Drawable {
-            anchor_y: pos.y + 3,
-            kind: DrawableKind::Cat {
-                pos,
-                flip,
-                anim_name,
-                frame_idx,
-            },
-        });
+    {
+        let active_pet = cat_pet.filter(|p| p.is_active(now));
+        let cat_data = if let Some(pet) = active_pet {
+            // Freeze the cat at the pet position with sit sprite.
+            Some((
+                pet.pet_pos,
+                false,
+                "cat_sit",
+                0usize,
+                Some(pet.elapsed_ms(now)),
+            ))
+        } else {
+            cat_position(
+                layout,
+                pack,
+                now,
+                &idle_desk_indices,
+                all_idle,
+                floor.floor_seed,
+            )
+            .map(|(pos, flip, anim_name, frame_idx)| (pos, flip, anim_name, frame_idx, None))
+        };
+        if let Some((pos, flip, anim_name, frame_idx, pet_elapsed)) = cat_data {
+            resolved_cat_pos = Some((pos, anim_name));
+            drawables.push(Drawable {
+                anchor_y: pos.y + 3,
+                kind: DrawableKind::Cat {
+                    pos,
+                    flip,
+                    anim_name,
+                    frame_idx,
+                    pet_elapsed_ms: pet_elapsed,
+                },
+            });
+        }
     }
 
     // Characters. Anchor = feet (anchor.y + sprite_height). Decollision
@@ -910,6 +930,8 @@ pub fn render_to_rgb_buffer(
     for d in &drawables {
         paint_drawable(d, buf, pack, cache, now, theme);
     }
+
+    resolved_cat_pos
 }
 
 #[cfg(test)]

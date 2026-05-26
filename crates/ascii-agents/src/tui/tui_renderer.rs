@@ -21,10 +21,10 @@ use ratatui::Terminal;
 use ratatui::layout::Rect;
 
 use crate::tui::floor::{build_floor_scene, num_floors, FloorCtx, FloorMeta, FloorTransition};
-use crate::tui::layout::Layout;
+use crate::tui::layout::{Layout, Point};
 use crate::tui::pathfind::Router;
 use crate::tui::pixel_painter::render_to_rgb_buffer;
-use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset, DrawCtx};
+use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset, CatPetState, DrawCtx};
 
 pub struct TuiRenderer<B: Backend> {
     pub terminal: Terminal<B>,
@@ -38,6 +38,8 @@ pub struct TuiRenderer<B: Backend> {
     theme: &'static crate::tui::theme::Theme,
     theme_picker: Option<usize>,
     cached_layout: Option<Layout>,
+    cat_pet: Option<CatPetState>,
+    last_cat_pos: Option<(Point, &'static str)>,
 }
 
 impl<B: Backend> TuiRenderer<B> {
@@ -54,6 +56,8 @@ impl<B: Backend> TuiRenderer<B> {
             theme,
             theme_picker: None,
             cached_layout: None,
+            cat_pet: None,
+            last_cat_pos: None,
         }
     }
 
@@ -115,6 +119,18 @@ impl<B: Backend> TuiRenderer<B> {
         self.theme_picker = picker;
     }
 
+    pub fn set_cat_pet(&mut self, pet: Option<CatPetState>) {
+        self.cat_pet = pet;
+    }
+
+    pub fn cat_pet(&self) -> Option<&CatPetState> {
+        self.cat_pet.as_ref()
+    }
+
+    pub fn cached_cat_pos(&self) -> Option<(Point, &'static str)> {
+        self.last_cat_pos
+    }
+
     /// Drop the cached frame entries for agents no longer in `scene`.
     /// Forwarded so the render loop doesn't reach into the cache directly.
     pub fn evict_missing(&mut self, scene: &SceneState) {
@@ -134,6 +150,11 @@ impl<B: Backend> TuiRenderer<B> {
 
 impl<B: Backend> Renderer for TuiRenderer<B> {
     fn render(&mut self, scene: &SceneState, pack: &Pack, now: SystemTime) -> Result<()> {
+        // Auto-expire cat pet state.
+        if self.cat_pet.as_ref().is_some_and(|p| !p.is_active(now)) {
+            self.cat_pet = None;
+        }
+
         self.ticker.update(scene);
 
         // Compute how many floors the current scene needs.
@@ -246,7 +267,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                 Layout::compute_with_seed(buf_w, buf_h, from_scene.max_desks, from_meta.floor_seed)
             {
                 from_ctx.router.set_preferred_zone(layout.corridor);
-                render_to_rgb_buffer(
+                let _ = render_to_rgb_buffer(
                     &from_scene,
                     &layout,
                     pack,
@@ -258,6 +279,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     &mut from_ctx.history,
                     self.theme,
                     from_meta,
+                    None,
                 );
             }
 
@@ -265,7 +287,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                 Layout::compute_with_seed(buf_w, buf_h, to_scene.max_desks, to_meta.floor_seed)
             {
                 to_ctx.router.set_preferred_zone(layout.corridor);
-                render_to_rgb_buffer(
+                let _ = render_to_rgb_buffer(
                     &to_scene,
                     &layout,
                     pack,
@@ -277,6 +299,7 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
                     &mut to_ctx.history,
                     self.theme,
                     to_meta,
+                    None,
                 );
             }
 
@@ -340,8 +363,11 @@ impl<B: Backend> Renderer for TuiRenderer<B> {
             theme_picker: self.theme_picker,
             floor_info,
             floor: FloorMeta::for_floor(self.current_floor, nf),
+            cat_pet: self.cat_pet.as_ref(),
+            last_cat_pos: None,
         };
         let result = draw_scene(&mut self.terminal, &floor_scene, pack, now, &mut draw_ctx);
+        self.last_cat_pos = draw_ctx.last_cat_pos;
         if let Ok(ref layout_opt) = result {
             self.cached_layout = layout_opt.clone();
         }

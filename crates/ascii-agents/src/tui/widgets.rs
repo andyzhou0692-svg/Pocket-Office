@@ -647,6 +647,58 @@ pub(crate) fn paint_furniture_tooltip(
     }
 }
 
+/// Cat tooltip — state-dependent text rendered near the cursor.
+/// Same visual style as furniture tooltips (dark bg, light text).
+pub(crate) fn paint_cat_tooltip(
+    f: &mut ratatui::Frame<'_>,
+    anim_name: &str,
+    is_on_cooldown: bool,
+    mx: u16,
+    my: u16,
+    scene_rect: Rect,
+    theme: &crate::tui::theme::Theme,
+) {
+    use ratatui::text::Line;
+    use ratatui::widgets::Block;
+
+    let text = if is_on_cooldown {
+        " purr... "
+    } else {
+        match anim_name {
+            "cat_sleep" => " Shhh... sleeping ",
+            "cat_sit" => " Pet me! ",
+            "cat_walk" => " Office Cat (walking) ",
+            _ => " Office Cat ",
+        }
+    };
+    let tip_w = text.len() as u16;
+    let tip_h = 1u16;
+    let mut tx = mx.saturating_add(2);
+    if tx.saturating_add(tip_w) > scene_rect.x + scene_rect.width {
+        tx = mx.saturating_sub(tip_w + 1);
+    }
+    let mut ty = my.saturating_sub(1);
+    if ty < scene_rect.y {
+        ty = my.saturating_add(1);
+    }
+    if let Some(r) = clip_widget_rect(
+        Rect {
+            x: tx,
+            y: ty,
+            width: tip_w,
+            height: tip_h,
+        },
+        scene_rect,
+    ) {
+        let block = Block::default().style(Style::default().bg(to_color(theme.ui.tooltip_bg)));
+        let line = Line::from(Span::styled(
+            text,
+            Style::default().fg(to_color(theme.ui.tooltip_title)),
+        ));
+        f.render_widget(Paragraph::new(line).block(block), r);
+    }
+}
+
 /// Fit a label into `budget` chars without losing the `·xxxx` session-id
 /// disambiguation suffix that the reducer appends to colliding cwds.
 /// Truncates from the base (left side of the `·`), not from the suffix —

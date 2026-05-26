@@ -284,6 +284,26 @@ pub fn hit_test_furniture(layout: &Layout, mx: u16, my: u16) -> Option<&'static 
     None
 }
 
+/// Hit-test whether the mouse is over the office cat.
+/// `cat_pos` is the cat's center anchor in pixel coordinates.
+/// `anim_name` selects the bounding box size:
+///   - cat_walk: 8x6, cat_sit: 6x6, cat_sleep: 6x4.
+///
+/// Returns true if `(mx, my)` (terminal cell coords) falls inside
+/// the sprite's footprint.
+pub fn hit_test_cat(cat_pos: crate::tui::layout::Point, anim_name: &str, mx: u16, my: u16) -> bool {
+    let (w, h): (u16, u16) = match anim_name {
+        "cat_walk" => (8, 6),
+        "cat_sit" => (6, 6),
+        "cat_sleep" => (6, 4),
+        _ => (6, 6),
+    };
+    let tl_x = cat_pos.x.saturating_sub(w / 2);
+    let tl_y = cat_pos.y.saturating_sub(h / 2);
+    let cell_y = my * 2;
+    mx >= tl_x && mx < tl_x.saturating_add(w) && cell_y >= tl_y && cell_y < tl_y.saturating_add(h)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -368,5 +388,37 @@ mod tests {
                 Some("Meeting Table"),
             );
         }
+    }
+
+    #[test]
+    fn cat_hit_test_inside_sit_sprite() {
+        use crate::tui::layout::Point;
+        // cat_sit is 6x6. Center at (50, 80).
+        // Top-left pixel: (50-3, 80-3) = (47, 77).
+        // cell_y for my=39 → 78, which is inside [77..83).
+        // mx=50 inside [47..53).
+        let pos = Point { x: 50, y: 80 };
+        assert!(hit_test_cat(pos, "cat_sit", 50, 39));
+    }
+
+    #[test]
+    fn cat_hit_test_outside_returns_false() {
+        use crate::tui::layout::Point;
+        let pos = Point { x: 50, y: 80 };
+        // Way outside the 6x6 sprite.
+        assert!(!hit_test_cat(pos, "cat_sit", 10, 10));
+    }
+
+    #[test]
+    fn cat_hit_test_sleep_smaller_box() {
+        use crate::tui::layout::Point;
+        // cat_sleep is 6x4. Center at (50, 80).
+        // Top-left: (47, 78). Bottom-right: (53, 82).
+        let pos = Point { x: 50, y: 80 };
+        // cell_y for my=41 → 82, which is at the boundary (82 >= 82 is false for < check).
+        // Actually wait: tl_y = 80 - 2 = 78, h=4 so range is [78..82). cell_y=82 is OUT.
+        assert!(!hit_test_cat(pos, "cat_sleep", 50, 41));
+        // cell_y for my=40 → 80, inside [78..82).
+        assert!(hit_test_cat(pos, "cat_sleep", 50, 40));
     }
 }

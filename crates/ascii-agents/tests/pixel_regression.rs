@@ -100,6 +100,8 @@ fn render_hash(scene: &SceneState, now: SystemTime, theme: &Theme, floor: FloorM
         theme_picker: None,
         floor_info: None,
         floor,
+        cat_pet: None,
+        last_cat_pos: None,
     };
     draw_scene(&mut term, scene, &pack, now, &mut draw_ctx).unwrap();
 

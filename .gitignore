@@ -6,3 +6,4 @@ Cargo.lock.bak
 .claude/settings.local.json
 /*.png
 .venv/
+.superpowers/

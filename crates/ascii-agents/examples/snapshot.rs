@@ -169,6 +169,8 @@ fn main() -> Result<()> {
             m.floor_seed = args.floor_seed;
             m
         },
+        cat_pet: None,
+        last_cat_pos: None,
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx)?;
 
@@ -613,6 +615,8 @@ fn save_as_gif(
                 m.floor_seed = floor_seed;
                 m
             },
+            cat_pet: None,
+            last_cat_pos: None,
         };
         draw_scene(term, scene, pack, now, &mut draw_ctx)?;
 

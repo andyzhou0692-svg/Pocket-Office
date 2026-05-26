@@ -110,6 +110,8 @@ fn render_and_get_buffer(
         theme_picker: None,
         floor_info,
         floor: FloorMeta::ground(),
+        cat_pet: None,
+        last_cat_pos: None,
     };
     draw_scene(&mut term, &scene, &pack, now, &mut draw_ctx).unwrap();
     let buffer = term.backend().buffer().clone();
