@@ -219,7 +219,7 @@ fn debug_paint_walkable_overlay(
     let scene_h = size.height.saturating_sub(1);
     let buf_w = scene_w;
     let buf_h = scene_h * 2;
-    let Some(layout) = SceneLayout::compute(buf_w, buf_h, scene.max_desks) else {
+    let Some(layout) = SceneLayout::compute(buf_w, buf_h, scene.floor_capacities[0]) else {
         println!("(debug_walkable) layout too small to compute");
         return Ok(());
     };
@@ -389,7 +389,7 @@ async fn capture_live_scene(projects_root: &str, listen_secs: u64) -> Result<Sce
         "listening for real CC events under {} for {}s...",
         projects_root, listen_secs
     );
-    let scene: Arc<RwLock<SceneState>> = Arc::new(RwLock::new(SceneState::new(12)));
+    let scene: Arc<RwLock<SceneState>> = Arc::new(RwLock::new(SceneState::uniform(12)));
     let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(1024);
     let root = PathBuf::from(projects_root);
     let watcher = JsonlWatcher::new(
@@ -434,7 +434,7 @@ async fn capture_live_scene(projects_root: &str, listen_secs: u64) -> Result<Sce
 
 fn sample_scene(now: SystemTime, max_desks: usize) -> SceneState {
     use std::time::Duration as D;
-    let mut s = SceneState::new(max_desks);
+    let mut s = SceneState::uniform(max_desks);
     // 12-agent scene. With max_desks < 12, agents past the limit
     // overflow to additional floors.
     let agents: [(&str, ActivityState, D); 12] = [
@@ -513,6 +513,7 @@ fn sample_scene(now: SystemTime, max_desks: usize) -> SceneState {
                 pending_idle_at: None,
 
                 desk_index: i,
+                floor_idx: 0,
                 tool_call_count: 0,
                 active_ms: 0,
                 unknown_cwd: false,

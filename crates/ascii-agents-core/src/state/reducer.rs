@@ -199,11 +199,12 @@ impl Reducer {
                         ?agent_id,
                         cwd = %cwd.display(),
                         session_id = %session_id,
-                        max_desks = scene.max_desks,
+                        total_capacity = scene.total_capacity(),
                         "dropped SessionStart — all desks occupied; bump --max-desks"
                     );
                     return;
                 };
+                let floor_idx = scene.floor_of(desk_index);
                 self.next_label_n += 1;
                 let has_cwd = cwd
                     .file_name()
@@ -234,6 +235,7 @@ impl Reducer {
                         exiting_at: None,
                         pending_idle_at: None,
                         desk_index,
+                        floor_idx,
                         tool_call_count: 0,
                         active_ms: 0,
                         unknown_cwd: !has_cwd,

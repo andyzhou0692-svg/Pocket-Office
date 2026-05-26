@@ -10,7 +10,7 @@ use ascii_agents_core::{AgentEvent, AgentId, Reducer, SceneState, Transport};
 
 #[test]
 fn scripted_timeline_drives_scene_through_states() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut reducer = Reducer::new();
     let mut renderer = TestRenderer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");

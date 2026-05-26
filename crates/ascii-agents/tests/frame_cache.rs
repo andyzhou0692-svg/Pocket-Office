@@ -37,6 +37,7 @@ fn make_slot(id: AgentId) -> AgentSlot {
         pending_idle_at: None,
 
         desk_index: 0,
+        floor_idx: 0,
         tool_call_count: 0,
         active_ms: 0,
         unknown_cwd: false,
@@ -111,7 +112,7 @@ fn evict_missing_drops_entries_for_absent_agents() {
     assert_eq!(cache.len(), 3);
 
     // Scene now contains only `kept`.
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     scene.agents.insert(kept, make_slot(kept));
 
     cache.evict_missing(&scene);

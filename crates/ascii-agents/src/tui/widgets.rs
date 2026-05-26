@@ -838,6 +838,7 @@ mod tests {
             pending_idle_at: None,
 
             desk_index: 0,
+            floor_idx: 0,
             tool_call_count: 0,
             active_ms: 0,
             unknown_cwd: false,
@@ -866,7 +867,7 @@ mod tests {
         slot_with(ActivityState::Idle, label)
     }
     fn scene_of(slots: Vec<AgentSlot>) -> SceneState {
-        let mut s = SceneState::new(16);
+        let mut s = SceneState::uniform(16);
         for slot in slots {
             s.agents.insert(slot.agent_id, slot);
         }

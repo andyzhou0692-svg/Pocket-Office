@@ -3,6 +3,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use ascii_agents_core::state::MAX_FLOORS;
+
 use anyhow::Result;
 use ascii_agents_core::source::antigravity::AntigravitySource;
 use ascii_agents_core::source::claude_code::ClaudeCodeSource;
@@ -58,11 +60,12 @@ async fn run_async(
     let ag_src = AntigravitySource::default_paths();
 
     let (tx, rx) = mpsc::channel::<(Transport, AgentEvent)>(256);
-    let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::new(max_desks)));
+    let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::uniform(max_desks)));
 
-    let max_desks_shared = Arc::new(AtomicUsize::new(max_desks));
+    let floor_caps: Arc<[AtomicUsize; MAX_FLOORS]> =
+        Arc::new(std::array::from_fn(|_| AtomicUsize::new(max_desks)));
 
-    tokio::spawn(reducer_task(rx, scene_tx, Arc::clone(&max_desks_shared)));
+    tokio::spawn(reducer_task(rx, scene_tx, Arc::clone(&floor_caps)));
 
     let _source_handles = SourceManager::new()
         .with_source(Box::new(cc_src))
@@ -72,24 +75,27 @@ async fn run_async(
     if headless {
         headless_loop(scene_rx).await
     } else {
-        crate::tui::run_tui(scene_rx, pack_dir, max_desks_shared, theme).await
+        crate::tui::run_tui(scene_rx, pack_dir, floor_caps, theme).await
     }
 }
 
 async fn reducer_task(
     mut rx: TaggedReceiver,
     scene_tx: watch::Sender<Arc<SceneState>>,
-    max_desks: Arc<AtomicUsize>,
+    floor_caps: Arc<[AtomicUsize; MAX_FLOORS]>,
 ) {
     let mut reducer = Reducer::new();
-    let mut scene = SceneState::new(max_desks.load(Ordering::Relaxed));
+    let initial_cap = floor_caps[0].load(Ordering::Relaxed);
+    let mut scene = SceneState::uniform(initial_cap);
     // 1-Hz tick so exit-grace sweeps run even when no new events arrive.
     let mut sweep_interval = tokio::time::interval(Duration::from_secs(1));
     sweep_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     loop {
-        // Sync max_desks from the shared atomic so the auto-computed
-        // layout capacity propagates to next_free_desk().
-        scene.max_desks = max_desks.load(Ordering::Relaxed);
+        // Sync per-floor capacities from the shared atomics so the
+        // auto-computed layout capacity propagates to next_free_desk().
+        for (i, a) in floor_caps.iter().enumerate() {
+            scene.floor_capacities[i] = a.load(Ordering::Relaxed);
+        }
         tokio::select! {
             event = rx.recv() => {
                 let Some((transport, ev)) = event else { break };

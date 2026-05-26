@@ -17,7 +17,7 @@ use ratatui::Terminal;
 #[test]
 fn tui_renderer_render_paints_a_full_frame() {
     let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_716_286_800);
-    let mut scene = SceneState::new(8);
+    let mut scene = SceneState::uniform(8);
     let id = AgentId::from_transcript_path("/demo/a.jsonl");
     scene.agents.insert(
         id,
@@ -39,6 +39,7 @@ fn tui_renderer_render_paints_a_full_frame() {
             pending_idle_at: None,
 
             desk_index: 0,
+            floor_idx: 0,
             tool_call_count: 0,
             active_ms: 0,
             unknown_cwd: false,

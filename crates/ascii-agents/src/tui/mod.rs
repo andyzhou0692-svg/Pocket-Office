@@ -27,7 +27,7 @@ use crate::runtime::SceneRx;
 pub async fn run_tui(
     mut scene_rx: SceneRx,
     pack_dir: Option<std::path::PathBuf>,
-    max_desks: Arc<std::sync::atomic::AtomicUsize>,
+    floor_caps: Arc<[std::sync::atomic::AtomicUsize; ascii_agents_core::state::MAX_FLOORS]>,
     theme: &'static theme::Theme,
 ) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
@@ -52,11 +52,6 @@ pub async fn run_tui(
                 SystemTime::now()
             };
             let snapshot = scene_rx.borrow_and_update().clone();
-            let snapshot = {
-                let mut s = (*snapshot).clone();
-                s.max_desks = max_desks.load(std::sync::atomic::Ordering::Relaxed);
-                Arc::new(s)
-            };
             renderer.evict_missing(&snapshot);
             let sig = (renderer.buf().width, renderer.buf().height);
             if last_layout_sig != Some(sig) {
@@ -67,24 +62,25 @@ pub async fn run_tui(
             renderer.set_theme_picker(theme_picker);
             renderer.render(&snapshot, &pack, now)?;
 
-            // Auto-compute max_desks as the minimum desk capacity across
-            // all 5 floor variants. This ensures every floor variant can
-            // fit its assigned agents — a Standard floor (8 desks) and an
-            // OpenPlan floor (16 desks) both work with max_desks = 8.
+            // Auto-compute per-floor desk capacity. Each floor uses its
+            // own layout seed, so different variants may have different
+            // desk counts. fetch_max ensures capacity only grows (monotone)
+            // to prevent orphaning agents already assigned to higher desks.
             if let Some(layout) = renderer.cached_layout() {
                 use ascii_agents_core::layout::{SceneLayout, MAX_VISIBLE_DESKS};
+                use ascii_agents_core::state::MAX_FLOORS;
                 let buf_w = layout.buf_w;
                 let buf_h = layout.buf_h;
-                let min_capacity = (0..5u64)
-                    .filter_map(|seed| {
+                for floor_idx in 0..MAX_FLOORS {
+                    let seed = (floor_idx as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                    let capacity =
                         SceneLayout::compute_with_seed(buf_w, buf_h, MAX_VISIBLE_DESKS, seed)
-                    })
-                    .map(|l| l.home_desks.len())
-                    .filter(|&n| n > 0)
-                    .min()
-                    .unwrap_or(MAX_VISIBLE_DESKS);
-                if min_capacity > 0 {
-                    max_desks.fetch_max(min_capacity, std::sync::atomic::Ordering::Relaxed);
+                            .map(|l| l.home_desks.len())
+                            .unwrap_or(MAX_VISIBLE_DESKS);
+                    if capacity > 0 {
+                        floor_caps[floor_idx]
+                            .fetch_max(capacity, std::sync::atomic::Ordering::Relaxed);
+                    }
                 }
             }
 

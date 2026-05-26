@@ -23,7 +23,7 @@ fn start(reducer: &mut Reducer, scene: &mut SceneState, id: AgentId) {
 
 #[test]
 fn session_start_creates_idle_slot_at_first_free_desk() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut reducer = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
 
@@ -48,7 +48,7 @@ fn session_start_creates_idle_slot_at_first_free_desk() {
 
 #[test]
 fn activity_start_sets_state_active() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -83,7 +83,7 @@ fn activity_end_arms_debounce_then_tick_flips_to_idle() {
     // armed-flag; `reducer.tick` (or another event past the window)
     // realizes the transition.
     use std::time::Duration;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -133,7 +133,7 @@ fn activity_start_inside_grace_window_cancels_debounce() {
     // cancel the pending-idle so the slot reads as continuously
     // Active for chained tool work (Read → Glob → Edit etc.).
     use std::time::Duration;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -187,7 +187,7 @@ fn activity_start_inside_grace_window_cancels_debounce() {
 
 #[test]
 fn waiting_sets_state_with_reason() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -211,7 +211,7 @@ fn waiting_sets_state_with_reason() {
 #[test]
 fn session_end_marks_slot_exiting_then_tick_removes_it_after_grace() {
     use ascii_agents_core::state::reducer::EXIT_GRACE_WINDOW;
-    let mut scene = SceneState::new(2);
+    let mut scene = SceneState::uniform(2);
     let mut r = Reducer::new();
     let a = AgentId::from_transcript_path("/p/a.jsonl");
     let b = AgentId::from_transcript_path("/p/b.jsonl");
@@ -248,7 +248,7 @@ fn session_end_marks_slot_exiting_then_tick_removes_it_after_grace() {
 
 #[test]
 fn jsonl_duplicate_of_recent_hook_is_dropped() {
-    let mut scene = SceneState::new(2);
+    let mut scene = SceneState::uniform(2);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -302,7 +302,7 @@ fn jsonl_duplicate_of_recent_hook_is_dropped() {
 /// JSONL stream is authoritative for the subagent (separate AgentId).
 #[test]
 fn hook_activity_during_active_task_is_suppressed() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let parent = AgentId::from_transcript_path("/p/parent.jsonl");
     start(&mut r, &mut scene, parent);
@@ -390,7 +390,7 @@ fn hook_activity_during_active_task_is_suppressed() {
 /// affected by the parent's active Task suppression.
 #[test]
 fn subagent_jsonl_activity_is_unaffected_by_parent_task_suppression() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let parent = AgentId::from_transcript_path("/p/parent.jsonl");
     let subagent = AgentId::from_transcript_path("/p/parent/subagents/agent-x.jsonl");
@@ -433,7 +433,7 @@ fn subagent_jsonl_activity_is_unaffected_by_parent_task_suppression() {
 /// Pre-existing behavior: with no active Task, hook events apply normally.
 #[test]
 fn hook_activity_without_active_task_applies_normally() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -460,7 +460,7 @@ fn hook_activity_without_active_task_applies_normally() {
 #[test]
 fn session_start_with_cwd_derives_label_from_basename() {
     // No more "cc#1" when the cwd tells us what project this is.
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     r.apply(
@@ -480,7 +480,7 @@ fn session_start_with_cwd_derives_label_from_basename() {
 
 #[test]
 fn session_start_without_cwd_falls_back_to_cc_label() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     r.apply(
@@ -500,7 +500,7 @@ fn session_start_without_cwd_falls_back_to_cc_label() {
 
 #[test]
 fn rename_updates_slot_label() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -521,7 +521,7 @@ fn rename_updates_slot_label() {
 
 #[test]
 fn rename_for_unknown_agent_is_noop() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/missing.jsonl");
     r.apply(
@@ -544,7 +544,7 @@ fn rename_for_unknown_agent_is_noop() {
 fn active_tasks_drained_by_jsonl_end_even_if_hook_end_arrived_first() {
     use ascii_agents_core::source::ToolDetail;
 
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -614,7 +614,7 @@ fn active_tasks_drained_by_jsonl_end_even_if_hook_end_arrived_first() {
 
 #[test]
 fn jsonl_event_after_dedup_window_is_applied() {
-    let mut scene = SceneState::new(2);
+    let mut scene = SceneState::uniform(2);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/a.jsonl");
     start(&mut r, &mut scene, id);
@@ -659,7 +659,7 @@ fn jsonl_event_after_dedup_window_is_applied() {
 #[test]
 fn stale_idle_agent_is_marked_exiting_after_timeout() {
     use ascii_agents_core::state::reducer::STALE_IDLE_TIMEOUT;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut reducer = Reducer::new();
     let id = AgentId::from_transcript_path("/p/stale.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
@@ -700,7 +700,7 @@ fn stale_active_agent_uses_shorter_timeout_than_idle() {
         "active timeout should be shorter than idle"
     );
 
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut reducer = Reducer::new();
     let id = AgentId::from_transcript_path("/p/active.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
@@ -742,7 +742,7 @@ fn stale_active_agent_uses_shorter_timeout_than_idle() {
 #[test]
 fn fresh_event_resets_stale_timer() {
     use ascii_agents_core::state::reducer::STALE_IDLE_TIMEOUT;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut reducer = Reducer::new();
     let id = AgentId::from_transcript_path("/p/fresh.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
@@ -786,7 +786,7 @@ fn fresh_event_resets_stale_timer() {
 #[test]
 fn unknown_cwd_agent_reaps_faster() {
     use ascii_agents_core::state::reducer::STALE_UNKNOWN_CWD_TIMEOUT;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut reducer = Reducer::new();
     let id = AgentId::from_transcript_path("/p/ghost.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
@@ -822,7 +822,7 @@ fn unknown_cwd_agent_reaps_faster() {
 
 #[test]
 fn tool_call_count_increments_on_activity_start() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/stats.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
@@ -868,7 +868,7 @@ fn tool_call_count_increments_on_activity_start() {
 
 #[test]
 fn active_ms_accumulates_on_state_transitions() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/active.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
@@ -910,7 +910,7 @@ fn active_ms_accumulates_on_state_transitions() {
 
 #[test]
 fn active_ms_does_not_double_count_on_duplicate_activity_end() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/dedup.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
@@ -963,7 +963,7 @@ fn active_ms_does_not_double_count_on_duplicate_activity_end() {
 
 #[test]
 fn session_end_cascades_to_children() {
-    let mut scene = SceneState::new(8);
+    let mut scene = SceneState::uniform(8);
     let mut r = Reducer::new();
     let parent = AgentId::from_transcript_path("/p/parent.jsonl");
     let child = AgentId::from_parts("claude-code", "/p/parent/subagents/agent-1.jsonl");
@@ -1013,7 +1013,7 @@ fn session_end_cascades_to_children() {
 
 #[test]
 fn session_end_cascades_to_grandchildren() {
-    let mut scene = SceneState::new(8);
+    let mut scene = SceneState::uniform(8);
     let mut r = Reducer::new();
     let grandparent = AgentId::from_transcript_path("/p/gp.jsonl");
     let parent = AgentId::from_parts("claude-code", "/p/gp/subagents/agent-p.jsonl");
@@ -1074,7 +1074,7 @@ fn session_end_cascades_to_grandchildren() {
 #[test]
 fn unknown_cwd_agent_uses_faster_stale_timeout() {
     use ascii_agents_core::state::reducer::STALE_UNKNOWN_CWD_TIMEOUT;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/unknown.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
@@ -1108,7 +1108,7 @@ fn unknown_cwd_agent_uses_faster_stale_timeout() {
 
 #[test]
 fn session_end_cascade_marks_all_descendants_exiting() {
-    let mut scene = SceneState::new(8);
+    let mut scene = SceneState::uniform(8);
     let mut r = Reducer::new();
     let parent = AgentId::from_transcript_path("/p/cascade-parent.jsonl");
     let child_a = AgentId::from_parts("claude-code", "/p/cascade-parent/subagents/agent-a.jsonl");
@@ -1180,7 +1180,7 @@ fn session_end_cascade_marks_all_descendants_exiting() {
 
 #[test]
 fn hook_wins_dedup_drops_jsonl_duplicate_within_window() {
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/dedup-hw.jsonl");
     start(&mut r, &mut scene, id);
@@ -1234,7 +1234,7 @@ fn hook_wins_dedup_drops_jsonl_duplicate_within_window() {
 #[test]
 fn sweep_stale_marks_old_agent_exiting_on_tick() {
     use ascii_agents_core::state::reducer::STALE_IDLE_TIMEOUT;
-    let mut scene = SceneState::new(4);
+    let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let id = AgentId::from_transcript_path("/p/stale-sweep.jsonl");
     let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_500_000_000);
@@ -1262,4 +1262,38 @@ fn sweep_stale_marks_old_agent_exiting_on_tick() {
         scene.agents.get(&id).unwrap().exiting_at.is_some(),
         "tick past STALE_IDLE_TIMEOUT should mark agent exiting"
     );
+}
+
+/// With heterogeneous per-floor capacities, the third session should
+/// overflow from floor 0 (cap=2) to floor 1's first desk (global index 2).
+#[test]
+fn session_start_overflows_to_floor1_with_heterogeneous_capacity() {
+    let mut r = Reducer::new();
+    let mut scene = SceneState::new([2, 4, 0, 0, 0]);
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    for i in 0..3 {
+        let id = AgentId::from_transcript_path(&format!("/proj/{i}.jsonl"));
+        r.apply(
+            &mut scene,
+            AgentEvent::SessionStart {
+                agent_id: id,
+                source: "cc".into(),
+                session_id: format!("s{i}"),
+                cwd: std::path::PathBuf::from("/repo"),
+                parent_id: None,
+            },
+            t0,
+            Transport::Jsonl,
+        );
+    }
+    assert_eq!(scene.agents.len(), 3);
+    let desks: Vec<usize> = scene.agents.values().map(|a| a.desk_index).collect();
+    assert!(desks.contains(&0));
+    assert!(desks.contains(&1));
+    assert!(
+        desks.contains(&2),
+        "third agent should get desk 2 (floor 1)"
+    );
+    assert_eq!(scene.floor_of(2), 1);
 }

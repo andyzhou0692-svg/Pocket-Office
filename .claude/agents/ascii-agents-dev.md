@@ -24,7 +24,7 @@ Specialized coding agent for the ascii-agents repo. Knows the architecture, conv
 - **PixelPassResult** — returned from `render_to_rgb_buffer` with cat_pos, chitchat bubbles, new coffee carriers.
 - **Persistent render state** lives on `TuiRenderer` (e.g., `coffee_holders: HashSet<AgentId>`, `CatPetState`, `chitchat_state`), NOT derived from cycle-scanning.
 - **Hit-test chain**: agent > coffee machine > cat > furniture. All take `&Layout`.
-- **Layout auto-compute**: min desk capacity across 5 floor variants → `max_desks`. Recomputed each frame.
+- **Layout auto-compute**: per-floor desk capacity via `floor_capacities: [usize; MAX_FLOORS]`. Each floor's seed → `compute_with_seed` → `fetch_max` (monotone). Recomputed each frame.
 
 ## File Organization
 
