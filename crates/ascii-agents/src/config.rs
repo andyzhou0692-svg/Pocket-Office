@@ -23,8 +23,13 @@ pub fn config_path() -> PathBuf {
 }
 
 pub fn load(path: &Path) -> AppConfig {
-    let Ok(contents) = std::fs::read_to_string(path) else {
-        return AppConfig::default();
+    let contents = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return AppConfig::default(),
+        Err(e) => {
+            tracing::warn!(path = %path.display(), %e, "cannot read config — using defaults");
+            return AppConfig::default();
+        }
     };
     match toml::from_str(&contents) {
         Ok(cfg) => cfg,
@@ -36,6 +41,13 @@ pub fn load(path: &Path) -> AppConfig {
 }
 
 pub fn save(path: &Path, theme_name: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let lock_path = path.with_extension("toml.lock");
+    let lock_file = std::fs::File::create(&lock_path)?;
+    fs2::FileExt::lock_exclusive(&lock_file)?;
+
     let mut cfg = if path.exists() {
         load(path)
     } else {
@@ -44,12 +56,10 @@ pub fn save(path: &Path, theme_name: &str) -> Result<()> {
     cfg.theme = Some(theme_name.to_string());
 
     let contents = toml::to_string_pretty(&cfg)?;
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
     let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, contents)?;
+    std::fs::write(&tmp, &contents)?;
     std::fs::rename(&tmp, path)?;
+    // Lock released on drop
     Ok(())
 }
 
@@ -58,8 +68,16 @@ pub fn resolve(
     cli_theme: Option<String>,
     cli_max_desks: Option<usize>,
 ) -> (String, usize) {
+    let config_theme = config.theme.filter(|t| {
+        if crate::tui::theme::theme_by_name(t).is_some() {
+            true
+        } else {
+            tracing::warn!(theme = %t, "unknown theme in config — ignoring");
+            false
+        }
+    });
     let theme = cli_theme
-        .or(config.theme)
+        .or(config_theme)
         .unwrap_or_else(|| "normal".to_string());
     let max_desks = cli_max_desks.or(config.max_desks).unwrap_or(16);
     (theme, max_desks)
@@ -143,5 +161,49 @@ mod tests {
         let (theme, desks) = resolve(cfg, None, None);
         assert_eq!(theme, "normal");
         assert_eq!(desks, 16);
+    }
+
+    #[test]
+    fn resolve_invalid_config_theme_falls_back_to_default() {
+        let cfg = AppConfig {
+            theme: Some("does-not-exist".into()),
+            max_desks: Some(8),
+        };
+        let (theme, desks) = resolve(cfg, None, None);
+        assert_eq!(theme, "normal");
+        assert_eq!(desks, 8);
+    }
+
+    #[test]
+    fn resolve_mixed_cli_theme_config_max_desks() {
+        let cfg = AppConfig {
+            theme: Some("gruvbox".into()),
+            max_desks: Some(8),
+        };
+        let (theme, desks) = resolve(cfg, Some("dracula".into()), None);
+        assert_eq!(theme, "dracula");
+        assert_eq!(desks, 8);
+    }
+
+    #[test]
+    fn full_config_flow_file_drives_defaults() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "theme = \"cyberpunk\"\nmax-desks = 8\n").unwrap();
+        let cfg = load(&path);
+        let (theme, desks) = resolve(cfg, None, None);
+        assert_eq!(theme, "cyberpunk");
+        assert_eq!(desks, 8);
+    }
+
+    #[test]
+    fn full_config_flow_cli_partially_overrides() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "theme = \"cyberpunk\"\nmax-desks = 8\n").unwrap();
+        let cfg = load(&path);
+        let (theme, desks) = resolve(cfg, Some("dracula".into()), None);
+        assert_eq!(theme, "dracula");
+        assert_eq!(desks, 8);
     }
 }
