@@ -10,6 +10,29 @@ pub struct AppConfig {
     /// When absent, capacity is fully auto-computed from terminal size.
     #[serde(rename = "max-desks")]
     pub max_desks: Option<usize>,
+    /// Custom sprite pack directory. Supports ~ expansion.
+    #[serde(rename = "pack-dir")]
+    pub pack_dir: Option<String>,
+}
+
+pub fn resolve_pack_dir(
+    config: &AppConfig,
+    cli_pack_dir: Option<PathBuf>,
+) -> Option<PathBuf> {
+    cli_pack_dir.or_else(|| {
+        config.pack_dir.as_ref().map(|p| {
+            let expanded = if p.starts_with('~') {
+                if let Ok(home) = std::env::var("HOME") {
+                    p.replacen('~', &home, 1)
+                } else {
+                    p.clone()
+                }
+            } else {
+                p.clone()
+            };
+            PathBuf::from(expanded)
+        })
+    })
 }
 
 pub fn config_path() -> PathBuf {
@@ -232,5 +255,55 @@ mod tests {
         let cfg = load(&path);
         assert_eq!(cfg.theme.as_deref(), Some("cyberpunk"));
         assert_eq!(cfg.max_desks, Some(8));
+    }
+
+    // --- pack-dir resolution -----------------------------------------------
+
+    #[test]
+    fn pack_dir_cli_wins_over_config() {
+        let cfg = AppConfig {
+            pack_dir: Some("/config/pack".into()),
+            ..AppConfig::default()
+        };
+        let result = resolve_pack_dir(&cfg, Some(PathBuf::from("/cli/pack")));
+        assert_eq!(result, Some(PathBuf::from("/cli/pack")));
+    }
+
+    #[test]
+    fn pack_dir_config_used_when_no_cli() {
+        let cfg = AppConfig {
+            pack_dir: Some("/config/pack".into()),
+            ..AppConfig::default()
+        };
+        let result = resolve_pack_dir(&cfg, None);
+        assert_eq!(result, Some(PathBuf::from("/config/pack")));
+    }
+
+    #[test]
+    fn pack_dir_neither_returns_none() {
+        let cfg = AppConfig::default();
+        let result = resolve_pack_dir(&cfg, None);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn pack_dir_config_expands_tilde() {
+        let cfg = AppConfig {
+            pack_dir: Some("~/my-pack".into()),
+            ..AppConfig::default()
+        };
+        let result = resolve_pack_dir(&cfg, None);
+        if let Ok(home) = std::env::var("HOME") {
+            assert_eq!(result, Some(PathBuf::from(format!("{home}/my-pack"))));
+        }
+    }
+
+    #[test]
+    fn pack_dir_loaded_from_toml() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "pack-dir = \"/custom/sprites\"\n").unwrap();
+        let cfg = load(&path);
+        assert_eq!(cfg.pack_dir.as_deref(), Some("/custom/sprites"));
     }
 }

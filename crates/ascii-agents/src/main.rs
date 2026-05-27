@@ -56,6 +56,7 @@ fn main() -> Result<()> {
             let cfg = config::load(&cfg_path);
             let theme_name = config::resolve_theme(&cfg, cli_theme);
             let desk_cap = cli_max_desks.or(cfg.max_desks);
+            let pack_dir = config::resolve_pack_dir(&cfg, pack_dir);
             runtime::run(
                 socket,
                 projects_root,
