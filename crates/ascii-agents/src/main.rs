@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use ascii_agents::cli::{Cli, Cmd};
-use ascii_agents::{config, install, runtime};
+use ascii_agents::{config, init_pack, install, runtime, validate};
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
@@ -56,6 +56,7 @@ fn main() -> Result<()> {
             let cfg = config::load(&cfg_path);
             let theme_name = config::resolve_theme(&cfg, cli_theme);
             let desk_cap = cli_max_desks.or(cfg.max_desks);
+            let pack_dir = config::resolve_pack_dir(&cfg, pack_dir);
             runtime::run(
                 socket,
                 projects_root,
@@ -71,6 +72,8 @@ fn main() -> Result<()> {
             settings,
         } => install::install(hook_path, settings),
         Cmd::UninstallHooks { settings } => install::uninstall(settings),
+        Cmd::ValidatePack { pack_dir } => validate::validate_pack(&pack_dir),
+        Cmd::InitPack { dest, force } => init_pack::init_pack(&dest, force),
     }
 }
 

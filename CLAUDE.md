@@ -51,11 +51,10 @@ crates/
 │                           palette.rs (tool_glow_tint), anchors.rs (breath, walk position, character_anchor),
 │                           furniture.rs (coffee table, area rug, side table, pantry table/chair)
 └── ascii-agents-hook/      tiny shim CC invokes — stdin JSON → Unix socket, 200ms write timeout
-│   └── sprites/default/    coworking-lounge pack (embedded via include_str!): seated, typing ×2,
-│                           standing, walking ×2, walking_back ×2, working_couch ×2,
-│                           working_floor ×2, sitting_couch, back_couch, seated_floor,
-│                           sleeping variants, desk, plant ×4, cat (walk/sit/sleep),
-│                           pantry, door ×3, meeting_sofa, bookshelf, whiteboard, tv_stand, etc.
+│   └── sprites/
+│       ├── default/        coworking-lounge pack (embedded via include_str!)
+│       ├── robot/          proof-of-concept robot character pack (loadable via --pack-dir)
+│       └── skeleton/       template pack for custom sprite creation (extracted via init-pack)
 scripts/                    preflight.sh (CI mirror), crop-snapshot.py (visual verification)
 ```
 
@@ -152,6 +151,7 @@ These are load-bearing; don't break them without updating the spec.
 - "How does multi-source decoding work?" → `JsonlWatcher` takes `LineDecoder` and `LabelDeriver` fn pointers (Strategy pattern via fn pointers, not traits). CC wires `claude_code::decode_cc_line` + `cc_derive_label`; Antigravity wires `antigravity::decode_ag_line` + `derive_ag_label`. `decoder.rs` holds shared utilities (`describe_tool_target`, `make_tool_detail`, `decode_hook_payload`). Each source owns its own JSONL format knowledge. `AgentId::from_parts(source, path)` namespaces IDs per source. Labels show source prefix: `cc·project` / `ag·project`.
 - "Why don't old idle sessions show on startup?" → `source::jsonl::initial_seed_walk`. Checks `check_session_ended` (tail-scans last 8KB for `session_end`/`SessionEnd` markers) and skips files not modified in 5+ min. mtime > `DEFAULT_INITIAL_WINDOW` (1 hour) → cursor seeded at EOF, no `SessionStart`.
 - "How does the default character pack get into the binary?" → `tui::embedded_pack` does the `include_str!` at compile time; `sprite::format::load_pack_from_strings` parses it.
+- "How do custom sprite packs work?" → `ascii-agents init-pack ./dir` extracts the skeleton template from `sprites/skeleton/` (embedded via `include_str!`). `ascii-agents validate-pack ./dir` loads the pack and checks against `REQUIRED_CHARACTER_ANIMATIONS` / `OPTIONAL_*` registries in `sprite::format`. `--pack-dir` CLI flag or `pack-dir` config key loads a custom pack at runtime. The robot pack at `sprites/robot/` is a proof-of-concept alternative character set.
 - "How do hooks get installed?" → `install::merge::merge_install` for the JSON merge logic, `install::io::write_settings_atomic` for the safe filesystem write.
 - "How does the neon wall display work?" → `pixel_painter/background/lighting.rs::paint_neon_panel` paints the dark panel with pulsing cyan border in the pixel buffer; `widgets/hud.rs::paint_wall_display` overlays ratatui text (branding, state dots, scrolling ticker); `widgets/mod.rs::TickerQueue` manages the persistent scrolling message buffer.
 - "How does the cat behave?" → `pixel_painter/drawable.rs::cat_position` — 40s cycle, picks a destination from all spots (desks, pantry, sofas, couch, corridor), walks there (35%), sits/sleeps (65%). Sleeps with z's near idle agents. Sprites: `cat_walk` (8×6 side view), `cat_sit` (6×6 front), `cat_sleep` (6×4 curled).

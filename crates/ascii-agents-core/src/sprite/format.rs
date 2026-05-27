@@ -125,6 +125,10 @@ impl Pack {
     pub fn animation(&self, key: &str) -> Option<&Sprite> {
         self.animations.get(key)
     }
+
+    pub fn animation_names(&self) -> Vec<String> {
+        self.animations.keys().cloned().collect()
+    }
 }
 
 pub fn load_pack(dir: &Path) -> Result<Pack> {
@@ -213,6 +217,128 @@ fn build_palette(map: &HashMap<String, String>) -> Result<Palette> {
         palette.insert(key, pixel);
     }
     Ok(palette)
+}
+
+// ---------------------------------------------------------------------------
+// Animation registry — canonical list of animation names the renderer uses.
+// ---------------------------------------------------------------------------
+
+pub const REQUIRED_CHARACTER_ANIMATIONS: &[&str] = &[
+    "seated",
+    "typing",
+    "standing",
+    "walking",
+    "walking_back",
+    "seated_sleeping",
+    "seated_sleeping_alt",
+    "holding_coffee",
+    "back_couch",
+];
+
+pub const OPTIONAL_CHARACTER_ANIMATIONS: &[&str] = &[
+    "walking_coffee",
+    "sitting_couch",
+    "sitting_couch_sleeping",
+    "seated_floor",
+    "seated_floor_sleeping",
+    "working_couch",
+    "working_floor",
+];
+
+pub const OPTIONAL_FURNITURE_ANIMATIONS: &[&str] = &[
+    "desk",
+    "trash_bin",
+    "filing_cabinet",
+    "plant",
+    "plant_tall",
+    "plant_flower",
+    "plant_succulent",
+    "floor_lamp",
+    "door",
+    "cat_walk",
+    "cat_sit",
+    "cat_sleep",
+    "meeting_sofa",
+    "meeting_screen",
+    "coffee",
+    "couch",
+    "pantry",
+    "pantry_small",
+    "whiteboard",
+    "bookshelf",
+    "tv_stand",
+    "phone_booth",
+    "standing_desk",
+    "bulletin_board",
+    "exit_sign",
+];
+
+/// Multi-frame requirements: animations that must have at least N frames.
+const MULTI_FRAME_REQUIREMENTS: &[(&str, usize)] = &[
+    ("typing", 2),
+    ("walking", 2),
+    ("walking_back", 2),
+    ("door", 3),
+    ("cat_walk", 2),
+    ("working_couch", 2),
+    ("working_floor", 2),
+];
+
+#[derive(Debug, Default)]
+pub struct ValidationReport {
+    pub missing_required: Vec<String>,
+    pub missing_optional: Vec<String>,
+    pub insufficient_frames: Vec<(String, usize, usize)>,
+    pub unknown: Vec<String>,
+}
+
+impl ValidationReport {
+    pub fn has_errors(&self) -> bool {
+        !self.missing_required.is_empty() || !self.insufficient_frames.is_empty()
+    }
+}
+
+pub fn validate_pack_animations(pack: &Pack) -> ValidationReport {
+    let mut report = ValidationReport::default();
+
+    for &name in REQUIRED_CHARACTER_ANIMATIONS {
+        if pack.animation(name).is_none() {
+            report.missing_required.push(name.to_string());
+        }
+    }
+
+    for &name in OPTIONAL_CHARACTER_ANIMATIONS
+        .iter()
+        .chain(OPTIONAL_FURNITURE_ANIMATIONS.iter())
+    {
+        if pack.animation(name).is_none() {
+            report.missing_optional.push(name.to_string());
+        }
+    }
+
+    for &(name, min_frames) in MULTI_FRAME_REQUIREMENTS {
+        if let Some(anim) = pack.animation(name) {
+            if anim.frames.len() < min_frames {
+                report
+                    .insufficient_frames
+                    .push((name.to_string(), min_frames, anim.frames.len()));
+            }
+        }
+    }
+
+    let all_known: std::collections::HashSet<&str> = REQUIRED_CHARACTER_ANIMATIONS
+        .iter()
+        .chain(OPTIONAL_CHARACTER_ANIMATIONS.iter())
+        .chain(OPTIONAL_FURNITURE_ANIMATIONS.iter())
+        .copied()
+        .collect();
+    for name in pack.animation_names() {
+        if !all_known.contains(name.as_str()) {
+            report.unknown.push(name.clone());
+        }
+    }
+
+    report
 }
 
 fn parse_palette_value(v: &str) -> Result<Pixel> {

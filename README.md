@@ -119,14 +119,29 @@ Settings are stored in `~/.config/ascii-agents/config.toml` (respects `$XDG_CONF
 ```toml
 theme = "cyberpunk"
 max-desks = 8
+pack-dir = "~/.config/ascii-agents/packs/robot"
 ```
 
 | Key | Default | Description |
 |-----|---------|-------------|
 | `theme` | `"normal"` | Color theme — `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox` |
 | `max-desks` | auto | Cap desks per floor. If unset, auto-computed from terminal size. Excess agents overflow to additional floors. |
+| `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. |
 
 CLI flags override config: `ascii-agents run --theme dracula`
+
+### Custom Sprite Packs
+
+Create your own character sprites:
+
+```bash
+ascii-agents init-pack ./my-pack     # extract skeleton template
+# edit the .sprite files in ./my-pack
+ascii-agents validate-pack ./my-pack # check for missing animations
+ascii-agents run --pack-dir ./my-pack
+```
+
+A **robot** pack ships as an example at `sprites/robot/`. See the [sprite format docs](CLAUDE.md) for palette keys and animation requirements.
 
 ## How It Works
 

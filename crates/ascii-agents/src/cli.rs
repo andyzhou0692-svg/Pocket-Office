@@ -50,6 +50,19 @@ pub enum Cmd {
         #[arg(long)]
         settings: Option<PathBuf>,
     },
+    /// Validate a custom sprite pack directory.
+    ValidatePack {
+        /// Path to the pack directory (must contain pack.toml).
+        pack_dir: PathBuf,
+    },
+    /// Extract a skeleton sprite pack to a directory for customization.
+    InitPack {
+        /// Destination directory (created if absent).
+        dest: PathBuf,
+        /// Overwrite existing files.
+        #[arg(long, default_value_t = false)]
+        force: bool,
+    },
 }
 
 impl Cli {

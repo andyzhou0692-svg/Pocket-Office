@@ -4,6 +4,8 @@
 
 pub mod cli;
 pub mod config;
+pub mod init_pack;
 pub mod install;
 pub mod runtime;
 pub mod tui;
+pub mod validate;

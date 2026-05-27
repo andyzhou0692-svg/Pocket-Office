@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use ascii_agents_core::sprite::format::{load_pack, parse_sprite_file};
+use ascii_agents_core::sprite::format::{load_pack, parse_sprite_file, validate_pack_animations};
 use ascii_agents_core::sprite::{Palette, Rgb};
 
 fn palette() -> Palette {
@@ -87,4 +87,41 @@ fn default_pack_loads_with_required_animations() {
 
     let walking = pack.animation("walking").unwrap();
     assert_eq!(walking.frames.len(), 2);
+}
+
+#[test]
+fn default_pack_passes_validation() {
+    let pack = load_pack(Path::new("../ascii-agents/sprites/default")).unwrap();
+    let report = validate_pack_animations(&pack);
+    assert!(
+        report.missing_required.is_empty(),
+        "missing required: {:?}",
+        report.missing_required
+    );
+    assert!(
+        report.insufficient_frames.is_empty(),
+        "insufficient frames: {:?}",
+        report.insufficient_frames
+    );
+}
+
+#[test]
+fn mini_pack_reports_missing_required() {
+    let pack = load_pack(Path::new("tests/fixtures/sprites/mini_pack")).unwrap();
+    let report = validate_pack_animations(&pack);
+    assert!(
+        !report.missing_required.is_empty(),
+        "mini pack should be missing required animations"
+    );
+    assert!(report.has_errors());
+}
+
+#[test]
+fn validation_detects_unknown_animations() {
+    let pack = load_pack(Path::new("tests/fixtures/sprites/mini_pack")).unwrap();
+    let report = validate_pack_animations(&pack);
+    assert!(
+        report.unknown.contains(&"idle".to_string()),
+        "mini pack's 'idle' animation should be flagged as unknown"
+    );
 }
