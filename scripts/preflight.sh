@@ -39,9 +39,10 @@ step 'cargo test --workspace --features ascii-agents-core/test-renderer'
 cargo test --workspace --features ascii-agents-core/test-renderer \
     || fail 'tests: fix the failing tests above and recommit'
 
-# Stamp so pre-push can skip redundant re-run.
+# Stamp so pre-push can skip redundant re-run (touch-based, not SHA-based,
+# because during pre-commit the final commit SHA doesn't exist yet).
 STAMP_DIR="${REPO_ROOT}/target/.preflight"
 mkdir -p "$STAMP_DIR"
-git rev-parse HEAD > "$STAMP_DIR/last-commit" 2>/dev/null || true
+touch "$STAMP_DIR/passed"
 
 printf '\033[32m[preflight] all checks passed\033[0m\n' >&2

@@ -8,11 +8,15 @@
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-STAMP="${REPO_ROOT}/target/.preflight/last-commit"
+STAMP="${REPO_ROOT}/target/.preflight/passed"
 
-if [[ -f "$STAMP" ]] && [[ "$(cat "$STAMP")" == "$(git rev-parse HEAD)" ]]; then
-    printf '\033[32m[pre-push] preflight already passed for %s — skipping\033[0m\n' "$(git rev-parse --short HEAD)" >&2
-    exit 0
+# Skip if pre-commit already ran preflight within the last 120 seconds.
+if [[ -f "$STAMP" ]]; then
+    AGE=$(( $(date +%s) - $(stat -f %m "$STAMP") ))
+    if (( AGE < 120 )); then
+        printf '\033[32m[pre-push] preflight passed %ds ago — skipping\033[0m\n' "$AGE" >&2
+        exit 0
+    fi
 fi
 
 exec "${REPO_ROOT}/scripts/preflight.sh"
