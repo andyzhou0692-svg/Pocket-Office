@@ -46,9 +46,10 @@ mod furniture;
 mod palette;
 
 pub(in crate::tui) use anchors::character_anchor;
+pub(in crate::tui) use anchors::walking_position;
 use anchors::{
     back_couch_anchor, compute_door_frame_idx, seated_anchor, standing_at_desk_anchor,
-    walking_anchor, walking_position, waypoint_anchor, waypoint_rank_offset_x, with_breath,
+    walking_anchor, waypoint_anchor, waypoint_rank_offset_x, with_breath,
 };
 use background::{
     dim_floor_overlay, paint_ceiling_pool, paint_clock, paint_corridor_runner,
@@ -56,6 +57,9 @@ use background::{
 };
 use drawable::{cat_position, paint_drawable, Drawable, DrawableKind};
 use palette::{agent_palette, recolor_frame};
+
+const COFFEE_STEAM_WINDOW_SECS: u64 = 120;
+const DOOR_SPRITE_WIDTH: u16 = 16;
 
 /// Bundled input for the pixel-painting pass. Constructed from `DrawCtx`
 /// fields + per-frame inputs at the `draw_scene` call site.
@@ -126,9 +130,6 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
     let mut resolved_cat_pos: Option<(Point, &'static str)> = None;
     let mut new_coffee_carriers: Vec<ascii_agents_core::AgentId> = Vec::new();
 
-    /// Steam window — 120 seconds after the walk-back completes.
-    const COFFEE_STEAM_WINDOW_SECS: u64 = 120;
-
     // Compute time-of-day once per frame and pass to every paint
     // helper that depends on it. Avoids recomputing the chrono local
     // hour for each window + ceiling pool + lamp halo.
@@ -139,7 +140,7 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
     // The elevator door replaces the rightmost window — pass its x-range
     // so `paint_floor_and_walls` skips drawing a window that would
     // otherwise bleed through behind the elevator frame.
-    let door_x_range = ctx.layout.door.map(|d| (d.x, d.x + 16));
+    let door_x_range = ctx.layout.door.map(|d| (d.x, d.x + DOOR_SPRITE_WIDTH));
     paint_floor_and_walls(
         ctx.buf,
         buf_w,

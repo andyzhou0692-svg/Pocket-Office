@@ -36,8 +36,13 @@ pub fn run(
     theme_name: String,
     config_path: PathBuf,
 ) -> Result<()> {
-    let theme = crate::tui::theme::theme_by_name(&theme_name)
-        .ok_or_else(|| anyhow::anyhow!("unknown theme: {theme_name}"))?;
+    let theme = crate::tui::theme::theme_by_name(&theme_name).ok_or_else(|| {
+        let valid: Vec<&str> = crate::tui::theme::ALL_THEMES
+            .iter()
+            .map(|t| t.name)
+            .collect();
+        anyhow::anyhow!("unknown theme: {theme_name}. Valid: {}", valid.join(", "))
+    })?;
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?;
@@ -118,11 +123,17 @@ async fn reducer_task(
                 let now = SystemTime::now();
                 tracing::debug!(?transport, ?ev, "event");
                 reducer.apply(&mut scene, ev, now, transport);
-                let _ = scene_tx.send(Arc::new(scene.clone()));
+                if scene_tx.send(Arc::new(scene.clone())).is_err() {
+                    tracing::warn!("scene channel closed — renderer dropped");
+                    break;
+                }
             }
             _ = sweep_interval.tick() => {
                 reducer.tick(&mut scene, SystemTime::now());
-                let _ = scene_tx.send(Arc::new(scene.clone()));
+                if scene_tx.send(Arc::new(scene.clone())).is_err() {
+                    tracing::warn!("scene channel closed — renderer dropped");
+                    break;
+                }
             }
         }
     }

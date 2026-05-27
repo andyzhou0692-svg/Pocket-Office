@@ -228,12 +228,7 @@ pub fn derive_with_routing(
 /// rendering side has its own `walking_position` in renderer.rs that
 /// also applies vertical breathing; this one is for history-tracking
 /// only (we want the deterministic position, not the breath offset).
-fn walking_position(from: Point, to: Point, t_x1000: u16) -> Point {
-    let t = t_x1000 as i32;
-    let x = (from.x as i32 + (to.x as i32 - from.x as i32) * t / 1000).max(0) as u16;
-    let y = (from.y as i32 + (to.y as i32 - from.y as i32) * t / 1000).max(0) as u16;
-    Point { x, y }
-}
+use crate::tui::pixel_painter::walking_position;
 
 fn octile_distance(a: Point, b: Point) -> u32 {
     let dx = (a.x as i32 - b.x as i32).unsigned_abs();

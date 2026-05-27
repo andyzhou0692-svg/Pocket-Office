@@ -12,10 +12,14 @@ use ascii_agents_core::state::{AgentSlot, SceneState};
 use ascii_agents_core::walkable::OccupancyOverlay;
 
 use crate::tui::frame_cache::FrameCache;
-use crate::tui::pathfind::{AStarRouter, Router};
+use crate::tui::pathfind::AStarRouter;
 use crate::tui::pose::PoseHistory;
 
 pub use ascii_agents_core::state::MAX_FLOORS;
+
+/// Fibonacci hash multiplier for floor seed derivation. Used in both
+/// `FloorMeta::for_floor` and the TUI auto-compute loop.
+pub const FLOOR_SEED_MULTIPLIER: u64 = 0x9e37_79b9_7f4a_7c15;
 
 #[derive(Debug, Clone, Copy)]
 pub struct FloorMeta {
@@ -35,7 +39,7 @@ impl FloorMeta {
         Self {
             floor_idx,
             altitude,
-            floor_seed: (floor_idx as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15),
+            floor_seed: (floor_idx as u64).wrapping_mul(FLOOR_SEED_MULTIPLIER),
             sunlight_boost: altitude * 0.3,
         }
     }
@@ -69,14 +73,6 @@ impl FloorCtx {
             history: PoseHistory::new(),
             cache: FrameCache::new(),
         }
-    }
-
-    /// Drop all cached state — call on terminal resize or layout change.
-    pub fn flush_caches(&mut self) {
-        self.router.invalidate();
-        self.overlay.clear();
-        self.history = PoseHistory::new();
-        self.cache = FrameCache::new();
     }
 }
 
@@ -146,7 +142,7 @@ pub fn build_floor_scene(scene: &SceneState, floor_idx: usize) -> Vec<AgentSlot>
         .filter(|a| a.floor_idx == floor_idx)
         .map(|a| {
             let mut slot = a.clone();
-            slot.desk_index = a.desk_index - offset;
+            slot.desk_index = a.desk_index.saturating_sub(offset);
             slot
         })
         .collect()

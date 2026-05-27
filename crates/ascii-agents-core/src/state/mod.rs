@@ -112,7 +112,7 @@ impl SceneState {
     pub fn floor_of(&self, desk_index: usize) -> usize {
         let offsets = self.cumulative_offsets();
         for i in (0..MAX_FLOORS).rev() {
-            if desk_index >= offsets[i] {
+            if self.floor_capacities[i] > 0 && desk_index >= offsets[i] {
                 return i;
             }
         }
@@ -287,6 +287,15 @@ mod tests {
         assert_eq!(s.floor_local_desk(4), 0);
         assert_eq!(s.floor_of(9), 2);
         assert_eq!(s.floor_of(10), 4);
+    }
+
+    #[test]
+    fn floor_of_leading_zero_capacity_floors() {
+        let s = SceneState::new([0, 0, 6, 4, 2]);
+        // F0 and F1 have zero capacity, desk 0 belongs to F2
+        assert_eq!(s.floor_of(0), 2);
+        assert_eq!(s.floor_of(5), 2);
+        assert_eq!(s.floor_of(6), 3);
     }
 
     #[test]

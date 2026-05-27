@@ -25,6 +25,7 @@ impl ClaudeCodeSource {
         if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
             return PathBuf::from(format!("{dir}/ascii-agents.sock"));
         }
+        // SAFETY: getuid() is a trivial syscall with no pointer args; cannot fail.
         let uid = unsafe { libc::getuid() };
         PathBuf::from(format!("/tmp/ascii-agents-{uid}.sock"))
     }

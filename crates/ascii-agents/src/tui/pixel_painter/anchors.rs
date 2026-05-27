@@ -102,7 +102,7 @@ pub(super) fn waypoint_rank_offset_x(kind: WaypointKind, rank: usize) -> i16 {
     }
 }
 
-pub(super) fn walking_position(from: Point, to: Point, t_x1000: u16) -> Point {
+pub(in crate::tui) fn walking_position(from: Point, to: Point, t_x1000: u16) -> Point {
     let t = t_x1000 as i32;
     let dx = to.x as i32 - from.x as i32;
     let dy = to.y as i32 - from.y as i32;

@@ -31,7 +31,7 @@ use crate::tui::pathfind::Router;
 use crate::tui::pixel_painter::{render_to_rgb_buffer, PixelCtx};
 use crate::tui::pose;
 
-// Re-exports from sibling modules for backwards compatibility.
+// Re-exports so tui_renderer.rs and tui/mod.rs import from one place.
 pub(crate) use crate::tui::hit_test::hit_test_agent;
 pub use crate::tui::hit_test::{
     hit_test_cat, hit_test_coffee_machine, hit_test_from_tui, hit_test_furniture,
@@ -339,30 +339,7 @@ pub(super) fn flush_buffer_to_term_at_offset(
 }
 
 fn flush_buffer_to_term(f: &mut ratatui::Frame<'_>, buf: &RgbBuffer, scene_rect: Rect) {
-    let term_buf = f.buffer_mut();
-    let term_area = term_buf.area;
-    let w = buf.width as usize;
-    let cell_rows = (buf.height / 2) as usize;
-    for cy in 0..cell_rows {
-        for cx in 0..(buf.width as usize) {
-            let x = scene_rect.x + cx as u16;
-            let y = scene_rect.y + cy as u16;
-            if x >= scene_rect.x + scene_rect.width || y >= scene_rect.y + scene_rect.height {
-                continue;
-            }
-            if x >= term_area.width || y >= term_area.height {
-                continue;
-            }
-            let py_top = cy * 2;
-            let py_bot = cy * 2 + 1;
-            let fg = buf.pixels[py_top * w + cx];
-            let bg = buf.pixels[py_bot * w + cx];
-            let cell = &mut term_buf[(x, y)];
-            cell.set_symbol("\u{2580}");
-            cell.fg = Color::Rgb(fg.0, fg.1, fg.2);
-            cell.bg = Color::Rgb(bg.0, bg.1, bg.2);
-        }
-    }
+    flush_buffer_to_term_at_offset(f, buf, scene_rect, 0);
 }
 
 #[cfg(test)]

@@ -76,7 +76,8 @@ pub async fn run_tui(
                 let buf_w = layout.buf_w;
                 let buf_h = layout.buf_h;
                 for floor_idx in 0..MAX_FLOORS {
-                    let seed = (floor_idx as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                    let seed =
+                        (floor_idx as u64).wrapping_mul(crate::tui::floor::FLOOR_SEED_MULTIPLIER);
                     let mut capacity =
                         SceneLayout::compute_with_seed(buf_w, buf_h, MAX_VISIBLE_DESKS, seed)
                             .map(|l| l.home_desks.len())
