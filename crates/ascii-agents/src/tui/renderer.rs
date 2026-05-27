@@ -309,6 +309,7 @@ pub(super) fn flush_buffer_to_term_at_offset(
     y_offset: i32,
 ) {
     let term_buf = f.buffer_mut();
+    let term_area = term_buf.area;
     let w = buf.width as usize;
     let cell_rows = (buf.height / 2) as usize;
     for cy in 0..cell_rows {
@@ -320,6 +321,9 @@ pub(super) fn flush_buffer_to_term_at_offset(
             let x = scene_rect.x + cx as u16;
             let y = scene_rect.y + target_y as u16;
             if x >= scene_rect.x + scene_rect.width {
+                continue;
+            }
+            if x >= term_area.width || y >= term_area.height {
                 continue;
             }
             let py_top = cy * 2;
@@ -336,6 +340,7 @@ pub(super) fn flush_buffer_to_term_at_offset(
 
 fn flush_buffer_to_term(f: &mut ratatui::Frame<'_>, buf: &RgbBuffer, scene_rect: Rect) {
     let term_buf = f.buffer_mut();
+    let term_area = term_buf.area;
     let w = buf.width as usize;
     let cell_rows = (buf.height / 2) as usize;
     for cy in 0..cell_rows {
@@ -343,6 +348,9 @@ fn flush_buffer_to_term(f: &mut ratatui::Frame<'_>, buf: &RgbBuffer, scene_rect:
             let x = scene_rect.x + cx as u16;
             let y = scene_rect.y + cy as u16;
             if x >= scene_rect.x + scene_rect.width || y >= scene_rect.y + scene_rect.height {
+                continue;
+            }
+            if x >= term_area.width || y >= term_area.height {
                 continue;
             }
             let py_top = cy * 2;
