@@ -64,24 +64,32 @@ pub fn load(path: &Path) -> AppConfig {
 }
 
 pub fn save(path: &Path, theme_name: &str) -> Result<()> {
-    if let Some(parent) = path.parent() {
+    // Resolve symlinks so atomic rename targets the real file,
+    // not the symlink itself (critical for stow-managed configs).
+    // canonicalize handles relative symlink targets correctly.
+    let real_path = if path.is_symlink() {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else {
+        path.to_path_buf()
+    };
+    if let Some(parent) = real_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let lock_path = path.with_extension("toml.lock");
+    let lock_path = real_path.with_extension("toml.lock");
     let lock_file = std::fs::File::create(&lock_path)?;
     fs2::FileExt::lock_exclusive(&lock_file)?;
 
-    let mut cfg = if path.exists() {
-        load(path)
+    let mut cfg = if real_path.exists() {
+        load(&real_path)
     } else {
         AppConfig::default()
     };
     cfg.theme = Some(theme_name.to_string());
 
     let contents = toml::to_string_pretty(&cfg)?;
-    let tmp = path.with_extension("toml.tmp");
+    let tmp = real_path.with_extension("toml.tmp");
     std::fs::write(&tmp, &contents)?;
-    std::fs::rename(&tmp, path)?;
+    std::fs::rename(&tmp, &real_path)?;
     // Lock released on drop
     Ok(())
 }

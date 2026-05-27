@@ -140,13 +140,29 @@ pub fn load_pack(dir: &Path) -> Result<Pack> {
 
     let palette = build_palette(&parsed.palette)?;
 
+    let canon_dir = dir
+        .canonicalize()
+        .with_context(|| format!("canonicalizing {}", dir.display()))?;
+
     let mut animations = HashMap::new();
     for (anim_name, anim) in parsed.animations {
         let mut frames = Vec::new();
         for fname in &anim.frames {
+            if Path::new(fname)
+                .components()
+                .any(|c| c == std::path::Component::ParentDir)
+            {
+                bail!("frame path {:?} contains '..' and is not allowed", fname);
+            }
             let path = dir.join(fname);
-            let src = std::fs::read_to_string(&path)
-                .with_context(|| format!("reading {}", path.display()))?;
+            let canon_path = path
+                .canonicalize()
+                .with_context(|| format!("resolving {}", path.display()))?;
+            if !canon_path.starts_with(&canon_dir) {
+                bail!("frame path {:?} escapes the pack directory", fname);
+            }
+            let src = std::fs::read_to_string(&canon_path)
+                .with_context(|| format!("reading {}", canon_path.display()))?;
             let mut decoded = parse_sprite_file(&src, &palette)
                 .with_context(|| format!("decoding {}", path.display()))?;
             frames.append(&mut decoded);

@@ -106,6 +106,33 @@ fn default_pack_passes_validation() {
 }
 
 #[test]
+fn robot_pack_passes_validation() {
+    let pack = load_pack(Path::new("../ascii-agents/sprites/robot")).unwrap();
+    let report = validate_pack_animations(&pack);
+    assert!(
+        report.missing_required.is_empty(),
+        "missing required: {:?}",
+        report.missing_required
+    );
+    assert!(
+        report.insufficient_frames.is_empty(),
+        "insufficient frames: {:?}",
+        report.insufficient_frames
+    );
+}
+
+#[test]
+fn skeleton_pack_passes_validation() {
+    let pack = load_pack(Path::new("../ascii-agents/sprites/skeleton")).unwrap();
+    let report = validate_pack_animations(&pack);
+    assert!(
+        report.missing_required.is_empty(),
+        "missing required: {:?}",
+        report.missing_required
+    );
+}
+
+#[test]
 fn mini_pack_reports_missing_required() {
     let pack = load_pack(Path::new("tests/fixtures/sprites/mini_pack")).unwrap();
     let report = validate_pack_animations(&pack);

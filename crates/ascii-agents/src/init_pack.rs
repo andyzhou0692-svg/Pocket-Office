@@ -4,6 +4,9 @@ use anyhow::{bail, Result};
 
 pub fn init_pack(dest: &Path, force: bool) -> Result<()> {
     if dest.exists() && !force {
+        if !dest.is_dir() {
+            bail!("{} exists and is not a directory", dest.display());
+        }
         let has_files = std::fs::read_dir(dest)?.next().is_some();
         if has_files {
             bail!(
