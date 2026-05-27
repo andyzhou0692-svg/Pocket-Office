@@ -82,20 +82,23 @@ cargo build --release --example snapshot
 
 See `.claude/skills/beautify-decoration/SKILL.md` for the full iteration loop, self-critique checklist, and sprite-format pitfalls.
 
-### Pre-push preflight
+### Pre-commit / pre-push preflight
 
-`scripts/preflight.sh` mirrors `.github/workflows/ci.yml` (rustfmt + clippy with
-`-D warnings` + workspace tests). Run it locally to avoid the round-trip of
-"push → wait for CI → red → fix → push again."
+`scripts/preflight.sh` mirrors `.github/workflows/ci.yml` (rustfmt + cargo-machete +
+cargo-deny + clippy with `-D warnings` + workspace tests). Run it locally to avoid
+the round-trip of "push → wait for CI → red → fix → push again."
 
-`.githooks/pre-push` calls it automatically. Activate the hook **once per
-clone**:
+`.githooks/pre-commit` runs the full preflight before every commit.
+`.githooks/pre-push` re-runs it only if HEAD changed since the last pre-commit pass
+(stampfile in `target/.preflight/last-commit`).
+
+Activate hooks **once per clone**:
 
 ```
 git config core.hooksPath .githooks
 ```
 
-Bypass in an emergency with `git push --no-verify` or `SKIP_PREFLIGHT=1 git push`.
+Bypass in an emergency with `git commit --no-verify` or `SKIP_PREFLIGHT=1 git push`.
 
 ## Conventions
 

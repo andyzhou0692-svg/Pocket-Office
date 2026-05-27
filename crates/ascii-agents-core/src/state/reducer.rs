@@ -72,7 +72,8 @@ impl Reducer {
         self.sweep_stale(scene, now);
         // Clean up active_tasks entries for agents that never got a
         // SessionStart (Task event arrived before JSONL created the slot).
-        self.active_tasks.retain(|id, _| scene.agents.contains_key(id));
+        self.active_tasks
+            .retain(|id, _| scene.agents.contains_key(id));
     }
 
     pub fn apply(

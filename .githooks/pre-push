@@ -6,4 +6,13 @@
 #
 # Bypass for emergencies with `--no-verify` or `SKIP_PREFLIGHT=1`.
 set -euo pipefail
-exec "$(git rev-parse --show-toplevel)/scripts/preflight.sh"
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+STAMP="${REPO_ROOT}/target/.preflight/last-commit"
+
+if [[ -f "$STAMP" ]] && [[ "$(cat "$STAMP")" == "$(git rev-parse HEAD)" ]]; then
+    printf '\033[32m[pre-push] preflight already passed for %s — skipping\033[0m\n' "$(git rev-parse --short HEAD)" >&2
+    exit 0
+fi
+
+exec "${REPO_ROOT}/scripts/preflight.sh"

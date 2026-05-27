@@ -23,6 +23,12 @@ step 'cargo fmt --all --check'
 # shellcheck disable=SC2016  # backticks here are rendered as literal text, not shell exec
 cargo fmt --all --check || fail 'rustfmt: run `cargo fmt --all` and recommit'
 
+step 'cargo machete'
+cargo machete || fail 'unused dependencies: remove them and recommit'
+
+step 'cargo deny check'
+cargo deny check 2>&1 || fail 'cargo-deny: fix the advisory/license/ban issues above'
+
 step 'cargo clippy --workspace --all-targets --features ascii-agents-core/test-renderer -- -D warnings'
 cargo clippy --workspace --all-targets \
     --features ascii-agents-core/test-renderer \
@@ -32,5 +38,10 @@ cargo clippy --workspace --all-targets \
 step 'cargo test --workspace --features ascii-agents-core/test-renderer'
 cargo test --workspace --features ascii-agents-core/test-renderer \
     || fail 'tests: fix the failing tests above and recommit'
+
+# Stamp so pre-push can skip redundant re-run.
+STAMP_DIR="${REPO_ROOT}/target/.preflight"
+mkdir -p "$STAMP_DIR"
+git rev-parse HEAD > "$STAMP_DIR/last-commit" 2>/dev/null || true
 
 printf '\033[32m[preflight] all checks passed\033[0m\n' >&2

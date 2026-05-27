@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Pre-commit hook: runs rustfmt + clippy + tests before allowing a commit.
+# Set up once per clone with:
+#
+#   git config core.hooksPath .githooks
+#
+# Bypass for emergencies with `--no-verify` or `SKIP_PREFLIGHT=1`.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/preflight.sh"
