@@ -124,6 +124,35 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         self.current_floor
     }
 
+    /// Read a floor's per-agent motion map (test harness only) — used to
+    /// assert that an off-screen floor freezes and resyncs on return.
+    #[cfg(test)]
+    pub fn floor_motion(
+        &self,
+        floor: usize,
+    ) -> Option<&std::collections::HashMap<pixtuoid_core::AgentId, crate::tui::motion::MotionState>>
+    {
+        self.floor_ctxs.get(floor).map(|f| &f.motion)
+    }
+
+    /// Read a specific floor's pixel buffer (test harness only). `None` if the
+    /// floor isn't allocated — lets a test assert vector growth and that the
+    /// transition path paints both the from- and to-floor buffers.
+    #[cfg(test)]
+    pub fn floor_buf(&self, floor: usize) -> Option<&RgbBuffer> {
+        self.floor_bufs.get(floor)
+    }
+
+    /// Seed coffee-carrier state directly (test harness only). The production
+    /// path sets these on the coffee-carrier edge inside `render`, which
+    /// requires driving a full pantry wander trip; this injects the end state
+    /// so steam-window rendering can be exercised in isolation.
+    #[cfg(test)]
+    pub fn inject_coffee(&mut self, id: AgentId, fetched_at: SystemTime) {
+        self.coffee_holders.insert(id);
+        self.coffee_fetched_at.insert(id, fetched_at);
+    }
+
     pub fn cached_layout(&self) -> Option<&Layout> {
         self.cached_layout.as_ref()
     }
@@ -694,3 +723,17 @@ fn render_transition_floor(
     // ≤900ms slide, so refresh door_anim_max_ms for the next frame.
     fctx.recompute_door_anim_max_ms(now);
 }
+
+/// Test-only access to the rendered ratatui frame. This is rendered OUTPUT
+/// (what the terminal would show), so widget/HUD/tooltip/footer assertions
+/// inspect it rather than internal state. Specialised to `TestBackend` because
+/// only it exposes the post-draw cell buffer.
+#[cfg(test)]
+impl TuiRenderer<ratatui::backend::TestBackend> {
+    pub fn frame_buffer(&self) -> &ratatui::buffer::Buffer {
+        self.terminal.backend().buffer()
+    }
+}
+
+#[cfg(test)]
+mod harness;
