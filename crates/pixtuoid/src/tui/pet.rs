@@ -1,6 +1,6 @@
 use std::time::SystemTime;
 
-use crate::tui::layout::Point;
+use crate::tui::layout::{Point, Size};
 
 /// Duration (ms) the pet stays frozen in place after being petted.
 pub const PET_DURATION_MS: u64 = 2000;
@@ -28,6 +28,15 @@ impl PetState {
             .map(|d| d.as_millis() as u64)
             .unwrap_or(0)
     }
+}
+
+/// The pet's resolved render frame for one tick (position + anim + kind),
+/// produced by the pixel pass and consumed by the renderer/tooltip/hit-test.
+#[derive(Clone, Copy)]
+pub struct PetFrame {
+    pub pos: Point,
+    pub anim: &'static str,
+    pub kind: PetKind,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -92,13 +101,13 @@ impl PetKind {
         }
     }
 
-    pub fn hitbox(self, anim_name: &str) -> (u16, u16) {
+    pub fn hitbox(self, anim_name: &str) -> Size {
         if anim_name == self.walk_anim() {
-            (8, 6)
+            Size { w: 8, h: 6 }
         } else if anim_name == self.sleep_anim() {
-            (6, 4)
+            Size { w: 6, h: 4 }
         } else {
-            (6, 6)
+            Size { w: 6, h: 6 }
         }
     }
 }
@@ -215,8 +224,8 @@ mod tests {
     #[test]
     fn hitbox_walk_larger_than_sit() {
         for &kind in PetKind::ALL {
-            let (ww, _) = kind.hitbox(kind.walk_anim());
-            let (sw, _) = kind.hitbox(kind.sit_anim());
+            let ww = kind.hitbox(kind.walk_anim()).w;
+            let sw = kind.hitbox(kind.sit_anim()).w;
             assert!(ww > sw, "{:?} walk should be wider than sit", kind);
         }
     }
@@ -224,15 +233,15 @@ mod tests {
     #[test]
     fn hitbox_sleep_shorter_than_sit() {
         for &kind in PetKind::ALL {
-            let (_, sh) = kind.hitbox(kind.sit_anim());
-            let (_, slh) = kind.hitbox(kind.sleep_anim());
+            let sh = kind.hitbox(kind.sit_anim()).h;
+            let slh = kind.hitbox(kind.sleep_anim()).h;
             assert!(slh < sh, "{:?} sleep should be shorter than sit", kind);
         }
     }
 
     #[test]
     fn hitbox_unknown_anim_returns_default() {
-        assert_eq!(PetKind::Cat.hitbox("unknown"), (6, 6));
-        assert_eq!(PetKind::Dog.hitbox("unknown"), (6, 6));
+        assert_eq!(PetKind::Cat.hitbox("unknown"), Size { w: 6, h: 6 });
+        assert_eq!(PetKind::Dog.hitbox("unknown"), Size { w: 6, h: 6 });
     }
 }

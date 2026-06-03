@@ -24,9 +24,9 @@ use ratatui::Terminal;
 use ratatui::layout::Rect;
 
 use crate::tui::floor::{build_floor_scene, num_floors, FloorCtx, FloorMeta, FloorTransition};
-use crate::tui::layout::{Layout, Point, MAX_VISIBLE_DESKS};
+use crate::tui::layout::{Layout, MAX_VISIBLE_DESKS};
 use crate::tui::pathfind::Router;
-use crate::tui::pet::PetKind;
+use crate::tui::pet::PetFrame;
 use crate::tui::pixel_painter::{render_to_rgb_buffer, PixelCtx};
 use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset, DrawCtx, PetState};
 
@@ -43,7 +43,7 @@ pub struct TuiRenderer<B: Backend<Error: Send + Sync + 'static>> {
     theme_picker: Option<usize>,
     cached_layout: Option<Layout>,
     active_pet: Option<PetState>,
-    last_pet_pos: Option<(Point, &'static str, PetKind)>,
+    last_pet_pos: Option<PetFrame>,
     /// Configured pets (kind + resolved display name), in order. Resolved once
     /// at startup by `config::resolve_pets`. `select_pet_for_floor` picks one
     /// per floor; the picked `&Pet` flows into `DrawCtx.floor_pet`. Replaces the
@@ -83,7 +83,7 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
     ) -> Self {
         Self {
             terminal,
-            floor_bufs: vec![RgbBuffer::filled(0, 0, Rgb(0, 0, 0))],
+            floor_bufs: vec![RgbBuffer::filled(0, 0, Rgb { r: 0, g: 0, b: 0 })],
             floor_ctxs: vec![FloorCtx::new()],
             current_floor: 0,
             transition: None,
@@ -275,7 +275,7 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         self.active_pet.as_ref()
     }
 
-    pub fn cached_pet_pos(&self) -> Option<(Point, &'static str, PetKind)> {
+    pub fn cached_pet_pos(&self) -> Option<PetFrame> {
         self.last_pet_pos
     }
 
@@ -316,7 +316,8 @@ impl<B: Backend<Error: Send + Sync + 'static>> Renderer for TuiRenderer<B> {
 
         // Grow vectors if needed.
         while self.floor_bufs.len() < nf {
-            self.floor_bufs.push(RgbBuffer::filled(0, 0, Rgb(0, 0, 0)));
+            self.floor_bufs
+                .push(RgbBuffer::filled(0, 0, Rgb { r: 0, g: 0, b: 0 }));
         }
         while self.floor_ctxs.len() < nf {
             self.floor_ctxs.push(FloorCtx::new());

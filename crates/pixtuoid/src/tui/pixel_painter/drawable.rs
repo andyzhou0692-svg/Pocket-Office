@@ -31,7 +31,7 @@ use super::furniture::{
 };
 use super::paint_character_at;
 use crate::tui::frame_cache::FrameCache;
-use crate::tui::layout::{Layout, Point, DESK_H, DESK_W};
+use crate::tui::layout::{Layout, Point, Size, DESK_H, DESK_W};
 use crate::tui::pathfind::{find_path, snap_point_to_walkable};
 use crate::tui::pet::PetKind;
 use pixtuoid_core::walkable::OccupancyOverlay;
@@ -161,10 +161,9 @@ pub(super) enum DrawableKind<'a> {
     /// Meeting-room coat rack (pole + base + coat blobs), y-sorted at its base
     /// row so a character walking in front of it occludes it (and one behind
     /// is occluded BY it) — was painted in the background pass, always under
-    /// every character. `cy` is the pole top; the base sits at `cy + 7`.
+    /// every character. `pos` is the pole top; the base sits at `pos.y + 7`.
     CoatRack {
-        cx: u16,
-        cy: u16,
+        pos: Point,
     },
 }
 
@@ -520,7 +519,7 @@ pub(super) fn paint_drawable(
         DrawableKind::MeetingTable { pos } => {
             // Sprite size from the table (== footprint for the meeting table) so
             // the painted coffee table can't drift from the masked obstacle.
-            let (w, h) =
+            let Size { w, h } =
                 crate::tui::layout::furniture_def(crate::tui::layout::Furniture::MeetingTable)
                     .visual;
             paint_coffee_table(buf, pos.x, pos.y, w, h, theme);
@@ -679,8 +678,8 @@ pub(super) fn paint_drawable(
         DrawableKind::RoomWallH { x0, x1, y_top } => {
             super::paint_glass_wall_h(buf, theme, *x0, *x1, *y_top);
         }
-        DrawableKind::CoatRack { cx, cy } => {
-            let (cx, cy) = (*cx, *cy);
+        DrawableKind::CoatRack { pos } => {
+            let (cx, cy) = (pos.x, pos.y);
             let pole = theme.furniture.wood_trim;
             let base = theme.furniture.wood_top;
             let coats = theme.appliance.coats;

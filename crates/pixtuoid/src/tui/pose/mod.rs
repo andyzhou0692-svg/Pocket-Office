@@ -21,7 +21,7 @@ use pixtuoid_core::walkable::OccupancyOverlay;
 use pixtuoid_core::AgentId;
 
 use crate::tui::motion::{
-    advance_wander, octile_path_len, MotionState, WalkPathSnapshot, WanderPhase,
+    advance_wander, octile_path_len, MotionState, WalkLeg, WalkPathSnapshot, WanderPhase,
 };
 
 pub use pixtuoid_core::pose::{
@@ -34,6 +34,17 @@ pub use pixtuoid_core::pose::{
 
 use crate::tui::layout::{desk_walk_anchor, Layout, Point, WaypointKind};
 use crate::tui::pathfind::Router;
+
+/// The per-frame routing engine state threaded through pose derivation,
+/// character anchoring, hit-testing and label placement. `now`/`layout` stay
+/// separate args (frame inputs, not engine state). `overlay` is shared (&) —
+/// none of these fns mutate it; router/history/motion are &mut.
+pub struct RouteCtx<'a> {
+    pub router: &'a mut dyn Router,
+    pub overlay: &'a OccupancyOverlay,
+    pub history: &'a mut PoseHistory,
+    pub motion: &'a mut HashMap<AgentId, MotionState>,
+}
 
 /// Per-agent rendered position cache. Updated each frame by
 /// `derive_with_routing`, consulted on state transitions so an agent
@@ -159,11 +170,12 @@ pub fn derive_with_routing(
     slot: &AgentSlot,
     now: SystemTime,
     layout: &Layout,
-    router: &mut dyn Router,
-    overlay: &OccupancyOverlay,
-    history: &mut PoseHistory,
-    motion: &mut HashMap<AgentId, MotionState>,
+    rctx: &mut RouteCtx<'_>,
 ) -> Option<Pose> {
+    let router = &mut *rctx.router;
+    let overlay = rctx.overlay;
+    let history = &mut *rctx.history;
+    let motion = &mut *rctx.motion;
     let desk = *layout.home_desks.get(slot.desk_index)?;
 
     // ---- EXIT branch -------------------------------------------------------
@@ -182,10 +194,12 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    router,
-                    overlay,
-                    history,
-                    motion,
+                    &mut RouteCtx {
+                        router,
+                        overlay,
+                        history,
+                        motion,
+                    },
                     raw,
                     Settle::None,
                 ),
@@ -232,14 +246,18 @@ pub fn derive_with_routing(
             let profile = walk_profile(path_len, WalkIntent::Exit, slot.agent_id);
             // Store the ORIGIN (chair when a desk exit) so the render can detect
             // the desk-departure and re-derive the approach+settle.
-            mstate.exit = Some((exit_time, profile, from));
+            mstate.exit = Some(WalkLeg {
+                started_at: exit_time,
+                profile,
+                from,
+            });
         }
 
         // Destructure without moving the non-Copy profile (Correction L).
         let e = mstate.exit.as_ref()?;
-        let started_at = e.0;
-        let profile = &e.1;
-        let stored_from = e.2;
+        let started_at = e.started_at;
+        let profile = &e.profile;
+        let stored_from = e.from;
 
         let elapsed_ms = now
             .duration_since(started_at)
@@ -282,10 +300,12 @@ pub fn derive_with_routing(
             slot,
             now,
             layout,
-            router,
-            overlay,
-            history,
-            motion,
+            &mut RouteCtx {
+                router,
+                overlay,
+                history,
+                motion,
+            },
             Pose::Walking {
                 from,
                 to: door_target,
@@ -347,10 +367,12 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    router,
-                    overlay,
-                    history,
-                    motion,
+                    &mut RouteCtx {
+                        router,
+                        overlay,
+                        history,
+                        motion,
+                    },
                     Pose::Walking {
                         from: door,
                         to: approach,
@@ -424,10 +446,12 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    router,
-                    overlay,
-                    history,
-                    motion,
+                    &mut RouteCtx {
+                        router,
+                        overlay,
+                        history,
+                        motion,
+                    },
                     Pose::Walking {
                         from,
                         to: dest,
@@ -488,10 +512,12 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    router,
-                    overlay,
-                    history,
-                    motion,
+                    &mut RouteCtx {
+                        router,
+                        overlay,
+                        history,
+                        motion,
+                    },
                     Pose::Walking {
                         from: wander_dest,
                         to: snap_target,
@@ -551,7 +577,7 @@ pub fn derive_with_routing(
         // the ARM window (only snap-back for a RECENT flip) — NOT a render cap; the
         // render runs until the physics walk arrives, so it never teleports.
         let already_armed =
-            matches!(&ms_entry.snap_back, Some((s, _, _)) if *s == slot.state_started_at);
+            matches!(&ms_entry.snap_back, Some(leg) if leg.started_at == slot.state_started_at);
         if !already_armed {
             // A snap_back here is STALE (a previous transition) — clear it, then arm
             // a fresh leg, but only for a recent flip (the arm window).
@@ -579,7 +605,11 @@ pub fn derive_with_routing(
                         let len = octile_path_len(&[prev, snap_target])
                             + chair_settle.map_or(0, |c| octile_distance(snap_target, c));
                         let p = walk_profile(len, WalkIntent::SnapBack, slot.agent_id);
-                        ms_entry.snap_back = Some((slot.state_started_at, p, prev));
+                        ms_entry.snap_back = Some(WalkLeg {
+                            started_at: slot.state_started_at,
+                            profile: p,
+                            from: prev,
+                        });
                     }
                 }
             }
@@ -588,7 +618,11 @@ pub fn derive_with_routing(
         // (different `started_at`) fails the guard → `raw`; it is re-armed or cleared
         // on a later frame.
         match ms_entry.snap_back.clone() {
-            Some((started_at, profile, snap_prev)) if started_at == slot.state_started_at => {
+            Some(WalkLeg {
+                started_at,
+                profile,
+                from: snap_prev,
+            }) if started_at == slot.state_started_at => {
                 let elapsed_ms = now
                     .duration_since(started_at)
                     .unwrap_or(Duration::ZERO)
@@ -644,10 +678,12 @@ pub fn derive_with_routing(
         slot,
         now,
         layout,
-        router,
-        overlay,
-        history,
-        motion,
+        &mut RouteCtx {
+            router,
+            overlay,
+            history,
+            motion,
+        },
         pose,
         final_settle,
     )
@@ -660,7 +696,6 @@ pub fn derive_with_routing(
 /// This is the single shared helper for entry, exit, snap-back, and
 /// state-driven walks (Correction B). Records history with `now` (not
 /// `slot.last_event_at`) so snap-back lookups are fresh.
-#[allow(clippy::too_many_arguments)]
 /// How a walk leg extends its polyline onto a seat — a short terminal motion the
 /// A* router never plans (the seat cell may be blocked). `End` = sit down on
 /// arrival (append the seat); `Start` = stand up on departure (prepend it);
@@ -676,18 +711,18 @@ enum Settle {
     Both { start: Point, end: Point },
 }
 
-#[allow(clippy::too_many_arguments)]
 fn route_walking_pose(
     slot: &AgentSlot,
     now: SystemTime,
     layout: &Layout,
-    router: &mut dyn Router,
-    overlay: &OccupancyOverlay,
-    history: &mut PoseHistory,
-    motion: &mut HashMap<AgentId, MotionState>,
+    rctx: &mut RouteCtx<'_>,
     pose: Pose,
     settle: Settle,
 ) -> Option<Pose> {
+    let router = &mut *rctx.router;
+    let overlay = rctx.overlay;
+    let history = &mut *rctx.history;
+    let motion = &mut *rctx.motion;
     let Pose::Walking {
         from,
         to,

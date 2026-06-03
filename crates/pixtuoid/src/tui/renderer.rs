@@ -26,10 +26,10 @@ use ratatui::style::Color;
 use ratatui::Terminal;
 
 use crate::tui::frame_cache::FrameCache;
-use crate::tui::layout::{Layout, Point};
+use crate::tui::layout::Layout;
 use crate::tui::motion::MotionState;
 use crate::tui::pathfind::Router;
-use crate::tui::pet::PetKind;
+use crate::tui::pet::PetFrame;
 use crate::tui::pixel_painter::{render_to_rgb_buffer, PixelCtx};
 use crate::tui::pose;
 
@@ -95,7 +95,7 @@ pub struct DrawCtx<'a> {
     pub floor_info: Option<FloorInfo>,
     pub floor: crate::tui::floor::FloorMeta,
     pub active_pet: Option<&'a PetState>,
-    pub last_pet_pos: Option<(Point, &'static str, PetKind)>,
+    pub last_pet_pos: Option<PetFrame>,
     /// The pet assigned to this floor — its kind AND resolved display name.
     /// `None` when no pets are configured or none maps to this floor seed.
     /// Replaces the former `floor_pet_kind` + `pet_names` pair: the name rides
@@ -262,10 +262,12 @@ pub fn draw_scene<B: Backend<Error: Send + Sync + 'static>>(
             scene,
             &layout,
             now,
-            ctx.router,
-            ctx.overlay,
-            ctx.history,
-            ctx.motion,
+            &mut crate::tui::pose::RouteCtx {
+                router: &mut *ctx.router,
+                overlay: &*ctx.overlay,
+                history: &mut *ctx.history,
+                motion: &mut *ctx.motion,
+            },
             mx,
             my,
         )
@@ -292,10 +294,12 @@ pub fn draw_scene<B: Backend<Error: Send + Sync + 'static>>(
             scene,
             &layout,
             now,
-            ctx.router,
-            ctx.overlay,
-            ctx.history,
-            ctx.motion,
+            &mut crate::tui::pose::RouteCtx {
+                router: &mut *ctx.router,
+                overlay: &*ctx.overlay,
+                history: &mut *ctx.history,
+                motion: &mut *ctx.motion,
+            },
             actual_scene,
             hovered,
             theme,
@@ -325,7 +329,12 @@ pub fn draw_scene<B: Backend<Error: Send + Sync + 'static>>(
             if let Some((mx, my)) = mouse_pos {
                 if hit_test_coffee_machine(&layout, mx, my) {
                     paint_coffee_tooltip(f, mx, my, actual_scene, theme);
-                } else if let Some((pet_pos, anim, kind)) = ctx.last_pet_pos {
+                } else if let Some(PetFrame {
+                    pos: pet_pos,
+                    anim,
+                    kind,
+                }) = ctx.last_pet_pos
+                {
                     if hit_test_pet(kind, pet_pos, anim, mx, my) {
                         let on_cooldown = ctx.active_pet.is_some_and(|p| p.is_active(now));
                         // `last_pet_pos` is only Some on the normal render path,
@@ -411,8 +420,8 @@ pub(super) fn flush_buffer_to_term_at_offset(
             let bg = buf.pixels[py_bot * w + cx];
             let cell = &mut term_buf[(x, y)];
             cell.set_symbol("\u{2580}");
-            cell.fg = Color::Rgb(fg.0, fg.1, fg.2);
-            cell.bg = Color::Rgb(bg.0, bg.1, bg.2);
+            cell.fg = Color::Rgb(fg.r, fg.g, fg.b);
+            cell.bg = Color::Rgb(bg.r, bg.g, bg.b);
         }
     }
 }
