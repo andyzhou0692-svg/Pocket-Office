@@ -1,10 +1,12 @@
 ---
+import { asset } from '../consts';
+
 const steps = [
   {
     n: '01',
     cmd: 'pixtuoid install-hooks',
     title: 'Hook in',
-    body: 'One command wires pixtuoid into Claude Code and/or Codex. It only listens for lifecycle events — it never touches your code.',
+    body: 'One command wires pixtuoid into your agent CLIs. It only listens for lifecycle events — it never touches your code.',
   },
   {
     n: '02',
@@ -43,6 +45,9 @@ const steps = [
         ))
       }
     </ol>
+    <p class="how__more reveal">
+      <a href={asset('architecture')}>See how it works under the hood →</a>
+    </p>
   </div>
 </section>
 
@@ -71,8 +76,9 @@ const steps = [
   }
   .how__n {
     font-family: var(--font-display);
-    font-weight: 700;
-    font-size: 2.2rem;
+    font-weight: 400;
+    font-synthesis: none;
+    font-size: 2.4rem;
     color: color-mix(in srgb, var(--coral) 55%, transparent);
     line-height: 1;
   }
@@ -95,5 +101,22 @@ const steps = [
   .how__detail p {
     color: var(--fg-muted);
     font-size: 0.98rem;
+  }
+  .how__more {
+    margin-top: clamp(1.4rem, 3vw, 2.2rem);
+    font-family: var(--font-mono);
+    font-size: 0.9rem;
+  }
+  .how__more a {
+    color: var(--coral-deep);
+    font-weight: 700;
+    text-decoration: none;
+  }
+  .how__more a:hover {
+    color: var(--coral);
+  }
+  :global([data-theme='night']) .how__more a,
+  :global([data-theme='dracula']) .how__more a {
+    color: var(--coral);
   }
 </style>

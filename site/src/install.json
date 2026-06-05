@@ -1,0 +1,23 @@
+[
+  {
+    "id": "brew",
+    "label": "Homebrew",
+    "cmds": ["brew install IvanWng97/pixtuoid/pixtuoid"],
+    "readmeCheck": true
+  },
+  {
+    "id": "cargo",
+    "label": "Cargo",
+    "cmds": ["cargo install pixtuoid pixtuoid-hook"],
+    "readmeCheck": true
+  },
+  {
+    "id": "deb",
+    "label": "Debian",
+    "cmds": [
+      "# download both .debs from the Releases page",
+      "sudo dpkg -i pixtuoid_*.deb pixtuoid-hook_*.deb"
+    ],
+    "readmeCheck": true
+  }
+]

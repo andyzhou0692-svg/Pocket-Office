@@ -3,6 +3,7 @@ import { defineConfig } from 'astro/config';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { posix } from 'node:path';
+import rehypeMermaid from 'rehype-mermaid';
 
 // Single-source the displayed version from the workspace Cargo.toml so the boot
 // intro never goes stale on a release bump. Scope the match to the
@@ -29,6 +30,34 @@ const missingDemos = themeIds.filter(
 if (missingDemos.length) {
   throw new Error(
     `astro.config: themes.json lists theme(s) with no public/demos/theme_<id>.png — run scripts/gen-demos.sh: ${missingDemos.join(', ')}`
+  );
+}
+
+// Same guard for the weather gallery: every weather.json id needs a weather_<id>.png.
+const weatherIds = /** @type {{ id: string }[]} */ (
+  JSON.parse(readFileSync(fileURLToPath(new URL('./src/weather.json', import.meta.url)), 'utf8'))
+).map((w) => w.id);
+const missingWeather = weatherIds.filter(
+  (id) => !existsSync(fileURLToPath(new URL(`./public/demos/weather_${id}.png`, import.meta.url)))
+);
+if (missingWeather.length) {
+  throw new Error(
+    `astro.config: weather.json lists weather(s) with no public/demos/weather_<id>.png — run scripts/gen-demos.sh: ${missingWeather.join(', ')}`
+  );
+}
+
+// And for the Features bento: every features.json card.img must exist in
+// public/demos/ (day/night/theme shots referenced by free-form filename sit
+// outside the two id-based guards above — a typo'd img would deploy a 404 card).
+const cardImgs = /** @type {{ card?: { img?: string } }[]} */ (
+  JSON.parse(readFileSync(fileURLToPath(new URL('./src/features.json', import.meta.url)), 'utf8'))
+).flatMap((f) => (f.card?.img ? [f.card.img] : []));
+const missingCards = cardImgs.filter(
+  (img) => !existsSync(fileURLToPath(new URL(`./public/demos/${img}`, import.meta.url)))
+);
+if (missingCards.length) {
+  throw new Error(
+    `astro.config: features.json card img(s) missing from public/demos/ — run scripts/gen-demos.sh or fix the filename: ${missingCards.join(', ')}`
   );
 }
 
@@ -71,6 +100,21 @@ export default defineConfig({
   site: 'https://ivanwng97.github.io',
   base: '/pixtuoid',
   trailingSlash: 'ignore',
-  markdown: { rehypePlugins: [rehypeRepoLinks] },
+  markdown: {
+    // keep ```mermaid as a RAW code node — Shiki would otherwise highlight it
+    // into a <pre> before rehype-mermaid can turn it into an inline SVG.
+    syntaxHighlight: { type: 'shiki', excludeLangs: ['mermaid'] },
+    rehypePlugins: [
+      // build-time render: ```mermaid → inline <svg> (zero client JS, CSP-safe).
+      [
+        rehypeMermaid,
+        {
+          strategy: 'inline-svg',
+          mermaidConfig: { theme: 'neutral', flowchart: { htmlLabels: true } },
+        },
+      ],
+      rehypeRepoLinks, // after mermaid so it walks the final tree
+    ],
+  },
   vite: { define: { __PIXTUOID_VERSION__: JSON.stringify(version) } },
 });

@@ -1,14 +1,18 @@
 name: site
 
 on:
-  # site/ also renders ../Cargo.toml (the displayed version) and
-  # ../docs/CONFIGURATION.md (the /config page) at build time, so a change to
-  # either must run this CI too — otherwise a broken build slips through.
+  # site/ also renders ../Cargo.toml (the displayed version) and the docs at
+  # ../docs/{CONFIGURATION,ARCHITECTURE,CONTRIBUTING}.md (the /config, /architecture,
+  # /contributing pages — ARCHITECTURE's mermaid block is rendered to an inline SVG at
+  # build) — so a change to any of them must run this CI too, else a break slips through.
+  # README.md is here too: its Features table is generated from site/src/features.json
+  # and its install commands are checked against site/src/install.json (readme:check
+  # fails on drift), so a direct README edit must run this guard.
   push:
     branches: [main]
-    paths: ['site/**', 'Cargo.toml', 'docs/CONFIGURATION.md', '.github/workflows/site.yml', '.github/workflows/pages.yml']
+    paths: ['site/**', 'Cargo.toml', 'docs/CONFIGURATION.md', 'docs/ARCHITECTURE.md', 'docs/CONTRIBUTING.md', 'README.md', '.github/workflows/site.yml', '.github/workflows/pages.yml']
   pull_request:
-    paths: ['site/**', 'Cargo.toml', 'docs/CONFIGURATION.md', '.github/workflows/site.yml', '.github/workflows/pages.yml']
+    paths: ['site/**', 'Cargo.toml', 'docs/CONFIGURATION.md', 'docs/ARCHITECTURE.md', 'docs/CONTRIBUTING.md', 'README.md', '.github/workflows/site.yml', '.github/workflows/pages.yml']
 
 permissions:
   contents: read
@@ -32,7 +36,21 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
+      # cache the ~92MB Chromium across runs (keyed on the lockfile) so the install
+      # below is a no-op on a hit
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('site/package-lock.json') }}
+      # the /architecture page renders its ```mermaid block to an inline SVG at
+      # build via rehype-mermaid (Playwright) — needs a headless Chromium.
+      - run: npx playwright install --with-deps chromium
       - run: npm run format:check
       - run: npm run lint
       - run: npm run check
+      # README is kept in sync with the site's data sources — the Features table is
+      # generated from src/features.json and the install commands are checked against
+      # src/install.json. Fail if either drifted (`just gen-readme` regenerates).
+      - run: npm run readme:check
       - run: npm run build

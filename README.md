@@ -27,7 +27,10 @@
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> · <a href="#features">Features</a> · <a href="#supported-tools">Supported Tools</a> · <a href="#themes--configuration">Themes & Configuration</a> · <a href="#how-it-works">How It Works</a>
+  <a href="https://ivanwng97.github.io/pixtuoid/"><strong>🖥&#xFE0E; Live demo ↗</strong></a>
+  &nbsp;·&nbsp; <a href="https://ivanwng97.github.io/pixtuoid/architecture">Architecture</a>
+  &nbsp;·&nbsp; <a href="https://ivanwng97.github.io/pixtuoid/config">Configuration</a>
+  &nbsp;·&nbsp; <a href="https://ivanwng97.github.io/pixtuoid/contributing">Contributing</a>
 </p>
 
 ---
@@ -70,6 +73,13 @@ Download from [GitHub Releases](https://github.com/IvanWng97/pixtuoid/releases/l
 | Linux (x86_64, static) | `pixtuoid-v*-x86_64-unknown-linux-musl.tar.gz` |
 | Linux (ARM64) | `pixtuoid-v*-aarch64-unknown-linux-gnu.tar.gz` |
 
+Debian/Ubuntu `.deb`s (amd64/arm64) are on the same page — install the binary
+**and** the hook shim:
+
+```bash
+sudo dpkg -i pixtuoid_*.deb pixtuoid-hook_*.deb
+```
+
 ### Cargo
 
 ```bash
@@ -87,6 +97,7 @@ just build --release
 
 ## Features
 
+<!-- features:start · generated from site/src/features.json by `just gen-readme` — edit the JSON, not this table -->
 | | Feature | Description |
 |---|---|---|
 | 🏢 | **Multi-agent office** | Each agent session gets a desk; overflow agents auto-fill new floors |
@@ -101,6 +112,7 @@ just build --release
 | ☕ | **Coffee run** | Idle agents visit the pantry, carry a cup back to their desk. Cup stays while you work; taken on exit |
 | 💬 | **Pantry chitchat** | 2+ idle agents at the same waypoint trigger speech bubbles with dev-humor snippets |
 | 🛡️ | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block your agent |
+<!-- features:end -->
 
 ## Supported Tools
 
@@ -126,38 +138,12 @@ Press `t` to switch themes with live preview. Your choice persists across sessio
 Settings live in `~/.config/pixtuoid/config.toml` — theme, desk cap, custom pet
 names, and sprite packs. CLI flags override the file (`pixtuoid run --theme dracula`).
 See **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** for the full key reference
-(defaults, system-managed keys) and the custom sprite-pack workflow.
+(defaults, system-managed keys) and the custom sprite-pack workflow — or browse it
+live at **[/config](https://ivanwng97.github.io/pixtuoid/config)**.
 
 ## How It Works
 
-<details>
-<summary><strong>Architecture</strong></summary>
-
-```
-agent tool call ──► agent fires hook ──► pixtuoid-hook (shim)
-                                         │ JSON over Unix socket
-                                         ▼
-                                  /tmp/pixtuoid-{uid}.sock
-                                         │
-                       HookSocketListener ─────► ┐
-                                                 │ (Transport, AgentEvent)
-                       JsonlWatcher       ─────► ┤ shared mpsc channel
-                                                 ▼
-                       Reducer ──► SceneState (watch channel)
-                                         │
-                       TuiRenderer ──► draw_scene @ ~30fps
-                       (pose → pixel_painter → RgbBuffer → half-block → ratatui)
-```
-
-Three Rust crates:
-
-| Crate | Role |
-|---|---|
-| **pixtuoid-core** | Headless library — no terminal deps. Source trait, reducer, pose, layout, sprites. |
-| **pixtuoid** | TUI binary — ratatui + crossterm + tokio. Half-block rendering + theme system. |
-| **pixtuoid-hook** | Tiny shim the agent CLI invokes from hooks. 200ms timeout, always exits 0. |
-
-</details>
+**[How pixtuoid works — the architecture →](https://ivanwng97.github.io/pixtuoid/architecture)** — the producer → reducer → renderer pipeline across three Rust crates, with the data-flow diagram. Single source: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (renders on the site and on GitHub).
 
 <details>
 <summary><strong>Migrating from <code>ascii-agents</code> (v0.3.x → v0.4.0)</strong> — rename, hooks, config paths</summary>
@@ -201,7 +187,7 @@ Three Rust crates:
 
 ## Contributing
 
-PRs welcome — especially new themes and `Source` adapters for other agent CLIs (Copilot, Cursor, OpenCode). See **[CONTRIBUTING.md](CONTRIBUTING.md)** for the build/test workflow, conventions, the review process, and how to add a new agent CLI. Architecture and the load-bearing invariants live in [`CLAUDE.md`](CLAUDE.md).
+PRs welcome — especially new themes and `Source` adapters for other agent CLIs (Copilot, Cursor, OpenCode). See **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** for the build/test workflow, conventions, the review process, and how to add a new agent CLI. Architecture and the load-bearing invariants live in [`CLAUDE.md`](CLAUDE.md).
 
 ## Acknowledgments
 
