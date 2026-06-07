@@ -191,6 +191,20 @@ struct SnapshotArgs {
     /// faces north). Ignored for non-seat targets.
     #[arg(long)]
     anim_facing: Option<String>,
+
+    /// Crop the generated PNG (and text preview) to a 40x24-cell window
+    /// centered on the agent with this label — e.g. for sprite-iteration
+    /// close-ups without quadrant guessing. Static-PNG path only: the
+    /// --gif/--anim paths return before the crop is computed, so clap
+    /// rejects the combination instead of silently ignoring the flag.
+    #[arg(long, conflicts_with_all = ["crop_furniture", "gif", "anim"])]
+    crop_agent: Option<String>,
+
+    /// Crop the generated PNG (and text preview) to a 40x24-cell window
+    /// centered on a furniture piece. Static-PNG path only (see --crop-agent).
+    /// One of: pantry | couch | vending | printer | meeting | sofa | desk.
+    #[arg(long, conflicts_with_all = ["gif", "anim"])]
+    crop_furniture: Option<String>,
 }
 
 fn default_projects_root() -> String {
@@ -275,7 +289,7 @@ fn main() -> Result<()> {
     let backend = TestBackend::new(cols, rows);
     let mut term = Terminal::new(backend)?;
     let mut buf = RgbBuffer::filled(0, 0, Rgb { r: 0, g: 0, b: 0 });
-    let pack = load_sprite_pack(args.pack_dir)?;
+    let pack = load_sprite_pack(args.pack_dir.clone())?;
     let mut cache = FrameCache::new();
     let mut router = pixtuoid::tui::pathfind::AStarRouter::new();
     let mut overlay = pixtuoid_core::walkable::OccupancyOverlay::new();
@@ -422,14 +436,20 @@ fn main() -> Result<()> {
         debug_paint_walkable_overlay(&mut term, &scene)?;
     }
 
-    save_backend_as_png(&term, &args.out, cols, rows)?;
+    let crop_rect = compute_crop_rect(&args, &scene, &history, cols, rows, now)?;
+
+    save_backend_as_png(&term, &args.out, cols, rows, crop_rect)?;
     println!("wrote {}", args.out.display());
 
     println!("\n--- text preview (symbols only) ---");
     let buf = term.backend().buffer();
-    for y in 0..rows {
-        for x in 0..cols {
-            print!("{}", buf[(x, y)].symbol());
+    let (start_x, start_y, render_w, render_h) = match crop_rect {
+        Some(r) => (r.x, r.y, r.width, r.height),
+        None => (0, 0, cols, rows),
+    };
+    for y in 0..render_h {
+        for x in 0..render_w {
+            print!("{}", buf[(start_x + x, start_y + y)].symbol());
         }
         println!();
     }
@@ -862,20 +882,123 @@ fn anim_scene(
     (s, skip_ms)
 }
 
+fn compute_crop_rect(
+    args: &SnapshotArgs,
+    scene: &SceneState,
+    history: &pixtuoid::tui::pose::PoseHistory,
+    cols: u16,
+    rows: u16,
+    now: SystemTime,
+) -> Result<Option<ratatui::layout::Rect>> {
+    use pixtuoid_core::layout::WaypointKind;
+
+    // Fail loudly like --theme/--weather above — a typo'd crop target silently
+    // writing the full uncropped PNG defeats the point of the flag.
+    let target_pixel: pixtuoid::tui::layout::Point = if let Some(ref agent_label) = args.crop_agent
+    {
+        let slot = scene
+            .agents
+            .values()
+            .find(|s| s.label.as_ref() == agent_label)
+            .ok_or_else(|| {
+                let labels: Vec<&str> = scene.agents.values().map(|s| s.label.as_ref()).collect();
+                anyhow::anyhow!(
+                    "--crop-agent {agent_label:?} not found in scene; labels: {}",
+                    labels.join(", ")
+                )
+            })?;
+        history
+            .recent(slot.agent_id, u64::MAX, now)
+            .ok_or_else(|| anyhow::anyhow!("agent {agent_label:?} has no visual position"))?
+    } else if let Some(ref furniture_str) = args.crop_furniture {
+        let buf_w = cols;
+        let buf_h = rows.saturating_sub(1).saturating_mul(2);
+        let layout = pixtuoid_core::layout::SceneLayout::compute_with_seed(
+            buf_w,
+            buf_h,
+            scene.floor_capacities[0],
+            args.floor_seed,
+        )
+        .ok_or_else(|| anyhow::anyhow!("scene too small to compute a layout"))?;
+        let found = match furniture_str.to_lowercase().as_str() {
+            "desk" => layout.home_desks.first().copied(),
+            name => {
+                let kind = match name {
+                    "pantry" => WaypointKind::Pantry,
+                    "couch" => WaypointKind::Couch,
+                    "vending" => WaypointKind::VendingMachine,
+                    "printer" => WaypointKind::Printer,
+                    "meeting" | "sofa" => WaypointKind::MeetingSofa,
+                    other => anyhow::bail!(
+                        "unknown --crop-furniture {other:?}; valid: pantry | couch | vending | printer | meeting | sofa | desk"
+                    ),
+                };
+                layout
+                    .waypoints
+                    .iter()
+                    .find(|w| w.kind == kind)
+                    .map(|w| w.pos)
+            }
+        };
+        found.ok_or_else(|| {
+            anyhow::anyhow!("no {furniture_str:?} waypoint in this layout (terminal too small?)")
+        })?
+    } else {
+        return Ok(None);
+    };
+
+    // Positions are in the LOGICAL half-block buffer (1 px per cell across,
+    // 2 px per cell down — the same buf_w/buf_h fed to compute_with_seed
+    // above), NOT in PNG pixels: the 8x16 px-per-cell scaling happens later
+    // in save_backend_as_png.
+    Ok(Some(centered_crop(
+        target_pixel.x,
+        target_pixel.y / 2,
+        cols,
+        rows,
+    )))
+}
+
+/// 40x24-cell window centered on (cell_x, cell_y), clamped to stay inside the
+/// cols x rows buffer (shrinks only when the terminal itself is smaller).
+fn centered_crop(cell_x: u16, cell_y: u16, cols: u16, rows: u16) -> ratatui::layout::Rect {
+    let crop_w = 40u16.min(cols);
+    let crop_h = 24u16.min(rows);
+
+    let crop_x = cell_x
+        .saturating_sub(crop_w / 2)
+        .min(cols.saturating_sub(crop_w));
+    let crop_y = cell_y
+        .saturating_sub(crop_h / 2)
+        .min(rows.saturating_sub(crop_h));
+
+    ratatui::layout::Rect {
+        x: crop_x,
+        y: crop_y,
+        width: crop_w,
+        height: crop_h,
+    }
+}
+
 fn save_backend_as_png(
     term: &Terminal<TestBackend>,
     path: &PathBuf,
     cols: u16,
     rows: u16,
+    crop: Option<ratatui::layout::Rect>,
 ) -> Result<()> {
     let buf = term.backend().buffer();
-    let img_w = cols as u32 * CELL_W;
-    let img_h = rows as u32 * CELL_H;
+    let (start_x, start_y, render_w, render_h) = match crop {
+        Some(r) => (r.x, r.y, r.width, r.height),
+        None => (0, 0, cols, rows),
+    };
+    let img_w = render_w as u32 * CELL_W;
+    let img_h = render_h as u32 * CELL_H;
     let mut img = RgbImage::new(img_w, img_h);
 
-    for y in 0..rows {
-        for x in 0..cols {
-            let cell = &buf[(x, y)];
+    for y in 0..render_h {
+        for x in 0..render_w {
+            let cell = &buf[(start_x + x, start_y + y)];
             let symbol = cell.symbol();
             let fg = color_to_rgb(cell.fg, ImgRgb([220, 220, 220]));
             let bg = color_to_rgb(cell.bg, ImgRgb([20, 22, 28]));
@@ -1232,5 +1355,89 @@ mod tests {
             }
         }
         assert_eq!(hit, Some(149));
+    }
+
+    fn crop_args(extra: &[&str]) -> SnapshotArgs {
+        SnapshotArgs::try_parse_from([&["snapshot"], extra].concat()).unwrap()
+    }
+
+    #[test]
+    fn centered_crop_centers_in_the_open() {
+        let r = centered_crop(96, 32, 192, 64);
+        assert_eq!((r.x, r.y, r.width, r.height), (76, 20, 40, 24));
+    }
+
+    #[test]
+    fn centered_crop_clamps_at_origin_and_far_edge() {
+        let near_origin = centered_crop(2, 1, 192, 64);
+        assert_eq!((near_origin.x, near_origin.y), (0, 0));
+        let near_edge = centered_crop(191, 63, 192, 64);
+        assert_eq!((near_edge.x, near_edge.y), (152, 40));
+    }
+
+    #[test]
+    fn centered_crop_shrinks_to_a_small_terminal() {
+        let r = centered_crop(10, 5, 30, 20);
+        assert_eq!((r.x, r.y, r.width, r.height), (0, 0, 30, 20));
+    }
+
+    #[test]
+    fn crop_rect_centers_on_the_pantry_waypoint() {
+        let now = SystemTime::now();
+        let scene = sample_scene(now, 12, 12);
+        let history = pixtuoid::tui::pose::PoseHistory::new();
+        let args = crop_args(&["--crop-furniture", "pantry"]);
+        let rect = compute_crop_rect(&args, &scene, &history, 192, 64, now)
+            .unwrap()
+            .expect("pantry crop");
+        let layout =
+            pixtuoid_core::layout::SceneLayout::compute_with_seed(192, 126, 12, 0).unwrap();
+        let pantry = layout
+            .waypoints
+            .iter()
+            .find(|w| w.kind == pixtuoid_core::layout::WaypointKind::Pantry)
+            .unwrap();
+        let (cx, cy) = (pantry.pos.x, pantry.pos.y / 2);
+        assert!(rect.x <= cx && cx < rect.x + rect.width, "x not in crop");
+        assert!(rect.y <= cy && cy < rect.y + rect.height, "y not in crop");
+    }
+
+    #[test]
+    fn crop_rect_without_flags_is_none() {
+        let now = SystemTime::now();
+        let scene = sample_scene(now, 12, 12);
+        let history = pixtuoid::tui::pose::PoseHistory::new();
+        let args = crop_args(&[]);
+        assert!(compute_crop_rect(&args, &scene, &history, 192, 64, now)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn crop_rect_fails_loudly_on_typos_and_unknown_agents() {
+        let now = SystemTime::now();
+        let scene = sample_scene(now, 12, 12);
+        let history = pixtuoid::tui::pose::PoseHistory::new();
+
+        let typo = crop_args(&["--crop-furniture", "fridge"]);
+        let err = compute_crop_rect(&typo, &scene, &history, 192, 64, now).unwrap_err();
+        assert!(err.to_string().contains("valid: pantry"), "{err}");
+
+        let ghost = crop_args(&["--crop-agent", "ghost"]);
+        let err = compute_crop_rect(&ghost, &scene, &history, 192, 64, now).unwrap_err();
+        assert!(err.to_string().contains("labels:"), "{err}");
+    }
+
+    #[test]
+    fn crop_flags_conflict_with_gif_and_anim() {
+        assert!(SnapshotArgs::try_parse_from(["snapshot", "--gif", "--crop-agent", "x"]).is_err());
+        assert!(SnapshotArgs::try_parse_from([
+            "snapshot",
+            "--anim",
+            "couch",
+            "--crop-furniture",
+            "pantry"
+        ])
+        .is_err());
     }
 }
