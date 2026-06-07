@@ -285,6 +285,29 @@ bump version:
 demo:
     .venv/bin/python3 scripts/gen-docs-images.py
 
+# Pixel-diff two deterministic renders against the checked-in CI baselines
+# (docs/images/reference-*.png). Run by ci.yml's smoke job; runnable locally
+# before pushing a PR that touches the office's look. Render params MUST match
+# the reference step in scripts/gen-docs-images.py (TZ=UTC pins the epoch-
+# derived weather slot + twinkle phase; --weather makes the scene explicit).
+# A red check after an INTENTIONAL visual change means: run `just demo` and
+# commit the regenerated docs/images in the same change.
+# Requires the .venv (Pillow) and a release build of the snapshot example.
+[group('check')]
+[doc('Visual regression: diff deterministic renders vs docs/images/reference-*.png')]
+visual-check:
+    #!/usr/bin/env sh
+    # Both comparisons always run (no fail-fast) so a wide visual change is
+    # diagnosable from ONE CI run's diff artifacts, not two round-trips.
+    set -eu
+    test -x .venv/bin/python3 || { echo "needs the venv: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt"; exit 1; }
+    TZ=UTC ./target/release/examples/snapshot --theme normal --cols 192 --rows 64 --now-hour 19 --now-day 1 --weather clear /tmp/visual-day.png > /dev/null
+    TZ=UTC ./target/release/examples/snapshot --theme cyberpunk --cols 192 --rows 64 --now-hour 3 --now-day 1 --weather clear /tmp/visual-night.png > /dev/null
+    rc=0
+    .venv/bin/python3 scripts/compare-screenshots.py docs/images/reference-screenshot.png /tmp/visual-day.png /tmp/diff-day.png || rc=1
+    .venv/bin/python3 scripts/compare-screenshots.py docs/images/reference-night.png /tmp/visual-night.png /tmp/diff-night.png || rc=1
+    exit $rc
+
 # ── site ──────────────────────────────────────────────────────────
 # The Astro landing page — a self-contained Node project under site/ with its
 # own CI (.github/workflows/site.yml). See site/README.md.
