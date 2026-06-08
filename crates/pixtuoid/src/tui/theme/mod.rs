@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn theme_gallery_manifest_matches_all_themes() {
-        // site/src/themes.json drives the site's theme switcher + the gen-demos
+        // site/src/themes.json drives the site's theme switcher + the gen-media
         // render loop; ALL_THEMES drives what `--theme` actually accepts. Site CI
         // never runs the binary, so this test is the bridge (same pattern as
         // `weather_gallery_manifest_matches_the_weather_enum`). Set equality, not
@@ -224,7 +224,7 @@ mod tests {
         assert_eq!(
             ids, names,
             "site/src/themes.json ids must match ALL_THEMES names — update the \
-             manifest + run scripts/gen-demos.sh when the registry changes"
+             manifest + run `just gen-media` when the registry changes"
         );
     }
 

@@ -7,8 +7,8 @@
 // JSON, so the README and the site can't drift. The supported-tools glimpse shows
 // only the FEATURED tools + a link to the full tool × OS matrix on the site, so the
 // README stays short as more agent CLIs are added. Run `just gen-readme` (or
-// `node site/scripts/gen-readme.mjs`) after editing any JSON. `--check` writes
-// nothing and exits non-zero on drift (used by CI: `npm run readme:check`).
+// `node scripts/gen-readme.mjs`) after editing any JSON. `--check` writes
+// nothing and exits non-zero on drift (used by CI's gen-check / `just gen-check`).
 //
 // NOTE: the manifest's *supported* set is pinned to the code's REGISTERED_SOURCES
 // by a Rust test (crates/pixtuoid-core/tests/supported_sources_manifest.rs) that
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const readmePath = join(root, 'README.md');
 const features = JSON.parse(readFileSync(join(root, 'site', 'src', 'features.json'), 'utf8'));
 const sources = JSON.parse(readFileSync(join(root, 'site', 'src', 'sources.json'), 'utf8'));
@@ -40,7 +40,7 @@ const cell = (s) => String(s).replace(/\|/g, '&#124;').replace(/\r?\n/g, ' ');
 // Regenerate the block between `start`/`end` markers from `body`. () => block:
 // a replacer FUNCTION inserts the value literally — a plain string would expand
 // `$`-patterns ($$, $&, $') lurking in the text and silently corrupt the README
-// in a way readme:check can't see (both sides of its comparison would go through
+// in a way --check can't see (both sides of its comparison would go through
 // the same mangling). Updates the in-memory `readme`; writes the file on change.
 function regenSection(label, start, end, body) {
   const block = `${start}\n${body}\n${end}`;
