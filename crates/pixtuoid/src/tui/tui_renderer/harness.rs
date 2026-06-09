@@ -2155,3 +2155,131 @@ fn dashboard_empty_scene_shows_placeholder() {
 // dashboard_scrolls_to_keep_a_deep_selection_visible above (scroll 0 → 3). The
 // visible < viewport arithmetic is covered directly by
 // dashboard::tests::clamp_scroll_* with small viewports.
+
+#[test]
+fn dashboard_badge_text_present_for_cc_and_cx() {
+    let mut r = build(120, 44, vec![]);
+    let mut cc_slot = idle("/h/cc.jsonl", 0, t0());
+    cc_slot.source = Arc::from("claude-code");
+    cc_slot.label = Arc::from("cc\u{b7}alpha");
+    let mut cx_slot = idle("/h/cx.jsonl", 1, t0());
+    cx_slot.source = Arc::from("codex");
+    cx_slot.label = Arc::from("cx\u{b7}beta");
+    let scene = scene_with(vec![cc_slot, cx_slot], 16);
+
+    let rows = build_dashboard_rows(&scene, &DashboardFolds::default());
+    r.set_dashboard_frame(true, rows, None, 0);
+    r.render(&scene, &pack(), t0()).unwrap();
+
+    let popup = dash_popup(r.frame_buffer());
+    assert!(popup.contains("[cc]"), "cc badge missing:\n{popup}");
+    assert!(popup.contains("[cx]"), "cx badge missing:\n{popup}");
+}
+
+#[test]
+fn dashboard_overflow_cue_appears_below_when_more_than_viewport() {
+    // 20 root slots, scroll=0 → visible ≤ DASHBOARD_VIEWPORT_ROWS=16 → hidden_below > 0.
+    let mut agents = Vec::new();
+    for i in 0..20 {
+        let mut s = idle(&format!("/h/r{i}.jsonl"), i % 16, t0());
+        s.label = Arc::from(format!("overflow{i:02}").as_str());
+        s.floor_idx = i % 10;
+        agents.push(s);
+    }
+    let scene = scene_with(agents, 32);
+    let rows = build_dashboard_rows(&scene, &DashboardFolds::default());
+    let mut r = build(120, 44, vec![]);
+    r.set_dashboard_frame(true, rows, None, 0);
+    r.render(&scene, &pack(), t0()).unwrap();
+
+    let popup = dash_popup(r.frame_buffer());
+    assert!(
+        popup.contains('\u{22ee}'),
+        "overflow cue ⋮ must appear:\n{popup}"
+    );
+}
+
+#[test]
+fn dashboard_overflow_cue_absent_when_all_visible() {
+    // 8 root slots ≤ DASHBOARD_VIEWPORT_ROWS=16 → no hidden rows → no cue.
+    let mut agents = Vec::new();
+    for i in 0..8 {
+        let mut s = idle(&format!("/h/r{i}.jsonl"), i, t0());
+        s.label = Arc::from(format!("fit{i:02}").as_str());
+        agents.push(s);
+    }
+    let scene = scene_with(agents, 16);
+    let rows = build_dashboard_rows(&scene, &DashboardFolds::default());
+    let mut r = build(120, 44, vec![]);
+    r.set_dashboard_frame(true, rows, None, 0);
+    r.render(&scene, &pack(), t0()).unwrap();
+
+    let popup = dash_popup(r.frame_buffer());
+    assert!(
+        !popup.contains('\u{22ee}'),
+        "no overflow cue for 8 rows:\n{popup}"
+    );
+}
+
+#[test]
+fn dashboard_overflow_cue_keeps_a_bottom_navigated_selection_visible() {
+    // 25 rows; select row20 — clamp_scroll parks it at the window's bottom with
+    // several rows still below. The cue must NOT displace the selected row.
+    let mut agents = Vec::new();
+    for i in 0..25 {
+        let mut s = idle(&format!("/h/r{i}.jsonl"), i, t0());
+        s.label = Arc::from(format!("row{i:02}").as_str());
+        s.floor_idx = i % 10;
+        agents.push(s);
+    }
+    let scene = scene_with(agents, 16);
+    let rows = build_dashboard_rows(&scene, &DashboardFolds::default());
+    let row20 = rows[20].agent_id;
+    let mut r = build(120, 44, vec![]);
+    r.set_dashboard_frame(true, rows, Some(row20), 0);
+    r.render(&scene, &pack(), t0()).unwrap();
+    let popup = dash_popup(r.frame_buffer());
+    assert!(
+        popup.contains("row20"),
+        "selected bottom row must stay visible when a cue shows:\n{popup}"
+    );
+    assert!(
+        popup.contains('\u{22ee}'),
+        "overflow cue present (rows below):\n{popup}"
+    );
+}
+
+#[test]
+fn dashboard_overflow_no_blank_line_when_selection_is_last_row() {
+    // 17 rows (> DASHBOARD_VIEWPORT_ROWS=16) → overflow. Selecting the LAST row
+    // scrolls to the very end where nothing is below: no cue is needed, so the
+    // popup must fill all 16 visible lines (NOT reserve a now-empty cue line).
+    let mut agents = Vec::new();
+    for i in 0..17 {
+        let mut s = idle(&format!("/h/r{i}.jsonl"), i, t0());
+        s.label = Arc::from(format!("row{i:02}").as_str());
+        s.floor_idx = i % 10;
+        agents.push(s);
+    }
+    let scene = scene_with(agents, 16);
+    let rows = build_dashboard_rows(&scene, &DashboardFolds::default());
+    let last = rows[16].agent_id;
+    let mut r = build(120, 44, vec![]);
+    r.set_dashboard_frame(true, rows, Some(last), 0);
+    r.render(&scene, &pack(), t0()).unwrap();
+    let popup = dash_popup(r.frame_buffer());
+    assert!(
+        popup.contains("row16"),
+        "selected last row visible:\n{popup}"
+    );
+    // The fix renders 16 rows (rows 1..16); the blank-line bug renders only 15
+    // (rows 2..16, plus a blank reserved line), so `row01` present distinguishes.
+    assert!(
+        popup.contains("row01"),
+        "all 16 visible lines must be filled — no blank reserved cue line:\n{popup}"
+    );
+    assert!(
+        !popup.contains('\u{22ee}'),
+        "no cue when scrolled to the end (nothing below):\n{popup}"
+    );
+}
