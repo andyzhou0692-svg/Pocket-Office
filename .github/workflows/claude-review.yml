@@ -2,6 +2,10 @@ name: claude review
 
 on:
   pull_request:
+    # `synchronize` is deliberate: every push re-reviews (billed) — the owner
+    # wants continuous review across a PR's commits. `/claude-review` (below)
+    # remains as a manual re-trigger. The per-PR concurrency group cancels a
+    # superseded in-flight review, so rapid pushes don't stack cost.
     types: [opened, reopened, ready_for_review, synchronize]
   issue_comment:
     types: [created]
@@ -17,7 +21,7 @@ jobs:
   review:
     if: >
       (github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository) ||
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/claude-review'))
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request && contains(github.event.comment.body, '/claude-review'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
