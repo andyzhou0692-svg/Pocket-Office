@@ -11,6 +11,18 @@ use crate::AgentId;
 
 pub const SOURCE_NAME: &str = "claude-code";
 
+/// CC's session/agent id = the transcript filename stem, which is
+/// cwd-independent (the cwd-derived project-dir is the *parent* dir, not the
+/// stem): `<uuid>.jsonl` → `<uuid>` for a root, `agent-<id>.jsonl` →
+/// `agent-<id>` for a subagent. Mirrors `codex_id_from_path`. CC session UUIDs
+/// and agent-ids are lowercase, so the Windows path fold is inert here.
+pub fn cc_id_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string()
+}
+
 pub struct ClaudeCodeSource {
     pub socket_path: PathBuf,
     pub projects_root: PathBuf,
@@ -78,7 +90,8 @@ impl Source for ClaudeCodeSource {
             decode_cc_line,
             cc_derive_label,
             cc_session_ended,
-        );
+        )
+        .with_id_deriver(cc_id_from_path);
 
         let tx_hook = tx.clone();
         let tx_jsonl = tx.clone();
@@ -106,7 +119,10 @@ impl Source for ClaudeCodeSource {
 
 /// Decode one CC JSONL transcript line into 0..N AgentEvents.
 pub fn decode_cc_line(transcript_path: &str, source: &str, v: Value) -> Result<Vec<AgentEvent>> {
-    let agent_id = AgentId::from_parts(source, transcript_path);
+    // Key on the session UUID (filename stem), NOT the raw path — matches the
+    // hook decoder's `IdKey::SessionId` and the watcher's `cc_id_from_path`
+    // deriver, so all four CC keying sites coalesce (mirrors Codex).
+    let agent_id = AgentId::from_parts(source, &cc_id_from_path(Path::new(transcript_path)));
     let Some(obj) = v.as_object() else {
         return Ok(vec![]);
     };
@@ -449,6 +465,30 @@ mod tests {
     // it's an /exit marker. A fuzz of all 291k real lines through
     // decode_cc_line confirmed zero panics; this pins the common
     // string-content shape the array-only fixtures never exercise.
+    // Coalescing guard: `cc_id_from_path` is invoked in multiple places that
+    // must agree — the per-line decode (here), the watcher's `with_id_deriver`
+    // (ClaudeCodeSource::run), and the hook decoder's session-id key. If the
+    // per-line decode ever keys differently from the deriver, one CC session
+    // splits into two sprites. Mirrors codex's
+    // `decode_line_keys_agent_id_on_codex_id_from_path`.
+    #[test]
+    fn decode_cc_line_keys_agent_id_on_cc_id_from_path() {
+        let path = "/Users/me/.claude/projects/p/01000000-0000-7000-8000-0000000000cc.jsonl";
+        let events = decode_cc_line(
+            path,
+            "claude-code",
+            serde_json::json!({"type":"assistant","attributionAgent":"explorer","message":{"content":[]}}),
+        )
+        .unwrap();
+        let expected =
+            AgentId::from_parts("claude-code", &cc_id_from_path(std::path::Path::new(path)));
+        assert_eq!(
+            events[0].agent_id(),
+            expected,
+            "decode_cc_line must key its AgentId on cc_id_from_path (the deriver)"
+        );
+    }
+
     #[test]
     fn string_content_turns_emit_no_tool_events() {
         for ty in ["assistant", "user"] {
@@ -470,5 +510,43 @@ mod tests {
         });
         let out = decode_cc_line("/x/.claude/projects/p/s.jsonl", "claude-code", exit).unwrap();
         assert!(matches!(out.as_slice(), [AgentEvent::SessionEnd { .. }]));
+    }
+}
+
+#[cfg(test)]
+mod cc_id_tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn cc_id_from_path_root_is_filename_uuid() {
+        let p = Path::new(
+            "/Users/me/.claude/projects/-Users-me-proj/01000000-0000-7000-8000-0000000000cc.jsonl",
+        );
+        assert_eq!(cc_id_from_path(p), "01000000-0000-7000-8000-0000000000cc");
+    }
+
+    #[test]
+    fn cc_id_from_path_subagent_is_agent_stem() {
+        let p = Path::new("/Users/me/.claude/projects/-Users-me-proj/01000000-0000-7000-8000-0000000000cc/subagents/agent-a0a7dc28dd772bd0d.jsonl");
+        assert_eq!(cc_id_from_path(p), "agent-a0a7dc28dd772bd0d");
+    }
+
+    #[test]
+    fn cc_id_from_path_empty_for_no_stem() {
+        assert_eq!(cc_id_from_path(Path::new("")), "");
+    }
+
+    #[test]
+    fn cc_id_from_path_is_stable_across_path_separators() {
+        // The first-sight deriver gets a raw &Path; the per-line decoder gets the
+        // normalize_path_key'd string (lowercased + forward-slashed on Windows).
+        // Both must yield the SAME stem for a lowercase-hex CC id, or one session
+        // splits into two sprites (same assumption codex_id_from_path relies on).
+        let raw =
+            Path::new("/Users/me/.claude/projects/p/01000000-0000-7000-8000-0000000000cc.jsonl");
+        let normalized =
+            Path::new("/users/me/.claude/projects/p/01000000-0000-7000-8000-0000000000cc.jsonl");
+        assert_eq!(cc_id_from_path(raw), cc_id_from_path(normalized));
     }
 }

@@ -16,16 +16,15 @@ pub(crate) fn splitmix64(z: u64) -> u64 {
 }
 
 impl AgentId {
-    /// CC-specific shortcut — `from_parts("claude-code", normalize_path_key(path))`,
-    /// i.e. the id production derives for a transcript path on every platform
-    /// (identity on Unix; `\`→`/` + casefold on Windows). A test/example
-    /// ergonomics shim only: production code calls `from_parts` with an
-    /// explicit source at the four normalized keying sites (hook decoder,
-    /// watcher `default_id_from_path`, `walk_jsonl`'s per-line key, and
-    /// `detect_parent_id`'s rebuilt parent key — see the core CLAUDE.md sharp
-    /// edge). Kept because the
-    /// test + snapshot suites lean on it heavily — and normalizing here keeps
-    /// every expectation they build platform-consistent by construction.
+    /// Test/example opaque-id factory — mints a stable, distinct `AgentId`
+    /// from a string by calling `from_parts("claude-code",
+    /// normalize_path_key(path))`. This is **not** how production CC keying
+    /// works anymore: CC now keys on the session UUID (the transcript filename
+    /// stem), derived by `cc_id_from_path`, which is cwd-independent.
+    /// `from_transcript_path` is kept because the test + snapshot suites lean
+    /// on it heavily — `normalize_path_key` makes every expectation they build
+    /// platform-consistent by construction. Do not call this in production
+    /// decode paths; use `from_parts(source, &cc_id_from_path(path))` instead.
     pub fn from_transcript_path(path: &str) -> Self {
         Self::from_parts(
             "claude-code",
@@ -36,8 +35,8 @@ impl AgentId {
     /// Source-agnostic factory. `source` is the source's name (matches the
     /// `Source::name()` return value, e.g. `"claude-code"`, `"codex"`,
     /// `"cursor"`); `opaque_id` is whatever the source uses to uniquely
-    /// identify a session — a JSONL path for CC, a session UUID for an
-    /// SDK source, a socket path for a hook-based source. The pair is
+    /// identify a session — a session UUID for CC, a rollout-filename UUID for
+    /// Codex, the cwd for a hook-only source. The pair is
     /// hashed so two sources with the same `opaque_id` produce distinct
     /// `AgentId`s (no cross-source collisions).
     pub fn from_parts(source: &str, opaque_id: &str) -> Self {

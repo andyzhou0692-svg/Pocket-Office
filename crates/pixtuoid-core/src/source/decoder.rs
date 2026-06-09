@@ -24,16 +24,19 @@ pub(crate) fn cwd_basename_label(prefix: &str, cwd: &Path) -> Option<String> {
     Some(format!("{prefix}·{base}"))
 }
 
-/// Canonical form of a transcript-path STRING before it becomes an `AgentId`
-/// key. Identity on Unix. On Windows: `\`→`/` + lowercase — CC emits
-/// backslash paths in hook payloads but mixes `\`/`/` forms of the same file
-/// internally, and NTFS is case-insensitive; without folding, the hook key
-/// and the watcher key hash to two different AgentIds and every session
-/// renders as TWO sprites. Applied at exactly FOUR sites: the hook decoder's
-/// transcript_path, the watcher's default_id_from_path, walk_jsonl's
-/// transcript_path_str handed to the line decoders, and the subagent
-/// detect_parent_id's rebuilt parent key (ALL must agree or events land on
-/// phantom ids / the scope tree breaks).
+/// Canonical form of a transcript-path STRING before it is used as an
+/// `AgentId` key. Identity on Unix. On Windows: `\`→`/` + lowercase — CC
+/// emits backslash paths in hook payloads but mixes `\`/`/` forms of the
+/// same file internally, and NTFS is case-insensitive; without folding, the
+/// hook key and the watcher key hash to two different AgentIds and every
+/// session renders as TWO sprites. Used directly as an opaque key by
+/// **Antigravity** (whose hook keys on the normalized path). **CC** and
+/// **Codex** pass the normalized path string to their line decoders only as a
+/// routing hint — each decoder then extracts a UUID from the filename stem
+/// (`cc_id_from_path` / `codex_id_from_path`), so the fold is inert for them
+/// on Unix but still required so `normalize_path_key` is the one entry point
+/// for the `walk_jsonl` normalized-path string and `default_id_from_path`
+/// (Antigravity's watcher key) — those two paths must always agree.
 pub(crate) fn normalize_path_key(s: &str) -> String {
     normalize_key_inner(cfg!(windows), s)
 }
@@ -105,11 +108,13 @@ pub fn decode_hook_payload(v: Value) -> Result<AgentEvent> {
         .ok_or_else(|| anyhow!("missing/empty session_id"))?
         .to_string();
     // The per-session key strategy is registry data (`HookDecoding::id_key`),
-    // not a name match: CC keys on `transcript_path` (its hook and JSONL both
-    // carry it, so they coalesce); Codex MUST key on `session_id` (== its
-    // rollout-filename UUID) since its `transcript_path` is `string | null` —
-    // keying on the path would split hook and JSONL into two sprites. Unknown
-    // sources get the CC-shaped default.
+    // not a name match: CC and Codex key on `session_id` (the session UUID);
+    // Antigravity — and the unknown-source default — keys on `transcript_path`,
+    // falling back to `session_id`. Codex MUST use `session_id` since its
+    // `transcript_path` is `string | null` (keying on the path would split hook
+    // and JSONL into two sprites); CC keys on it because that UUID equals its
+    // transcript filename stem (`cc_id_from_path`), so a subagent->parent link
+    // survives a git-worktree cwd-split.
     use crate::source::registry::IdKey;
     // Normalized transcript_path: fold `\`→`/` + lowercase on Windows so the
     // hook key and the JSONL watcher key (which walks real Path strings) hash to
@@ -453,11 +458,10 @@ mod tests {
     // CLI attribution; only the shim-owned `_pixtuoid_source` does.
     #[test]
     fn cc_session_start_reason_source_does_not_hijack_cli_source() {
-        let tp = "/Users/me/.claude/projects/x/ses-abc.jsonl";
         let ev = decode_hook_payload(json!({
             "hook_event_name": "SessionStart",
             "session_id": "ses-abc",
-            "transcript_path": tp,
+            "transcript_path": "/Users/me/.claude/projects/x/ses-abc.jsonl",
             "cwd": "/repo",
             "source": "startup"
         }))
@@ -469,13 +473,12 @@ mod tests {
                 assert_eq!(source, crate::source::claude_code::SOURCE_NAME);
                 assert_eq!(
                     agent_id,
-                    // Through the same fold the decoder applies — a raw
-                    // from_parts(tp) expectation breaks on the windows
-                    // runner (casefold).
-                    AgentId::from_parts(
-                        crate::source::claude_code::SOURCE_NAME,
-                        &normalize_path_key(tp)
-                    ),
+                    // CC keys on the session UUID (IdKey::SessionId), which ==
+                    // the transcript filename stem the watcher/per-line decode
+                    // derive — so this coalesces with tool/JSONL/SessionEnd
+                    // events on the claude-code id. The public `source`
+                    // ("startup") must NOT drive CLI attribution.
+                    AgentId::from_parts(crate::source::claude_code::SOURCE_NAME, "ses-abc"),
                     "must coalesce with tool/JSONL/SessionEnd events on the claude-code id"
                 );
             }
