@@ -89,6 +89,27 @@ hack:
 check-windows:
     cargo clippy --workspace --all-targets --features {{ features }} --target x86_64-pc-windows-msvc -- -D warnings
 
+# Verify the workspace builds on the DECLARED MSRV (rust-version in Cargo.toml).
+# Catches a dep bump (or newer stdlib use) that silently raises the floor past
+# the version we advertise to crates.io consumers of pixtuoid-core. CI-only in
+# practice (installs a pinned toolchain + a full check), NOT in preflight.
+# Reads the version from Cargo.toml so there's one source of truth.
+[group('rust')]
+[doc('Check the workspace builds on the declared MSRV (rust-version in Cargo.toml)')]
+msrv:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    msrv="$(grep -m1 '^rust-version' Cargo.toml | sed -E 's/.*"([0-9]+\.[0-9]+(\.[0-9]+)?)".*/\1/')"
+    echo "declared MSRV: $msrv"
+    rustup toolchain install "$msrv" --profile minimal --no-self-update >/dev/null 2>&1 || true
+    # Clear RUSTFLAGS so the DEFAULT linker is used. This gate verifies COMPILATION
+    # on the floor; the linker is irrelevant to MSRV. `.cargo/config.toml`'s
+    # `-fuse-ld=lld` perf flag (x86_64-linux only) needs lld, which a fresh
+    # minimal-toolchain build on the CI runner can't resolve — the cached perf
+    # jobs never re-link build scripts so they never hit it, but this no-cache
+    # gate links them fresh. (RUSTFLAGS env overrides target.*.rustflags wholesale.)
+    RUSTFLAGS="" rustup run "$msrv" cargo check --workspace
+
 # SemVer-check the published library against its crates.io baseline. CI-only in
 # practice: needs network to fetch the baseline crate. Scoped to pixtuoid-core
 # (the headless lib others depend on); the binary crates' libs aren't public API.
