@@ -311,6 +311,205 @@ async fn watcher_registers_stale_file_when_probe_says_live() {
     handle.abort();
 }
 
+/// Codex twin of T4: the Codex liveness probe (`live_codex_rollout_ids`)
+/// returns ids in `codex_id_from_path` space — the rollout-filename UUID —
+/// so a stale rollout the probe vouches for must register through the same
+/// `with_liveness_probe` seam. A FAKE probe closure stands in for the real
+/// open-FD enumeration (that half is unit-tested in `source::fd_probe` /
+/// `source::codex`); this pins the id-space JOIN: probe ids and the watcher's
+/// `IdDeriver` agree, or every vouched rollout would stay gated.
+#[tokio::test]
+async fn codex_watcher_registers_stale_rollout_when_probe_says_live() {
+    fast_watch();
+    use pixtuoid_core::source::codex::{codex_id_from_path, decode_codex_line, derive_codex_label};
+
+    let dir = TempDir::new().unwrap();
+    let root = dir.path().to_path_buf();
+    // Real rollout layout: YYYY/MM/DD below the sessions root.
+    let day_dir = root.join("2026").join("06").join("10");
+    tokio::fs::create_dir_all(&day_dir).await.unwrap();
+    let uuid = "019e7762-9ded-7e33-be41-946ecf105bf4";
+    let rollout = day_dir.join(format!("rollout-2026-06-10T08-00-00-{uuid}.jsonl"));
+    let meta = serde_json::json!({
+        "type": "session_meta",
+        "payload": { "id": uuid, "cwd": "/Users/me/dotfiles" }
+    });
+    tokio::fs::write(&rollout, format!("{meta}\n"))
+        .await
+        .unwrap();
+    let backdated = FileTime::from_system_time(SystemTime::now() - Duration::from_secs(3600));
+    set_file_mtime(&rollout, backdated).unwrap();
+
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(32);
+    let watcher = JsonlWatcher::new(
+        root.clone(),
+        "codex".to_string(),
+        decode_codex_line,
+        derive_codex_label,
+        |_t| false,
+    )
+    .with_id_deriver(codex_id_from_path)
+    .with_initial_window(Duration::from_secs(60))
+    .with_liveness_probe(std::sync::Arc::new(move || {
+        std::iter::once(uuid.to_string()).collect()
+    }));
+    let handle = tokio::spawn(async move { watcher.run(tx).await });
+
+    let expected = AgentId::from_parts("codex", uuid);
+    let mut start_id = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Some((_, AgentEvent::SessionStart { agent_id, .. }))) =
+            tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+        {
+            start_id = Some(agent_id);
+            break;
+        }
+    }
+    assert_eq!(
+        start_id,
+        Some(expected),
+        "a probe-live stale rollout must register on startup, UUID-keyed"
+    );
+    handle.abort();
+}
+
+/// #220: the probe is ONGOING liveness, not just admission — after each probe
+/// refresh (the initial seed makes this fast; the 60s poll repeats it) the
+/// watcher emits a `ProofOfLife` for every vouched id so the reducer can keep
+/// the slot exempt from staleness sweeps while the process lives.
+#[tokio::test]
+async fn watcher_emits_proof_of_life_for_probe_live_ids() {
+    let dir = TempDir::new().unwrap();
+    let projects_root = dir.path().to_path_buf();
+    let project_dir = projects_root.join("proj-pol");
+    tokio::fs::create_dir_all(&project_dir).await.unwrap();
+
+    let uuid = "01000000-0000-7000-8000-0000000000ab";
+    let stale = project_dir.join(format!("{uuid}.jsonl"));
+    let line = serde_json::json!({
+        "type": "assistant",
+        "sessionId": uuid,
+        "cwd": "/repo",
+        "message": { "role": "assistant", "content": [] }
+    });
+    tokio::fs::write(&stale, format!("{line}\n")).await.unwrap();
+    let backdated = FileTime::from_system_time(SystemTime::now() - Duration::from_secs(3600));
+    set_file_mtime(&stale, backdated).unwrap();
+
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(32);
+    let watcher = cc_watcher(projects_root.clone())
+        .with_initial_window(Duration::from_secs(60))
+        .with_liveness_probe(std::sync::Arc::new(move || {
+            std::iter::once(uuid.to_string()).collect()
+        }));
+    let handle = tokio::spawn(async move { watcher.run(tx).await });
+
+    let expected = AgentId::from_parts("claude-code", uuid);
+    let mut pol = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Some((t, AgentEvent::ProofOfLife { agent_id }))) =
+            tokio::time::timeout(Duration::from_millis(200), rx.recv()).await
+        {
+            pol = Some((t, agent_id));
+            break;
+        }
+    }
+    assert_eq!(
+        pol,
+        Some((Transport::Jsonl, expected)),
+        "each probe refresh must emit a ProofOfLife per vouched id"
+    );
+    handle.abort();
+}
+
+/// #220 follow-up: the 60s-poll arm must REFRESH the probe snapshot
+/// (`*live = probe()`) and RE-EMIT `ProofOfLife` — not only the initial seed.
+/// The probe starts EMPTY so the initial seed + 250ms rescan gate the stale
+/// file; the session id becomes probe-live only afterwards, so the SessionStart
+/// can ONLY come from a poll-arm snapshot refresh (re-vouch sweep), and the
+/// ProofOfLife only from the poll-arm emission. Uses the `with_poll_interval`
+/// test seam — the production 60s cadence makes the poll arm untestable.
+#[tokio::test]
+async fn poll_arm_refreshes_probe_snapshot_and_reemits_proof_of_life() {
+    use std::collections::HashSet;
+    use std::sync::{Arc, Mutex};
+
+    let dir = TempDir::new().unwrap();
+    let projects_root = dir.path().to_path_buf();
+    let project_dir = projects_root.join("proj-poll-pol");
+    tokio::fs::create_dir_all(&project_dir).await.unwrap();
+
+    let uuid = "01000000-0000-7000-8000-0000000000ac";
+    let stale = project_dir.join(format!("{uuid}.jsonl"));
+    let line = serde_json::json!({
+        "type": "assistant",
+        "sessionId": uuid,
+        "cwd": "/repo",
+        "message": { "role": "assistant", "content": [] }
+    });
+    tokio::fs::write(&stale, format!("{line}\n")).await.unwrap();
+    let backdated = FileTime::from_system_time(SystemTime::now() - Duration::from_secs(3600));
+    set_file_mtime(&stale, backdated).unwrap();
+
+    let live: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+    let probe_view = live.clone();
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(32);
+    let watcher = cc_watcher(projects_root.clone())
+        .with_initial_window(Duration::from_secs(60))
+        .with_poll_interval(Duration::from_millis(100))
+        .with_liveness_probe(Arc::new(move || probe_view.lock().unwrap().clone()));
+    let handle = tokio::spawn(async move { watcher.run(tx).await });
+
+    // While the snapshot is empty (initial seed, rescan, first polls), the
+    // first-sight gate must hold: no SessionStart, no ProofOfLife.
+    let quiet_until = tokio::time::Instant::now() + Duration::from_millis(300);
+    while tokio::time::Instant::now() < quiet_until {
+        if let Ok(Some((_, ev))) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await
+        {
+            assert!(
+                !matches!(
+                    ev,
+                    AgentEvent::SessionStart { .. } | AgentEvent::ProofOfLife { .. }
+                ),
+                "the gate must hold while the probe snapshot is empty, got {ev:?}"
+            );
+        }
+    }
+
+    // The session becomes probe-live AFTER startup (e.g. pixtuoid attached
+    // before CC's registry entry landed). Only a poll-arm refresh can see it.
+    live.lock().unwrap().insert(uuid.to_string());
+
+    let expected = AgentId::from_parts("claude-code", uuid);
+    let mut got_start = false;
+    let mut got_pol = false;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline && !(got_start && got_pol) {
+        match tokio::time::timeout(Duration::from_millis(200), rx.recv()).await {
+            Ok(Some((_, AgentEvent::SessionStart { agent_id, .. }))) if agent_id == expected => {
+                got_start = true;
+            }
+            Ok(Some((Transport::Jsonl, AgentEvent::ProofOfLife { agent_id })))
+                if agent_id == expected =>
+            {
+                got_pol = true;
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        got_start,
+        "the poll-arm snapshot refresh must re-vouch and admit the gated file"
+    );
+    assert!(
+        got_pol,
+        "the poll arm must re-emit ProofOfLife for every vouched id"
+    );
+    handle.abort();
+}
+
 /// Conversely, a transcript whose mtime is *within* the initial-window is
 /// treated as live: its SessionStart and any historical content replays so
 /// in-flight Task / tool state survives a pixtuoid restart.
@@ -1768,6 +1967,153 @@ async fn delegating_parent_attach_registers_parent_and_links_subagent() {
         dispatch_is_task,
         Some(true),
         "the replayed pending Agent dispatch must decode as a Task ActivityStart"
+    );
+    handle.abort();
+}
+
+/// #222 — the oversized delegating-parent attach: like S3, but the parent
+/// transcript has > MAX_PENDING_BYTES pending at attach, so the backlog is
+/// skipped to EOF instead of replayed. The in-flight Agent dispatch sits in
+/// the last 256 KiB (TASK_SCAN_BYTES) with no tool_result — the tail scan
+/// must re-emit it as a Task ActivityStart, EXACTLY ONCE across the initial
+/// seed + rescan + poll cycles, while the completed Bash backlog stays
+/// un-replayed. The parent registers via the bounded head read (#204) and the
+/// fresh subagent links to it.
+#[tokio::test]
+async fn oversized_delegating_parent_attach_replays_pending_dispatch() {
+    let dir = TempDir::new().unwrap();
+    let projects_root = dir.path().to_path_buf();
+    let proj = projects_root.join("-Users-me-bigdeleg");
+    let parent_uuid = "ab000000-0000-7000-8000-0000000000ab";
+    let sub_dir = proj.join(parent_uuid).join("subagents");
+    tokio::fs::create_dir_all(&sub_dir).await.unwrap();
+
+    // Parent: head session_start (cwd on line 1), > 1 MiB of completed-tool
+    // backlog, then the pending Agent dispatch at the tail.
+    let parent_path = proj.join(format!("{parent_uuid}.jsonl"));
+    let mut contents = format!(
+        "{}\n",
+        cc_session_start_line(parent_uuid, "/Users/me/bigdeleg")
+    );
+    let backlog_line = format!(
+        "{}\n",
+        cc_tool_use_line(
+            parent_uuid,
+            "/Users/me/bigdeleg",
+            "tu_backlog",
+            "Bash",
+            serde_json::json!({"command": "ls"}),
+        )
+    );
+    while contents.len() <= (1usize << 20) + 4096 {
+        contents.push_str(&backlog_line);
+    }
+    contents.push_str(&format!(
+        "{}\n",
+        cc_tool_use_line(
+            parent_uuid,
+            "/Users/me/bigdeleg",
+            "tu_task",
+            "Agent",
+            serde_json::json!({
+                "description": "explore", "subagent_type": "code-explorer", "prompt": "go"
+            }),
+        )
+    ));
+    tokio::fs::write(&parent_path, contents.as_bytes())
+        .await
+        .unwrap();
+    write_lines(
+        &sub_dir.join("agent-b1.jsonl"),
+        &[cc_subagent_line("agent-b1", "/Users/me/bigdeleg", "tu_s")],
+    )
+    .await;
+
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(256);
+    let watcher = cc_watcher(projects_root.clone());
+    let handle = tokio::spawn(async move { watcher.run(tx).await });
+
+    let expected_parent = AgentId::from_parts("claude-code", parent_uuid);
+    let is_parent_start = |e: &AgentEvent| {
+        matches!(e, AgentEvent::SessionStart { agent_id, parent_id: None, .. }
+            if *agent_id == expected_parent)
+    };
+    let is_sub_start = |e: &AgentEvent| {
+        matches!(
+            e,
+            AgentEvent::SessionStart {
+                parent_id: Some(_),
+                ..
+            }
+        )
+    };
+    let is_task_start = |e: &AgentEvent| {
+        matches!(e, AgentEvent::ActivityStart { agent_id, tool_use_id, detail }
+            if *agent_id == expected_parent
+                && tool_use_id.as_deref() == Some("tu_task")
+                && detail.as_ref().is_some_and(|d| d.is_task()))
+    };
+
+    let mut events: Vec<(Transport, AgentEvent)> = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Some(pair)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+            events.push(pair);
+        }
+        if events.iter().any(|(_, e)| is_parent_start(e))
+            && events.iter().any(|(_, e)| is_sub_start(e))
+            && events.iter().any(|(_, e)| is_task_start(e))
+        {
+            break;
+        }
+    }
+    // Settle past the 250ms rescan + several poll cycles, then drain: the
+    // scan runs only on the oversized-skip pass, so re-scans (cursor parked
+    // at EOF) must not re-emit the dispatch.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    while let Ok(Some(pair)) = tokio::time::timeout(Duration::from_millis(50), rx.recv()).await {
+        events.push(pair);
+    }
+
+    assert!(
+        events.iter().any(|(_, e)| is_parent_start(e)),
+        "the oversized delegating parent must register at attach (#204 head read), got {events:?}"
+    );
+    let sub_parents: Vec<Option<AgentId>> = events
+        .iter()
+        .filter_map(|(_, e)| match e {
+            AgentEvent::SessionStart {
+                parent_id: Some(pid),
+                ..
+            } => Some(Some(*pid)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        sub_parents,
+        vec![Some(expected_parent)],
+        "the fresh subagent must attach linked to the parent, exactly once"
+    );
+    let task_starts: Vec<Transport> = events
+        .iter()
+        .filter(|(_, e)| is_task_start(e))
+        .map(|(t, _)| *t)
+        .collect();
+    assert_eq!(
+        task_starts,
+        vec![Transport::Jsonl],
+        "the in-flight dispatch must be re-emitted exactly once, Jsonl-tagged (it passes the hook-wins dedup at mid-attach)"
+    );
+    let backlog_replays = events
+        .iter()
+        .filter(|(_, e)| {
+            matches!(e, AgentEvent::ActivityStart { tool_use_id, .. }
+                if tool_use_id.as_deref() == Some("tu_backlog"))
+        })
+        .count();
+    assert_eq!(
+        backlog_replays, 0,
+        "the completed Bash backlog must not be replayed — this is a Task-seeding scan, not a replay"
     );
     handle.abort();
 }

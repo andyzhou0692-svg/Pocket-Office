@@ -115,6 +115,19 @@ pub const STALE_UNKNOWN_CWD_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 #[doc(hidden)]
 pub const STALE_SHORT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
+/// How long an [`AgentEvent::ProofOfLife`] vouch exempts its slot from the
+/// staleness sweeps (#220). The probe is ground truth that the OWNING PROCESS
+/// is alive, while every `STALE_*` window above only models event silence — so
+/// a vouched slot must not be swept on silence alone (the motivating case: a
+/// probe-vouched CC session parked on a permission prompt renders Active after
+/// attach-replay — its hook-only Waiting state is unreconstructable from JSONL
+/// — and 10 min of silence is normal while the human decides). Sized 2.5× the
+/// watcher's 60s poll cadence: two missed polls plus slack. When the live
+/// signal disappears (registry entry removed / rollout fd closed) the
+/// emissions stop and the normal sweeps resume after this lapse.
+#[doc(hidden)]
+pub const PROOF_OF_LIFE_TTL: Duration = Duration::from_secs(150);
+
 /// The state-adaptive stale timeout for one slot. Unknown-cwd ghosts reap on the
 /// shortest window (almost always startup-seeding artifacts). Otherwise the
 /// timeout follows the activity state — with one carve-out: an idle slot whose
@@ -203,6 +216,38 @@ fn is_fallback_label(label: &str, source: &str) -> bool {
         .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
 }
 
+/// First-wins identity back-fill shared by the duplicate-`SessionStart` arm
+/// and the hook [`AgentEvent::Identity`] arm (#221): heal EMPTY
+/// source/session_id/cwd — an established value is never overwritten. Returns
+/// the healed cwd's basename when THIS call healed the cwd; the SessionStart
+/// arm alone upgrades a fallback label from it (`Identity` carries no label
+/// authority — label upgrades stay on the SessionStart path).
+fn backfill_identity<'a>(
+    slot: &mut AgentSlot,
+    source: &str,
+    session_id: &str,
+    cwd: &'a std::path::Path,
+) -> Option<&'a str> {
+    if slot.source.is_empty() && !source.is_empty() {
+        slot.source = Arc::<str>::from(source);
+    }
+    if slot.session_id.is_empty() && !session_id.is_empty() {
+        slot.session_id = Arc::<str>::from(session_id);
+    }
+    if slot.unknown_cwd || slot.cwd.as_os_str().is_empty() {
+        if let Some(base) = cwd
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|s| !s.is_empty())
+        {
+            slot.cwd = Arc::<std::path::Path>::from(cwd);
+            slot.unknown_cwd = false;
+            return Some(base);
+        }
+    }
+    None
+}
+
 /// Outcome flags from [`Reducer::track_active_tasks`], consumed by `apply`'s
 /// main event match.
 struct TaskTracking {
@@ -246,6 +291,13 @@ pub struct Reducer {
     /// copy — #151) defuses it. Evicted at BOTH sites like the other maps
     /// (tick's retain + `sweep_exited`'s remove).
     pending_b1_cascades: HashMap<AgentId, SystemTime>,
+    /// Sweep-exemption timestamps from [`AgentEvent::ProofOfLife`] (#220):
+    /// a slot vouched for within [`PROOF_OF_LIFE_TTL`] is skipped by
+    /// `sweep_stale`'s candidate collection. Deliberately reducer-private
+    /// state, NOT a field on the public `AgentSlot` (no semver surface
+    /// change); pruned by `gc` on TTL like its hook-recency siblings and
+    /// evicted with the slot in `sweep_exited`.
+    recent_proof_of_life: HashMap<AgentId, SystemTime>,
     /// `tool_use_id` that was Active immediately before an agent entered
     /// `Waiting` (a CC permission `Notification` fires mid-tool). When THAT
     /// tool's `ActivityEnd` (its `PostToolUse`) arrives, the permission has been
@@ -431,32 +483,20 @@ impl Reducer {
                     // session_id/cwd), and a Codex revive ghost has an empty
                     // cwd. The first SessionStart carrying the missing piece
                     // heals it; an established value is never overwritten
-                    // (first-wins, this arm's existing semantics). Judge the
+                    // (first-wins, via the shared `backfill_identity` — the
+                    // hook `Identity` arm runs the same heal). Judge the
                     // label's fallback-ness BEFORE the source back-fill — the
                     // ordinal was minted under the OLD source's prefix.
                     let label_is_fallback = is_fallback_label(&slot.label, &slot.source);
-                    if slot.source.is_empty() && !source.is_empty() {
-                        slot.source = Arc::<str>::from(source.as_str());
-                    }
-                    if slot.session_id.is_empty() && !session_id.is_empty() {
-                        slot.session_id = Arc::<str>::from(session_id.as_str());
-                    }
-                    if slot.unknown_cwd || slot.cwd.as_os_str().is_empty() {
-                        if let Some(base) = cwd
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .filter(|s| !s.is_empty())
-                        {
-                            slot.cwd = Arc::<std::path::Path>::from(cwd.as_path());
-                            slot.unknown_cwd = false;
-                            // Upgrade ONLY a fallback label — a basename- or
-                            // Rename-derived label is real information.
-                            if label_is_fallback {
-                                slot.label = Arc::<str>::from(
-                                    format!("{}·{base}", source_label_prefix(&slot.source))
-                                        .as_str(),
-                                );
-                            }
+                    if let Some(base) = backfill_identity(slot, &source, &session_id, &cwd) {
+                        // Upgrade ONLY a fallback label — a basename- or
+                        // Rename-derived label is real information. This stays
+                        // on the SessionStart path: `Identity` carries no
+                        // label authority.
+                        if label_is_fallback {
+                            slot.label = Arc::<str>::from(
+                                format!("{}·{base}", source_label_prefix(&slot.source)).as_str(),
+                            );
                         }
                     }
                     // A duplicate SessionStart is still a genuine liveness
@@ -584,7 +624,72 @@ impl Reducer {
                 }
                 scope::cascade_exit(scene, agent_id, now);
             }
+            // #220: refresh the sweep exemption — and NOTHING else. No slot
+            // synthesis (only hook tool/permission events are proof of NEW
+            // life; this only vouches for already-visible slots), no state
+            // change, no `last_event_at` refresh (the Active→Idle debounce and
+            // back-fill stay driven by real events). An exiting slot is left
+            // alone so the vouch can't tug against SessionEnd/cascade_exit.
+            AgentEvent::ProofOfLife { agent_id } => {
+                if scene
+                    .agents
+                    .get(&agent_id)
+                    .is_some_and(|s| s.exiting_at.is_none())
+                {
+                    self.recent_proof_of_life.insert(agent_id, now);
+                }
+            }
+            // #221: the identity context a hook decoder attaches ahead of a
+            // tool/permission activity event — register-or-back-fill, NOTHING
+            // else: no label change (Identity carries no label authority — see
+            // `backfill_identity`), no activity-state change, no
+            // `last_event_at` refresh (the paired activity event right behind
+            // it carries those).
+            AgentEvent::Identity {
+                agent_id,
+                source,
+                session_id,
+                cwd,
+            } => {
+                // Boundary (1) made structural: JSONL must never synthesize —
+                // a transcript line can be a historical replay. No in-tree
+                // JSONL path emits Identity today; this guard IS the boundary,
+                // not dead code (cf. the transport-relevant ProofOfLife arm).
+                if from != Transport::Hook {
+                    tracing::debug!(?agent_id, "ignoring Identity on a non-hook transport");
+                    return;
+                }
+                let cwd = cwd.as_deref().unwrap_or_else(|| std::path::Path::new(""));
+                if let Some(slot) = scene.agents.get_mut(&agent_id) {
+                    backfill_identity(slot, &source, &session_id, cwd);
+                } else if !self.hook_session_end_tombstoned(agent_id, now)
+                    && self.register_slot(scene, agent_id, &source, &session_id, cwd, None, now)
+                {
+                    // The same reap exemption as the blank hook synthesis: a
+                    // cwd-less Identity registers an ordinal-labeled slot that
+                    // is process-proven alive, NOT a startup-seeding ghost —
+                    // the 3-min unknown-cwd reap would kill it before any
+                    // back-fill. No-op when the Identity carried a real cwd.
+                    // A desk-capacity refusal does nothing further — Identity
+                    // carries no tool_use_id, so the dedup map can't be
+                    // poisoned (boundary 3 untouched).
+                    if let Some(slot) = scene.agents.get_mut(&agent_id) {
+                        slot.unknown_cwd = false;
+                    }
+                }
+            }
         }
+    }
+
+    /// Whether a hook `SessionEnd` for `id` (which had no slot) is still inside
+    /// its [`HOOK_SESSION_END_TOMBSTONE_TTL`]: a trailing hook event delivered
+    /// reordered after the end must not re-register the dead session. Shared by
+    /// [`Reducer::synthesize_hook_registration`] and the `Identity` arm.
+    fn hook_session_end_tombstoned(&self, id: AgentId, now: SystemTime) -> bool {
+        self.recent_hook_session_ends.get(&id).is_some_and(|ts| {
+            now.duration_since(*ts)
+                .is_ok_and(|d| d < HOOK_SESSION_END_TOMBSTONE_TTL)
+        })
     }
 
     /// Pre-pass 0 of [`Reducer::apply`] (hook transport only) — hook events
@@ -595,12 +700,17 @@ impl Reducer {
     /// proves a live session; `SessionEnd` (nothing to remove) and `Rename`
     /// (nothing to relabel) stay no-ops for an unknown id.
     ///
-    /// The decoded hook events carry no identity context beyond the `AgentId`
-    /// (no source / session_id / cwd — and the id is a hash, not reversible),
-    /// so the slot starts blank with the bare ordinal label (`#N`); the next
-    /// real `SessionStart` back-fills it (see the duplicate-SessionStart arm).
-    /// Routed through [`Reducer::register_slot`] so the desk-capacity gate
-    /// applies the same as for a real `SessionStart`.
+    /// The decoded activity events carry no identity context beyond the
+    /// `AgentId` (no source / session_id / cwd — and the id is a hash, not
+    /// reversible), so the slot starts blank with the bare ordinal label
+    /// (`#N`); a later real `SessionStart` back-fills it (see the
+    /// duplicate-SessionStart arm). Since #221 the hook decoders attach an
+    /// [`AgentEvent::Identity`] AHEAD of tool/permission events, so the slot
+    /// normally already exists — with real identity — by the time the activity
+    /// event applies; this blank path remains the fallback for identity-less
+    /// hook events (`Stop`, directly-constructed events). Routed through
+    /// [`Reducer::register_slot`] so the desk-capacity gate applies the same
+    /// as for a real `SessionStart`.
     fn synthesize_hook_registration(
         &mut self,
         scene: &mut SceneState,
@@ -623,10 +733,7 @@ impl Reducer {
         // (per-connection hook tasks reorder), not proof of new life.
         // Synthesizing would mint a blank Idle ghost that no future
         // SessionEnd can remove — only the 30-min idle sweep.
-        if self.recent_hook_session_ends.get(&id).is_some_and(|ts| {
-            now.duration_since(*ts)
-                .is_ok_and(|d| d < HOOK_SESSION_END_TOMBSTONE_TTL)
-        }) {
+        if self.hook_session_end_tombstoned(id, now) {
             return;
         }
         if self.register_slot(scene, id, "", "", std::path::Path::new(""), None, now) {
@@ -901,6 +1008,8 @@ impl Reducer {
             now.duration_since(*ts)
                 .is_ok_and(|d| d < HOOK_SESSION_END_TOMBSTONE_TTL)
         });
+        self.recent_proof_of_life
+            .retain(|_, ts| now.duration_since(*ts).is_ok_and(|d| d < PROOF_OF_LIFE_TTL));
     }
 
     /// Walk through agents with `pending_idle_at` set and flip their
@@ -929,6 +1038,17 @@ impl Reducer {
         }
     }
 
+    /// Whether `id` holds a FRESH probe vouch — an [`AgentEvent::ProofOfLife`]
+    /// recorded within [`PROOF_OF_LIFE_TTL`]. The single freshness predicate
+    /// shared by `sweep_stale`'s own-id exemption and its delegating-ancestor
+    /// walk, so the TTL logic can't fork. Clock-regression-safe like the `gc`
+    /// retains (`duration_since` Errs on a future timestamp → not fresh).
+    fn vouch_fresh(&self, id: &AgentId, now: SystemTime) -> bool {
+        self.recent_proof_of_life
+            .get(id)
+            .is_some_and(|t| now.duration_since(*t).is_ok_and(|d| d < PROOF_OF_LIFE_TTL))
+    }
+
     /// Mark agents as exiting when they haven't emitted any event for
     /// longer than their state-adaptive threshold. Uses `last_event_at`
     /// (updated on every reducer event) as the liveness signal, NOT
@@ -951,6 +1071,34 @@ impl Reducer {
             .filter(|slot| slot.exiting_at.is_none())
             .filter_map(|slot| {
                 if scope::has_waiting_ancestor(agents, slot.agent_id) {
+                    return None;
+                }
+                // Probe-vouched exemption (#220): a recent ProofOfLife means
+                // the owning process is alive RIGHT NOW — event silence is not
+                // death (permission-parked after attach-replay, long-idle).
+                // Once emissions stop the entry ages out and the normal sweep
+                // resumes.
+                if self.vouch_fresh(&slot.agent_id, now) {
+                    return None;
+                }
+                // The vouch extends to a vouched ancestor's DELEGATED subtree:
+                // the probe never vouches subagent ids (their stems are
+                // `agent-<id>`, not session UUIDs), and a permission-parked
+                // parent renders Active after attach-replay (not Waiting), so
+                // `has_waiting_ancestor` can't fire for its blocked-but-live
+                // child — which would be swept unrecoverably (its JSONL events
+                // become unknown-id no-ops; its hooks attribute to the
+                // parent). Gated on the ancestor ACTIVELY delegating (a
+                // non-empty `active_tasks` entry) so a completed lingering
+                // child — the b1 chained-dispatch residual — keeps the 30-min
+                // idle backstop.
+                if scope::has_ancestor_where(agents, slot.agent_id, |a| {
+                    self.vouch_fresh(&a.agent_id, now)
+                        && self
+                            .active_tasks
+                            .get(&a.agent_id)
+                            .is_some_and(|t| !t.is_empty())
+                }) {
                     return None;
                 }
                 let age = now
@@ -1021,6 +1169,10 @@ impl Reducer {
             // swept mid-turn leaks its gated tool_use_id until the next tick.
             self.gated_before_waiting.remove(&id);
             self.pending_b1_cascades.remove(&id);
+            // The gc TTL retain bounds this map anyway; evicting with the slot
+            // (like the per-agent siblings above) keeps a removed id from
+            // exempting a same-id resurrect ghost inside the TTL window.
+            self.recent_proof_of_life.remove(&id);
         }
     }
 }
@@ -1132,7 +1284,7 @@ mod tests {
     #[test]
     fn stale_timeout_constants_have_their_intended_durations() {
         use super::{
-            STALE_ACTIVE_TIMEOUT, STALE_IDLE_TIMEOUT, STALE_SHORT_IDLE_TIMEOUT,
+            PROOF_OF_LIFE_TTL, STALE_ACTIVE_TIMEOUT, STALE_IDLE_TIMEOUT, STALE_SHORT_IDLE_TIMEOUT,
             STALE_UNKNOWN_CWD_TIMEOUT, STALE_WAITING_TIMEOUT,
         };
         use std::time::Duration;
@@ -1141,6 +1293,7 @@ mod tests {
         assert_eq!(STALE_WAITING_TIMEOUT, Duration::from_secs(3600)); // 60 min
         assert_eq!(STALE_UNKNOWN_CWD_TIMEOUT, Duration::from_secs(180)); // 3 min
         assert_eq!(STALE_SHORT_IDLE_TIMEOUT, Duration::from_secs(300)); // 5 min
+        assert_eq!(PROOF_OF_LIFE_TTL, Duration::from_secs(150)); // 2.5× the 60s poll
     }
 
     // The Delegating stale carve-out is caps-driven; pin the POLICY half with

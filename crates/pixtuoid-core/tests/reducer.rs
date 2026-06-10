@@ -974,6 +974,477 @@ fn codex_idle_agent_reaps_faster_than_claude_idle() {
     );
 }
 
+// --- probe-vouched sweep exemption (#220) ----------------------------------
+//
+// The liveness probe (CC sessions registry / Codex open-rollout fd) is ground
+// truth that the owning PROCESS is alive; the watcher re-emits ProofOfLife per
+// probe refresh. A vouched slot must not be swept on event silence alone —
+// the motivating case is a permission-parked CC session that renders Active
+// after attach-replay (its hook-only Waiting is unreconstructable from JSONL)
+// and emits nothing while the human decides.
+
+#[test]
+fn proof_of_life_exempts_active_slot_from_stale_sweep() {
+    use pixtuoid_core::state::reducer::{PROOF_OF_LIFE_TTL, STALE_ACTIVE_TIMEOUT};
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/pol-active.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "s".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            tool_use_id: Some("t".into()),
+            detail: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+
+    // The watcher re-vouches every ~60s, so by the time the slot crosses the
+    // Active threshold a fresh ProofOfLife has landed well inside the TTL.
+    let vouch_at = t0 + STALE_ACTIVE_TIMEOUT;
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: id },
+        vouch_at,
+        Transport::Jsonl,
+    );
+
+    // Past the Active threshold (measured from last_event_at = t0) but inside
+    // the vouch TTL: without the exemption this sweep reaps the slot (pinned
+    // by stale_active_agent_uses_shorter_timeout_than_idle).
+    let sweep_at = vouch_at + Duration::from_secs(1);
+    assert!(sweep_at.duration_since(vouch_at).unwrap() < PROOF_OF_LIFE_TTL);
+    r.tick(&mut scene, sweep_at);
+    let slot = scene.agents.get(&id).expect("vouched slot must survive");
+    assert!(
+        slot.exiting_at.is_none(),
+        "a probe-vouched slot must be exempt from the stale sweep"
+    );
+}
+
+#[test]
+fn proof_of_life_lapse_restores_normal_sweep() {
+    use pixtuoid_core::state::reducer::{PROOF_OF_LIFE_TTL, STALE_ACTIVE_TIMEOUT};
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/pol-lapse.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "s".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            tool_use_id: Some("t".into()),
+            detail: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+
+    // Last vouch lands mid-window (the process then exits: emissions stop).
+    let vouch_at = t0 + STALE_ACTIVE_TIMEOUT - Duration::from_secs(100);
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: id },
+        vouch_at,
+        Transport::Jsonl,
+    );
+
+    // Inside the TTL the slot is exempt — also pins that ProofOfLife did NOT
+    // refresh last_event_at (the slot is past the Active threshold here).
+    let exempt_at = t0 + STALE_ACTIVE_TIMEOUT + Duration::from_secs(1);
+    r.tick(&mut scene, exempt_at);
+    assert!(
+        scene.agents.get(&id).unwrap().exiting_at.is_none(),
+        "still inside the vouch TTL — exempt"
+    );
+
+    // Once the vouch lapses, the normal sweep resumes (age is measured from
+    // last_event_at = t0, long past the Active threshold by now).
+    let lapsed_at = vouch_at + PROOF_OF_LIFE_TTL + Duration::from_secs(1);
+    r.tick(&mut scene, lapsed_at);
+    assert!(
+        scene.agents.get(&id).unwrap().exiting_at.is_some(),
+        "a lapsed vouch must fall back to the normal stale sweep"
+    );
+}
+
+#[test]
+fn proof_of_life_for_unknown_id_is_a_no_op() {
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/pol-unknown.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: id },
+        t0,
+        Transport::Jsonl,
+    );
+    assert!(
+        scene.agents.is_empty(),
+        "ProofOfLife must never create a slot — only hook tool/permission events synthesize"
+    );
+}
+
+#[test]
+fn proof_of_life_does_not_touch_activity_state() {
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/pol-state.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "s".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: id,
+            tool_use_id: Some("t1".into()),
+            detail: Some("Edit: foo.rs".into()),
+        },
+        t0,
+        Transport::Hook,
+    );
+    // Arm the idle debounce — ProofOfLife must not cancel or re-arm it.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityEnd {
+            agent_id: id,
+            tool_use_id: Some("t1".into()),
+        },
+        t0,
+        Transport::Hook,
+    );
+    let before = scene.agents.get(&id).unwrap().clone();
+
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: id },
+        t0 + Duration::from_millis(100),
+        Transport::Jsonl,
+    );
+    let after = scene.agents.get(&id).unwrap();
+    assert_eq!(
+        after.state, before.state,
+        "ProofOfLife must not change activity state"
+    );
+    assert_eq!(
+        after.last_event_at, before.last_event_at,
+        "ProofOfLife must not refresh last_event_at — it is not a real event"
+    );
+    assert_eq!(
+        after.pending_idle_at, before.pending_idle_at,
+        "ProofOfLife must not disturb the armed Active→Idle debounce"
+    );
+}
+
+#[test]
+fn proof_of_life_does_not_block_session_end() {
+    use pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_transcript_path("/p/pol-end.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "s".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: id },
+        t0,
+        Transport::Jsonl,
+    );
+    // A real exit still removes promptly: SessionEnd marks exiting despite the
+    // fresh vouch, and the grace GC reclaims the slot on schedule.
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd { agent_id: id },
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+    assert!(
+        scene.agents.get(&id).unwrap().exiting_at.is_some(),
+        "SessionEnd must mark a vouched slot exiting immediately"
+    );
+    r.tick(
+        &mut scene,
+        t0 + Duration::from_secs(1) + EXIT_GRACE_WINDOW + Duration::from_secs(1),
+    );
+    assert!(
+        !scene.agents.contains_key(&id),
+        "the vouch must not delay the exit GC"
+    );
+}
+
+#[test]
+fn codex_vouched_idle_slot_outlives_short_idle_reap() {
+    use pixtuoid_core::state::reducer::{PROOF_OF_LIFE_TTL, STALE_SHORT_IDLE_TIMEOUT};
+    // The new Codex semantic (#220): while the FD probe vouches for a rollout
+    // (the codex process lives, holding it open), the 5-min short-idle reap is
+    // exempt — it now effectively measures from the moment the process exits
+    // and the vouch lapses. Without the vouch, the short reap is unchanged.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let vouched = AgentId::from_transcript_path("/p/codex-vouched.jsonl");
+    let ghost = AgentId::from_transcript_path("/p/codex-ghost.jsonl");
+    for id in [vouched, ghost] {
+        r.apply(
+            &mut scene,
+            AgentEvent::SessionStart {
+                agent_id: id,
+                source: "codex".into(),
+                session_id: "s".into(),
+                cwd: PathBuf::from("/repo"),
+                parent_id: None,
+            },
+            t0,
+            Transport::Hook,
+        );
+    }
+    let vouch_at = t0 + STALE_SHORT_IDLE_TIMEOUT - Duration::from_secs(100);
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: vouched },
+        vouch_at,
+        Transport::Jsonl,
+    );
+
+    let sweep_at = t0 + STALE_SHORT_IDLE_TIMEOUT + Duration::from_secs(1);
+    assert!(sweep_at.duration_since(vouch_at).unwrap() < PROOF_OF_LIFE_TTL);
+    r.tick(&mut scene, sweep_at);
+    assert!(
+        scene.agents.get(&vouched).unwrap().exiting_at.is_none(),
+        "an fd-vouched codex slot must outlive the short-idle reap"
+    );
+    assert!(
+        scene.agents.get(&ghost).unwrap().exiting_at.is_some(),
+        "an unvouched codex slot keeps the 5-min short-idle reap"
+    );
+}
+
+#[test]
+fn proof_of_life_on_delegating_parent_shields_its_active_subtree() {
+    use pixtuoid_core::state::reducer::{PROOF_OF_LIFE_TTL, STALE_ACTIVE_TIMEOUT};
+    // The probe never vouches subagent ids (their transcript stems are
+    // `agent-<id>`, not session UUIDs), and a permission-parked parent renders
+    // Active after attach-replay (not Waiting — `has_waiting_ancestor` can't
+    // fire). So a vouched, actively-delegating ANCESTOR must shield its
+    // delegated subtree from the stale sweep: sweeping the live-but-blocked
+    // child is unrecoverable (its JSONL events become unknown-id no-ops; its
+    // hooks attribute to the parent).
+    let mut scene = SceneState::uniform(8);
+    let mut r = Reducer::new();
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let (parent, child) = delegating_pair(&mut r, &mut scene, "pol-shield", t0);
+    // A grandchild proves the walk is multi-level, not parent-only.
+    let grandchild = AgentId::from_parts(
+        "claude-code",
+        "/p/pol-shield/subagents/agent-1/subagents/agent-2.jsonl",
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: grandchild,
+            source: "claude-code".into(),
+            session_id: "g".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: Some(child),
+        },
+        t0 + Duration::from_millis(150),
+        Transport::Jsonl,
+    );
+    // Parent dispatches a Task → active_tasks[parent] non-empty (delegating).
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: parent,
+            tool_use_id: Some("task-T".into()),
+            detail: Some("Task".into()),
+        },
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+    // Child + grandchild go Active via their own JSONL, then fall silent
+    // (blocked behind the parent's permission prompt).
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: child,
+            tool_use_id: Some("c1".into()),
+            detail: Some("Read: /x".into()),
+        },
+        t0 + Duration::from_secs(2),
+        Transport::Jsonl,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: grandchild,
+            tool_use_id: Some("g1".into()),
+            detail: Some("Read: /y".into()),
+        },
+        t0 + Duration::from_secs(3),
+        Transport::Jsonl,
+    );
+
+    // The probe re-vouches the PARENT only, well past the subtree's Active
+    // threshold (the watcher re-emits every ~60s, so the vouch is fresh).
+    let vouch_at = t0 + STALE_ACTIVE_TIMEOUT + Duration::from_secs(60);
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: parent },
+        vouch_at,
+        Transport::Jsonl,
+    );
+
+    let sweep_at = vouch_at + Duration::from_secs(1);
+    assert!(sweep_at.duration_since(vouch_at).unwrap() < PROOF_OF_LIFE_TTL);
+    r.tick(&mut scene, sweep_at);
+    assert!(
+        scene.agents.get(&parent).unwrap().exiting_at.is_none(),
+        "the vouched parent survives via its own-id exemption"
+    );
+    assert!(
+        scene.agents.get(&child).unwrap().exiting_at.is_none(),
+        "a vouched delegating parent must shield its silent Active child"
+    );
+    assert!(
+        scene.agents.get(&grandchild).unwrap().exiting_at.is_none(),
+        "the shield must walk the whole ancestor chain, not one level"
+    );
+}
+
+#[test]
+fn vouch_lapse_restores_subtree_sweep() {
+    use pixtuoid_core::state::reducer::{PROOF_OF_LIFE_TTL, STALE_ACTIVE_TIMEOUT};
+    // When the process exits, emissions stop and the lapse must restore the
+    // normal sweep for the whole subtree — the shield is strictly
+    // process-liveness-scoped, never a permanent exemption.
+    let mut scene = SceneState::uniform(8);
+    let mut r = Reducer::new();
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let (parent, child) = delegating_pair(&mut r, &mut scene, "pol-lapse-tree", t0);
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: parent,
+            tool_use_id: Some("task-T".into()),
+            detail: Some("Task".into()),
+        },
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: child,
+            tool_use_id: Some("c1".into()),
+            detail: Some("Read: /x".into()),
+        },
+        t0 + Duration::from_secs(2),
+        Transport::Jsonl,
+    );
+
+    // Last vouch lands mid-window; the process then exits — emissions stop.
+    let vouch_at = t0 + STALE_ACTIVE_TIMEOUT - Duration::from_secs(100);
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: parent },
+        vouch_at,
+        Transport::Jsonl,
+    );
+
+    let lapsed_at = vouch_at + PROOF_OF_LIFE_TTL + Duration::from_secs(1);
+    r.tick(&mut scene, lapsed_at);
+    assert!(
+        scene.agents.get(&parent).unwrap().exiting_at.is_some(),
+        "a lapsed vouch must restore the parent's normal stale sweep"
+    );
+    assert!(
+        scene.agents.get(&child).unwrap().exiting_at.is_some(),
+        "the child must be swept too once the ancestor vouch lapses"
+    );
+}
+
+#[test]
+fn vouched_idle_parent_without_tasks_does_not_shield_idle_child() {
+    use pixtuoid_core::state::reducer::{PROOF_OF_LIFE_TTL, STALE_IDLE_TIMEOUT};
+    // The backstop pin: the ancestor shield is gated on the ancestor ACTIVELY
+    // delegating (non-empty active_tasks). A vouched parent with no Task in
+    // flight must not shield a lingering completed/idle child — that's the
+    // documented 30-min idle backstop for the b1 chained-dispatch residual.
+    let mut scene = SceneState::uniform(8);
+    let mut r = Reducer::new();
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let (parent, child) = delegating_pair(&mut r, &mut scene, "pol-backstop", t0);
+    // NO Task dispatch: active_tasks[parent] stays empty; both slots sit Idle.
+
+    let vouch_at = t0 + STALE_IDLE_TIMEOUT + Duration::from_secs(60);
+    r.apply(
+        &mut scene,
+        AgentEvent::ProofOfLife { agent_id: parent },
+        vouch_at,
+        Transport::Jsonl,
+    );
+
+    let sweep_at = vouch_at + Duration::from_secs(1);
+    assert!(sweep_at.duration_since(vouch_at).unwrap() < PROOF_OF_LIFE_TTL);
+    r.tick(&mut scene, sweep_at);
+    assert!(
+        scene.agents.get(&child).unwrap().exiting_at.is_some(),
+        "a vouched but non-delegating parent must NOT shield its idle child — the 30-min backstop holds"
+    );
+    assert!(
+        scene.agents.get(&parent).unwrap().exiting_at.is_none(),
+        "the vouched parent itself keeps the own-id exemption"
+    );
+}
+
 #[test]
 fn fresh_event_resets_stale_timer() {
     use pixtuoid_core::state::reducer::STALE_IDLE_TIMEOUT;
@@ -2245,6 +2716,128 @@ fn subagent_is_removed_promptly_when_its_parent_task_completes() {
     assert!(
         scene.agents.get(&parent).unwrap().exiting_at.is_none(),
         "the parent keeps running after a Task completes"
+    );
+}
+
+#[test]
+fn oversized_attach_synthesized_task_start_restores_suppression_and_b1() {
+    // #222 at the reducer layer: mid-attach to a delegating parent whose
+    // > 1 MiB backlog was skipped — the watcher tail-scans and re-emits the
+    // in-flight dispatch as a Jsonl-tagged Task ActivityStart. The mid-attach
+    // dedup pin (#150): NO hook record for that tuid exists (its PreToolUse
+    // predates the listener), so the synthesized start passes the hook-wins
+    // dedup and seeds active_tasks — suppression and b1 then work from the
+    // Jsonl copy alone, with zero reducer changes.
+    let mut scene = SceneState::uniform(8);
+    let mut r = Reducer::new();
+    let parent = AgentId::from_transcript_path("/p/att.jsonl");
+    let child = AgentId::from_parts("claude-code", "/p/att/subagents/agent-1.jsonl");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    // Both registrations arrive via Jsonl — the watcher's attach replay
+    // (emit_first_sight for the parent, the fresh subagent transcript).
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: parent,
+            source: "claude-code".into(),
+            session_id: "p".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Jsonl,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: child,
+            source: "claude-code".into(),
+            session_id: "c".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: Some(parent),
+        },
+        t0 + Duration::from_millis(100),
+        Transport::Jsonl,
+    );
+
+    // The synthesized Task start (Jsonl, no prior hook record at attach).
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: parent,
+            tool_use_id: Some("tu_task".into()),
+            detail: Some("Agent".into()),
+        },
+        t0 + Duration::from_secs(1),
+        Transport::Jsonl,
+    );
+    assert_delegating(
+        &scene,
+        parent,
+        "the synthesized Jsonl Task start must seed active_tasks — no hook record exists at mid-attach to dedup-eat it",
+    );
+
+    // The subagent's next tool fires a hook misattributed to the PARENT
+    // (CC hook transcript_path is always the parent's). With active_tasks
+    // seeded, it must be suppressed — parent stays Delegating.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: parent,
+            tool_use_id: Some("sub-R".into()),
+            detail: Some("Read: /foo".into()),
+        },
+        t0 + Duration::from_secs(2),
+        Transport::Hook,
+    );
+    assert_delegating(
+        &scene,
+        parent,
+        "the misattributed subagent hook must be suppressed, not animated on the parent",
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityEnd {
+            agent_id: parent,
+            tool_use_id: Some("sub-R".into()),
+        },
+        t0 + Duration::from_secs(3),
+        Transport::Hook,
+    );
+    assert!(
+        scene.agents.get(&parent).unwrap().pending_idle_at.is_none(),
+        "the suppressed subagent End must not arm the parent's pending-idle"
+    );
+
+    // The Task's JSONL self-END (the tool_result line in the parent
+    // transcript) drains the seeded task and arms the grace-deferred b1
+    // cascade — the completed subagent leaves promptly instead of lingering
+    // to the 30-min idle sweep.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityEnd {
+            agent_id: parent,
+            tool_use_id: Some("tu_task".into()),
+        },
+        t0 + Duration::from_secs(10),
+        Transport::Jsonl,
+    );
+    assert!(
+        scene.agents.get(&child).unwrap().exiting_at.is_none(),
+        "the b1 cascade is grace-deferred (#151) — never immediate"
+    );
+    r.tick(
+        &mut scene,
+        t0 + Duration::from_secs(10) + B1_CASCADE_GRACE + Duration::from_millis(10),
+    );
+    assert!(
+        scene.agents.get(&child).unwrap().exiting_at.is_some(),
+        "the synthesized Task start must arm b1: the drain cascades the completed subagent out"
+    );
+    assert!(
+        scene.agents.get(&parent).unwrap().exiting_at.is_none(),
+        "the parent keeps running after the Task drains"
     );
 }
 
@@ -4476,5 +5069,273 @@ fn two_step_backfill_source_first_then_cwd_still_upgrades_the_label() {
     assert_eq!(
         &*slot.label, "cc·repo",
         "fallback still upgrades after the two-step heal"
+    );
+}
+
+// ── #221: hook Identity — registration with real identity ──────────────────
+// Hook decoders attach an `Identity` event (source/session_id/cwd) ahead of
+// tool/permission activity events, so the proof-of-life registration for an
+// unknown id normally lands with REAL identity instead of a blank `#N` slot
+// (which remains the fallback for identity-less events like Stop). The arm
+// registers-or-back-fills and NOTHING else: labels, activity state, and
+// `last_event_at` stay owned by the activity/SessionStart paths.
+
+#[test]
+fn hook_identity_registers_unknown_id_with_real_identity() {
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("claude-code", "gated-sess");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "gated-sess".into(),
+            cwd: Some(PathBuf::from("/Users/me/repo")),
+        },
+        t0,
+        Transport::Hook,
+    );
+
+    let slot = scene
+        .agents
+        .get(&id)
+        .expect("hook Identity must register the slot");
+    assert_eq!(
+        &*slot.label, "cc·repo",
+        "the normal minted label, NOT a blank #N ordinal"
+    );
+    assert_eq!(&*slot.source, "claude-code");
+    assert_eq!(&*slot.session_id, "gated-sess");
+    assert_eq!(&*slot.cwd, std::path::Path::new("/Users/me/repo"));
+    assert!(
+        !slot.unknown_cwd,
+        "real-cwd registration — not an unknown-cwd ghost"
+    );
+    // Same floor/desk behavior as a real-cwd SessionStart registration: a
+    // desk is allocated through the shared register_slot.
+    assert_eq!(slot.floor_idx, scene.floor_of(slot.desk_index));
+    assert!(
+        matches!(slot.state, ActivityState::Idle),
+        "Identity itself sets no activity state — the paired activity event does"
+    );
+}
+
+#[test]
+fn hook_identity_without_cwd_registers_reap_exempt_blank_cwd() {
+    // Mirrors the blank synthesis path's exemption: a cwd-less Identity
+    // (e.g. Codex PermissionRequest) registers an ordinal-labeled slot that
+    // is process-proven alive — NOT a startup-seeding ghost, so it must ride
+    // the normal state-adaptive timeouts, not the 3-min unknown-cwd reap.
+    use pixtuoid_core::state::reducer::STALE_UNKNOWN_CWD_TIMEOUT;
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("codex", "cx-sess");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "codex".into(),
+            session_id: "cx-sess".into(),
+            cwd: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+
+    let slot = scene.agents.get(&id).expect("registered");
+    assert_eq!(&*slot.label, "cx#1", "no cwd → ordinal label");
+    assert_eq!(&*slot.source, "codex", "source still lands");
+    assert_eq!(&*slot.session_id, "cx-sess", "session_id still lands");
+    assert!(!slot.unknown_cwd, "process-proven — reap-exempt");
+
+    r.tick(
+        &mut scene,
+        t0 + STALE_UNKNOWN_CWD_TIMEOUT + Duration::from_secs(60),
+    );
+    assert!(
+        scene
+            .agents
+            .get(&id)
+            .is_some_and(|s| s.exiting_at.is_none()),
+        "must outlive the 3-min unknown-cwd reap"
+    );
+}
+
+#[test]
+fn hook_identity_backfills_blank_synthesized_slot() {
+    // An identity-less hook event (e.g. a reordered Stop) synthesized a blank
+    // slot first; the next Identity heals source/session_id/cwd — but leaves
+    // the label alone (label upgrades stay on the SessionStart path) and does
+    // not touch activity state.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("reasonix", "/Users/dev/proj");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityEnd {
+            agent_id: id,
+            tool_use_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    assert_eq!(&*scene.agents.get(&id).unwrap().label, "#1", "blank slot");
+
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "reasonix".into(),
+            session_id: "/Users/dev/proj".into(),
+            cwd: Some(PathBuf::from("/Users/dev/proj")),
+        },
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+
+    let slot = scene.agents.get(&id).unwrap();
+    assert_eq!(&*slot.source, "reasonix", "empty source healed");
+    assert_eq!(&*slot.session_id, "/Users/dev/proj", "session_id healed");
+    assert_eq!(&*slot.cwd, std::path::Path::new("/Users/dev/proj"));
+    assert!(!slot.unknown_cwd);
+    assert_eq!(
+        &*slot.label, "#1",
+        "Identity carries no label authority — upgrade stays on SessionStart"
+    );
+}
+
+#[test]
+fn hook_identity_does_not_clobber_existing_identity() {
+    // First-wins, exactly like the duplicate-SessionStart back-fill: a slot
+    // with established identity is untouched by a divergent Identity.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("claude-code", "sess");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "sess".into(),
+            cwd: PathBuf::from("/Users/me/repo-a"),
+            parent_id: None,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "codex".into(),
+            session_id: "other-sess".into(),
+            cwd: Some(PathBuf::from("/Users/me/repo-b")),
+        },
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+
+    let slot = scene.agents.get(&id).unwrap();
+    assert_eq!(&*slot.source, "claude-code");
+    assert_eq!(&*slot.session_id, "sess");
+    assert_eq!(&*slot.cwd, std::path::Path::new("/Users/me/repo-a"));
+    assert_eq!(&*slot.label, "cc·repo-a");
+}
+
+#[test]
+fn hook_identity_respects_session_end_tombstone() {
+    // A SessionEnd for an unknown id tombstones it; a reordered trailing
+    // Identity from the same dying session must not re-register it — the same
+    // guard the blank synthesis path runs.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("claude-code", "exited-invisible");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd { agent_id: id },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "exited-invisible".into(),
+            cwd: Some(PathBuf::from("/Users/me/repo")),
+        },
+        t0 + Duration::from_millis(50),
+        Transport::Hook,
+    );
+    assert!(
+        !scene.agents.contains_key(&id),
+        "a tombstoned id must not be re-registered by a reordered Identity"
+    );
+}
+
+#[test]
+fn jsonl_identity_is_a_no_op() {
+    // Boundary (1) made structural: JSONL events must never synthesize — a
+    // transcript line can be a historical replay. Nothing in-tree emits
+    // Identity on Jsonl; the guard IS the boundary.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("claude-code", "replayed-sess");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "replayed-sess".into(),
+            cwd: Some(PathBuf::from("/Users/me/repo")),
+        },
+        t0,
+        Transport::Jsonl,
+    );
+    assert!(
+        scene.agents.is_empty(),
+        "a JSONL Identity must not register a slot"
+    );
+}
+
+#[test]
+fn hook_identity_desk_refusal_is_quiet() {
+    // Desk exhaustion refuses the registration — no slot, no panic, and (with
+    // no tool_use_id on Identity) nothing that could poison the hook-wins
+    // dedup map (boundary 3 untouched).
+    use pixtuoid_core::state::MAX_FLOORS;
+    let caps = [0usize; MAX_FLOORS]; // zero desks anywhere
+    let mut scene = SceneState::new(caps);
+    let mut r = Reducer::new();
+    let id = AgentId::from_parts("claude-code", "gated-sess");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    r.apply(
+        &mut scene,
+        AgentEvent::Identity {
+            agent_id: id,
+            source: "claude-code".into(),
+            session_id: "gated-sess".into(),
+            cwd: Some(PathBuf::from("/Users/me/repo")),
+        },
+        t0,
+        Transport::Hook,
+    );
+    assert!(
+        scene.agents.is_empty(),
+        "no desks — the registration must be quietly refused"
     );
 }

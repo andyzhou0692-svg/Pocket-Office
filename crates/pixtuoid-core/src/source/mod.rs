@@ -158,6 +158,37 @@ pub enum AgentEvent {
     SessionEnd {
         agent_id: AgentId,
     },
+    /// Emitted by a watcher once per liveness-probe refresh for EVERY session
+    /// id the probe currently vouches for (CC's `sessions/<pid>.json`
+    /// registry, Codex's open-rollout FD binding). The reducer ONLY refreshes
+    /// a sweep-exemption timestamp for an existing, non-exiting slot — it must
+    /// never create a slot, never touch activity state, and never refresh
+    /// `last_event_at` (the Active→Idle debounce and the label/back-fill logic
+    /// stay driven by real events). When the live signal disappears the
+    /// emissions stop and normal staleness sweeps resume after the TTL.
+    ProofOfLife {
+        agent_id: AgentId,
+    },
+    /// Identity context a hook decoder attaches IMMEDIATELY AHEAD of a
+    /// tool/permission activity event (#221): hook payloads carry
+    /// source/session_id/cwd that the activity variants don't, so without
+    /// this a proof-of-life registration for an unknown id starts BLANK
+    /// (empty identity, ordinal `#N` label) until the next real
+    /// `SessionStart` — for a hook-only source (Reasonix) that's the whole
+    /// rest of the turn. The reducer registers-or-back-fills from it on the
+    /// Hook transport ONLY (a JSONL `Identity` is a structural no-op —
+    /// transcript lines can be historical replays and must never synthesize);
+    /// it never touches labels, activity state, or `last_event_at` (the
+    /// paired activity event right behind it carries those).
+    Identity {
+        agent_id: AgentId,
+        source: String,
+        session_id: String,
+        /// `None` when the payload carries no usable cwd (e.g. CC PostToolUse,
+        /// Codex PermissionRequest) — the registration is then label-ordinal
+        /// but still reap-exempt, exactly like the blank synthesis path.
+        cwd: Option<PathBuf>,
+    },
 }
 
 impl AgentEvent {
@@ -169,6 +200,8 @@ impl AgentEvent {
             AgentEvent::Waiting { agent_id, .. } => *agent_id,
             AgentEvent::Rename { agent_id, .. } => *agent_id,
             AgentEvent::SessionEnd { agent_id, .. } => *agent_id,
+            AgentEvent::ProofOfLife { agent_id, .. } => *agent_id,
+            AgentEvent::Identity { agent_id, .. } => *agent_id,
         }
     }
 }
@@ -253,6 +286,7 @@ pub mod antigravity;
 pub mod claude_code;
 pub mod codex;
 pub mod decoder;
+pub(crate) mod fd_probe;
 pub mod hook;
 pub mod jsonl;
 pub mod manager;
