@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -30,6 +30,16 @@ fn default_id_from_path(p: &Path) -> String {
     crate::source::decoder::normalize_path_key(&p.to_string_lossy())
 }
 
+/// Optional first-party liveness probe: returns the session ids — in the
+/// source's `IdDeriver` id-space — of agent processes known to be ALIVE right
+/// now (e.g. CC's `~/.claude/sessions/<pid>.json` registry). ADDITIVE-ONLY:
+/// membership bypasses the first-sight recency/ended gate (a live-but-idle
+/// session is read from the top however old its mtime); absence changes
+/// nothing — no probe / empty set = the pure mtime+ended gate. `Arc<dyn Fn>`
+/// rather than a fn pointer like the other seams because the real probe
+/// captures its registry dir (the others are stateless).
+pub type LivenessProbe = Arc<dyn Fn() -> HashSet<String> + Send + Sync>;
+
 /// The per-source decode/label/end/id fn-pointers (the invariant-#3 seam)
 /// bundled so the seed/scan/walk helpers thread ONE Copy value, not four.
 #[derive(Clone, Copy)]
@@ -51,6 +61,11 @@ struct WatchCtx<'a> {
     /// seeded at EOF without a SessionStart). The whole watch shares one window
     /// so every path that can first-see a file gates identically (see #85).
     window: Duration,
+    /// Most recent liveness-probe snapshot (session ids in `IdDeriver` space).
+    /// Refreshed once per scan pass (initial seed / 250ms rescan / 60s poll);
+    /// notify-driven single-file walks reuse it — seconds of staleness is fine
+    /// because the probe is ADDITIVE-ONLY (it can only admit, never gate).
+    live: &'a Arc<Mutex<HashSet<String>>>,
 }
 
 pub struct JsonlWatcher {
@@ -61,6 +76,7 @@ pub struct JsonlWatcher {
     derive_label: LabelDeriver,
     check_session_ended: SessionEndChecker,
     id_derive: IdDeriver,
+    liveness_probe: Option<LivenessProbe>,
 }
 
 const DEFAULT_INITIAL_WINDOW: Duration = Duration::from_secs(3600);
@@ -96,6 +112,7 @@ impl JsonlWatcher {
             derive_label,
             check_session_ended,
             id_derive: default_id_from_path,
+            liveness_probe: None,
         }
     }
 
@@ -109,10 +126,23 @@ impl JsonlWatcher {
         self
     }
 
+    pub fn with_liveness_probe(mut self, probe: LivenessProbe) -> Self {
+        self.liveness_probe = Some(probe);
+        self
+    }
+
     pub async fn run(self, tx: TaggedSender) -> Result<()> {
         let cursors: Arc<Mutex<HashMap<PathBuf, u64>>> = Arc::new(Mutex::new(HashMap::new()));
         let seen_sessions: Arc<Mutex<HashMap<PathBuf, bool>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        // Refreshed once per scan pass (here for the initial seed, then in the
+        // rescan/poll arms below); notify walks read the latest snapshot.
+        let live: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(
+            self.liveness_probe
+                .as_ref()
+                .map(|p| p())
+                .unwrap_or_default(),
+        ));
 
         let (notify_tx, mut notify_rx) = tokio::sync::mpsc::unbounded_channel::<PathBuf>();
         let event_handler = move |res: notify::Result<notify::Event>| {
@@ -163,6 +193,7 @@ impl JsonlWatcher {
                 seen: &seen_sessions,
                 tx: &tx,
                 window: self.initial_window,
+                live: &live,
             },
         )
         .await;
@@ -174,6 +205,18 @@ impl JsonlWatcher {
         let rescan_delay = tokio::time::sleep(Duration::from_millis(250));
         tokio::pin!(rescan_delay);
 
+        // The 60s poll backstop is an INTERVAL hoisted outside the loop — a
+        // sleep re-created per iteration resets its deadline on every notify
+        // event, so sustained notify traffic starves scan_root (and the probe
+        // refresh + re-vouch sweep riding it) indefinitely. An interval keeps
+        // ticking under load; Delay (not the Burst default) so a long stall
+        // doesn't fire catch-up scans back-to-back.
+        let mut poll = tokio::time::interval(Duration::from_secs(60));
+        poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // An interval's first tick completes immediately; the initial seed
+        // above already scanned, so consume it.
+        poll.tick().await;
+
         loop {
             let source_arc = source_arc.clone();
             let ctx = WatchCtx {
@@ -182,6 +225,7 @@ impl JsonlWatcher {
                 seen: &seen_sessions,
                 tx: &tx,
                 window: self.initial_window,
+                live: &live,
             };
             tokio::select! {
                 Some(path) = notify_rx.recv() => {
@@ -189,9 +233,15 @@ impl JsonlWatcher {
                 }
                 _ = &mut rescan_delay, if !rescan_done => {
                     rescan_done = true;
+                    if let Some(probe) = &self.liveness_probe {
+                        *live.lock().await = probe();
+                    }
                     scan_root(&self.root, decoders, &ctx).await;
                 }
-                _ = tokio::time::sleep(Duration::from_secs(60)) => {
+                _ = poll.tick() => {
+                    if let Some(probe) = &self.liveness_probe {
+                        *live.lock().await = probe();
+                    }
                     scan_root(&self.root, decoders, &ctx).await;
                 }
             }
@@ -226,11 +276,71 @@ async fn should_seed_at_eof(
     !recent || check_session_ended(path, check_ended).await
 }
 
+/// Whether the liveness probe vouches for this transcript: its derived session
+/// id appears in the most recent live-session snapshot. A vouched-for file is
+/// a RUNNING agent however old its mtime (long-idle, delegating to subagents,
+/// or stuck in a long tool call), so the first-sight gate must not hide it.
+/// Subagent transcripts can never match — their stems are agent ids
+/// (`agent-<id>`), not session UUIDs, so only the root transcript is admitted.
+/// The empty-set check short-circuits the id derivation (an allocation) in the
+/// no-probe case.
+async fn probe_admits(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) -> bool {
+    let live = ctx.live.lock().await;
+    !live.is_empty() && live.contains(&(decoders.id_derive)(path))
+}
+
 async fn scan_root(root: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
+    revouch_gated_files(decoders, ctx).await;
     if let Ok(mut read) = tokio::fs::read_dir(root).await {
         while let Ok(Some(entry)) = read.next_entry().await {
             walk_jsonl(&entry.path(), decoders, ctx).await;
         }
+    }
+}
+
+/// The probe is consulted only in `walk_jsonl`'s !known first-sight branch, so
+/// a TRANSIENT probe miss (registry file mid-rewrite, a read race) would gate
+/// a live session PERMANENTLY — every later pass exits at `cursor == file_len`
+/// and never asks again. On each SCAN pass (the snapshot in `ctx.live` was
+/// just refreshed; notify single-file walks don't run this), re-ask about
+/// every file that is known-but-never-registered (cursor parked at EOF, no
+/// `seen` claim) and reset a vouched one's cursor to 0 so this same pass's
+/// walk replays/registers it (≤1 MiB replays; an oversized body lands in the
+/// #204 head-read registration branch).
+///
+/// Cannot loop: a re-vouched file that registers claims `seen` and drops out
+/// of the candidate set; one whose replay turns out ENDED is re-parked at EOF
+/// unregistered (the oversized branch's ended skip) — it re-enters at most
+/// once per scan pass, and only while the probe actively (mis)vouches for it.
+/// Locking is sequential short locks on the sibling maps, never nested — the
+/// watcher is a single task, so a snapshot race is theoretical.
+async fn revouch_gated_files(decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
+    // Empty snapshot = no probe wired, or nothing live: skip the sweep so
+    // probe-less sources (Codex/Antigravity) pay one lock check per pass,
+    // not a metadata read per gated file.
+    if ctx.live.lock().await.is_empty() {
+        return;
+    }
+    let candidates: Vec<(PathBuf, u64)> = {
+        let cursors = ctx.cursors.lock().await;
+        cursors.iter().map(|(p, c)| (p.clone(), *c)).collect()
+    };
+    for (path, cursor) in candidates {
+        if ctx.seen.lock().await.contains_key(&path) {
+            continue;
+        }
+        // Only a file parked exactly at EOF is stuck — one with a pending
+        // append revives through the normal walk on this same pass.
+        let Ok(meta) = tokio::fs::metadata(&path).await else {
+            continue;
+        };
+        if meta.len() != cursor {
+            continue;
+        }
+        if !probe_admits(&path, decoders, ctx).await {
+            continue;
+        }
+        ctx.cursors.lock().await.insert(path, 0);
     }
 }
 
@@ -241,6 +351,8 @@ async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
         seen,
         tx,
         window,
+        // `live` is consumed inside `probe_admits` (off `ctx` directly).
+        live: _,
     } = *ctx;
     // `derive_label` / `id_derive` are consumed inside `emit_first_sight` (off
     // `decoders` directly); only the per-line decoder and the end-checker are
@@ -282,7 +394,19 @@ async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
     // here first, so a historical or already-ended session is seeded at EOF
     // instead of resurrected with a phantom SessionStart. (A later write makes it
     // `known` with cursor < len, so the documented revive-on-append still fires.)
-    if !known && should_seed_at_eof(&meta, window, path, check_ended).await {
+    // The liveness probe pre-empts the gate: mtime is only a liveness PROXY,
+    // and a long-idle / delegating / stuck-in-a-long-tool-call session writes
+    // nothing for hours — when the probe has ground truth that the owning
+    // process is alive, the file is read from the top (a > MAX_PENDING_BYTES
+    // body falls into the oversized first-sight registration below). The
+    // bypass deliberately skips the gate's ended tail-scan too: CC (the only
+    // probe user) persists no structural end marker today, so there is
+    // nothing to scan for — if the upstream drift watch fires (CC starts
+    // writing one), admission needs an ended-check before bypassing.
+    if !known
+        && !probe_admits(path, decoders, ctx).await
+        && should_seed_at_eof(&meta, window, path, check_ended).await
+    {
         cursors.lock().await.insert(path.to_path_buf(), file_len);
         return;
     }
@@ -305,15 +429,19 @@ async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
             path.display(),
             MAX_PENDING_BYTES
         );
-        // A KNOWN file's skipped span may bury a durable CC `/exit` SessionEnd
-        // (the fallback when the best-effort hook drops). Without a tail-scan
-        // here the terminator is lost and the slot reaps only via the slow
-        // stale-sweep. A !known ended file never reaches this branch — the
-        // first-sight gate (should_seed_at_eof) already seeded it at EOF above —
-        // so only the known case needs the scan. (Only CC writes a terminator;
-        // Codex/Antigravity check_ended no-op.) Scan reads the file tail and is
-        // independent of the cursor, so compute it before seeding.
-        let ended_in_skip = known && check_session_ended(path, check_ended).await;
+        // A skipped span may bury a structural session-end marker (the
+        // source's check_ended — CC's matches `subtype:"session_end"` /
+        // `SessionEnd`; content never counts). Without a tail-scan here the
+        // terminator is lost and the slot reaps only via the slow stale-sweep.
+        // Checked UNCONDITIONALLY (one bounded 8 KB tail read on a branch
+        // already doing head I/O): a KNOWN file's span can end mid-skip, and a
+        // !known file lands here too — the liveness probe bypasses the
+        // first-sight gate (should_seed_at_eof) INCLUDING its ended tail-scan,
+        // so a probe-admitted ENDED transcript must be caught here or the
+        // #204 registration below would mint a ghost for a session that is
+        // over. (Codex/Antigravity check_ended no-op.) Scan reads the file
+        // tail and is independent of the cursor, so compute it before seeding.
+        let ended_in_skip = check_session_ended(path, check_ended).await;
         // Seed the cursor to EOF FIRST — before the awaited head-read +
         // registration below — so a concurrent walk_jsonl on this path (250ms
         // rescan / notify) sees `known` on its next read and won't re-enter this
@@ -327,17 +455,28 @@ async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
             let _ = tx
                 .send((Transport::Jsonl, AgentEvent::SessionEnd { agent_id: id }))
                 .await;
+            // Un-claim first-sight AFTER forwarding the terminator: the
+            // session is over, so a LATER append must re-register through
+            // emit_first_sight (the documented revive). Leaving the claim in
+            // place pinned the path "registered" forever — a resumed session
+            // could never re-appear without a watcher restart.
+            seen.lock().await.remove(path);
         }
-        // #204: on FIRST-sight of an oversized tail (a recent, not-yet-ended
-        // large session — stale/ended ones were already gated by
-        // should_seed_at_eof above), still REGISTER the agent. Otherwise a >1 MB
-        // transcript stays invisible until its next small append (a long session,
-        // or a delegating parent whose subagents then render as flat roots). The
-        // giant backlog is NOT replayed; cwd/label come from a BOUNDED head read
-        // (CC writes `cwd` on the first line), never the whole 7.4 MB file. A
-        // mid-session oversized append (`known`) just advances the cursor — no
-        // re-registration.
-        if !known {
+        // #204: on the first oversized sight of a recent, live session, still
+        // REGISTER the agent. Otherwise a >1 MB transcript stays invisible
+        // until its next small append (a long session, or a delegating parent
+        // whose subagents then render as flat roots). The giant backlog is NOT
+        // replayed; cwd/label come from a BOUNDED head read (CC writes `cwd`
+        // on the first line), never the whole 7.4 MB file. Registration keys
+        // on `seen` (= "registered"), NOT `!known`: a first-sight-GATED file
+        // (cursor seeded at EOF, no SessionStart) is `known`, yet its first
+        // >1 MiB append lands here — keying on `!known` left that agent
+        // invisible until a later ≤1 MiB append. The `seen` check also spares
+        // already-registered files a redundant head read on every oversized
+        // append. A span that itself ENDED stays unregistered — a SessionStart
+        // after the SessionEnd just sent would resurrect a ghost.
+        let registered = seen.lock().await.contains_key(path);
+        if !registered && !ended_in_skip {
             let head_cwd = read_head_cwd(path, MAX_PENDING_BYTES).await;
             emit_first_sight(path, source, decoders, seen, tx, head_cwd).await;
         }
@@ -384,8 +523,23 @@ async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
     // event on a phantom id (caught by the PR #160 security review).
     let transcript_path_str = crate::source::decoder::normalize_path_key(&path.to_string_lossy());
 
-    emit_first_sight(path, source, decoders, seen, tx, extract_cwd(new_bytes)).await;
+    // The first-sight cwd normally comes from the read span, but a GATED file
+    // revived by an append only reads the tail — and Codex rollouts carry cwd
+    // ONLY on the head session_meta line, so the revive would register with an
+    // empty cwd (downstream: unknown cwd → the short reap). Fall back to a
+    // bounded head read, gated on the `seen` check so an already-registered
+    // append pays at most that one contains read, never the head I/O.
+    let mut first_sight_cwd = extract_cwd(new_bytes);
+    if first_sight_cwd.is_none() && !seen.lock().await.contains_key(path) {
+        first_sight_cwd = read_head_cwd(path, MAX_PENDING_BYTES).await;
+    }
+    emit_first_sight(path, source, decoders, seen, tx, first_sight_cwd).await;
 
+    // Used below to recognize a decoded SessionEnd for THIS transcript (the
+    // decoder keys events the same way `id_derive` does — pinned by the
+    // hook↔watcher coalesce tests).
+    let path_agent_id = AgentId::from_parts(source, &(decoders.id_derive)(path));
+    let mut session_ended = false;
     for line in new_bytes.split(|b| *b == b'\n') {
         if line.is_empty() {
             continue;
@@ -407,13 +561,28 @@ async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
         match decode_line(&transcript_path_str, source, v) {
             Ok(events) => {
                 for ev in events {
+                    let ends_this_agent = matches!(
+                        &ev,
+                        AgentEvent::SessionEnd { agent_id } if *agent_id == path_agent_id
+                    );
                     if tx.send((Transport::Jsonl, ev)).await.is_err() {
                         return;
                     }
+                    session_ended |= ends_this_agent;
                 }
             }
             Err(e) => warn!("decode error in {}: {e}", path.display()),
         }
+    }
+    if session_ended {
+        // Un-claim first-sight: a decoded SessionEnd retires this path's claim
+        // so a LATER append re-registers through emit_first_sight (the
+        // documented revive) — otherwise `seen` stays claimed forever and the
+        // agent can never re-register without a watcher restart. Runs AFTER
+        // the whole chunk is forwarded (the terminator precedes any re-claim),
+        // and in-pass emit_first_sight idempotence is unaffected: this pass's
+        // claim already happened above; the NEXT pass re-emits the pair.
+        seen.lock().await.remove(path);
     }
 }
 
@@ -693,11 +862,119 @@ mod tests {
     fn t_decode(_t: &str, _s: &str, _v: serde_json::Value) -> Result<Vec<AgentEvent>> {
         Ok(vec![])
     }
+    /// Minimal lifecycle decoder: a structural `session_end` line decodes to
+    /// `SessionEnd` keyed exactly like the harness's default `id_derive`
+    /// (`transcript_path` == `default_id_from_path(path)` here), mirroring how
+    /// the real CC pair (`decode_cc_line` + `cc_id_from_path`) agrees.
+    fn t_decode_lifecycle(t: &str, s: &str, v: serde_json::Value) -> Result<Vec<AgentEvent>> {
+        if v.get("subtype").and_then(|x| x.as_str()) == Some("session_end") {
+            return Ok(vec![AgentEvent::SessionEnd {
+                agent_id: AgentId::from_parts(s, t),
+            }]);
+        }
+        Ok(vec![])
+    }
     fn t_label(_p: &Path, _s: &str, _c: &Path) -> String {
         "t".to_string()
     }
     fn t_ended(buf: &[u8]) -> bool {
         std::str::from_utf8(buf).is_ok_and(|s| s.contains("session_end"))
+    }
+
+    /// Drive `walk_jsonl` once over `path` against caller-owned cursor/seen
+    /// maps, so multi-pass scenarios (gate → append → revive) share state the
+    /// way the real watch loop does. Returns the emitted events.
+    async fn walk_once_with(
+        path: &Path,
+        window: Duration,
+        decode_line: LineDecoder,
+        check_ended: SessionEndChecker,
+        cursors: &Arc<Mutex<HashMap<PathBuf, u64>>>,
+        seen: &Arc<Mutex<HashMap<PathBuf, bool>>>,
+    ) -> Vec<(Transport, AgentEvent)> {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(Transport, AgentEvent)>(32);
+        let source: Arc<str> = Arc::from("test");
+        let decoders = SourceDecoders {
+            decode_line,
+            derive_label: t_label,
+            check_ended,
+            id_derive: default_id_from_path,
+        };
+        let live = Arc::new(Mutex::new(HashSet::new()));
+        let ctx = WatchCtx {
+            source: &source,
+            cursors,
+            seen,
+            tx: &tx,
+            window,
+            live: &live,
+        };
+        walk_jsonl(path, decoders, &ctx).await;
+        drop(tx);
+        let mut events = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+        events
+    }
+
+    /// `walk_once` against a NON-EMPTY liveness snapshot, using the CC stem
+    /// deriver (`cc_id_from_path`) — the id-space the real probe joins on
+    /// (the registry carries session UUIDs; transcripts are `<uuid>.jsonl`).
+    async fn walk_once_live(
+        path: &Path,
+        window: Duration,
+        live_ids: &[&str],
+        cursors: &Arc<Mutex<HashMap<PathBuf, u64>>>,
+        seen: &Arc<Mutex<HashMap<PathBuf, bool>>>,
+    ) -> Vec<(Transport, AgentEvent)> {
+        let live: Arc<Mutex<HashSet<String>>> =
+            Arc::new(Mutex::new(live_ids.iter().map(|s| s.to_string()).collect()));
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(Transport, AgentEvent)>(32);
+        let source: Arc<str> = Arc::from("test");
+        let decoders = SourceDecoders {
+            decode_line: t_decode,
+            derive_label: t_label,
+            check_ended: t_ended,
+            id_derive: crate::source::claude_code::cc_id_from_path,
+        };
+        let ctx = WatchCtx {
+            source: &source,
+            cursors,
+            seen,
+            tx: &tx,
+            window,
+            live: &live,
+        };
+        walk_jsonl(path, decoders, &ctx).await;
+        drop(tx);
+        let mut events = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+        events
+    }
+
+    fn backdate_one_hour(path: &Path) {
+        filetime::set_file_mtime(
+            path,
+            filetime::FileTime::from_system_time(
+                std::time::SystemTime::now() - Duration::from_secs(3600),
+            ),
+        )
+        .unwrap();
+    }
+
+    /// `walk_once_with` with the no-op decoder — the common case for tests
+    /// that exercise the gate / cursor / registration paths, not decoding.
+    async fn walk_once(
+        path: &Path,
+        window: Duration,
+        check_ended: SessionEndChecker,
+        cursors: &Arc<Mutex<HashMap<PathBuf, u64>>>,
+        seen: &Arc<Mutex<HashMap<PathBuf, bool>>>,
+    ) -> Vec<(Transport, AgentEvent)> {
+        walk_once_with(path, window, t_decode, check_ended, cursors, seen).await
     }
 
     /// Drive `walk_jsonl` once over a fresh (never-seeded) file — the
@@ -712,29 +989,237 @@ mod tests {
     ) -> (Vec<(Transport, AgentEvent)>, Option<u64>) {
         let cursors = Arc::new(Mutex::new(HashMap::new()));
         let seen = Arc::new(Mutex::new(HashMap::new()));
-        let (tx, mut rx) = tokio::sync::mpsc::channel::<(Transport, AgentEvent)>(32);
-        let source: Arc<str> = Arc::from("test");
-        let decoders = SourceDecoders {
-            decode_line: t_decode,
-            derive_label: t_label,
-            check_ended,
-            id_derive: default_id_from_path,
-        };
-        let ctx = WatchCtx {
-            source: &source,
-            cursors: &cursors,
-            seen: &seen,
-            tx: &tx,
-            window,
-        };
-        walk_jsonl(path, decoders, &ctx).await;
-        drop(tx);
-        let mut events = Vec::new();
-        while let Ok(ev) = rx.try_recv() {
-            events.push(ev);
-        }
+        let events = walk_once(path, window, check_ended, &cursors, &seen).await;
         let cursor = cursors.lock().await.get(path).copied();
         (events, cursor)
+    }
+
+    /// Build the G2 fixture: a file GATED at first sight (old mtime → cursor
+    /// seeded at EOF, `seen` unclaimed), returning the shared maps for the
+    /// follow-up walk.
+    async fn gated_fixture(
+        path: &Path,
+        initial: &str,
+    ) -> (
+        Arc<Mutex<HashMap<PathBuf, u64>>>,
+        Arc<Mutex<HashMap<PathBuf, bool>>>,
+    ) {
+        tokio::fs::write(path, initial).await.unwrap();
+        backdate_one_hour(path);
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+        let gated = walk_once(path, Duration::from_secs(60), t_ended, &cursors, &seen).await;
+        assert!(
+            gated.is_empty(),
+            "stale first sight must gate silently, got {gated:?}"
+        );
+        assert!(
+            !seen.lock().await.contains_key(path),
+            "a gated file must not claim `seen`"
+        );
+        (cursors, seen)
+    }
+
+    #[tokio::test]
+    async fn gated_file_registers_on_oversized_first_append() {
+        // G2: a file gated at first sight (cursor at EOF, never registered)
+        // then appends > MAX_PENDING_BYTES in one burst. The oversized branch
+        // used to key registration on `!known`, but a gated file IS known —
+        // the agent stayed invisible until a later ≤1 MiB append.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gated-big.jsonl");
+        let initial = "{\"type\":\"assistant\",\"cwd\":\"/repo/head\"}\n";
+        let (cursors, seen) = gated_fixture(&path, initial).await;
+
+        let mut full = String::from(initial);
+        full.push_str(&"{\"type\":\"assistant\"}\n".repeat(60_000));
+        tokio::fs::write(&path, &full).await.unwrap();
+        assert!(
+            (full.len() - initial.len()) as u64 > (1 << 20),
+            "the appended span must exceed MAX_PENDING_BYTES"
+        );
+
+        let events = walk_once(&path, Duration::from_secs(60), t_ended, &cursors, &seen).await;
+        let expected = AgentId::from_parts("test", &default_id_from_path(&path));
+        assert!(
+            events.iter().any(|(_, e)| matches!(
+                e,
+                AgentEvent::SessionStart { agent_id, .. } if *agent_id == expected
+            )),
+            "a gated file's oversized first append must register the agent, got {events:?}"
+        );
+        assert_eq!(
+            cursors.lock().await.get(&path).copied(),
+            Some(full.len() as u64),
+            "cursor must advance to EOF"
+        );
+    }
+
+    #[tokio::test]
+    async fn gated_file_oversized_ended_append_stays_unregistered() {
+        // Same shape as above, but the burst ENDS the session: registering
+        // would emit SessionStart AFTER the buried SessionEnd and resurrect a
+        // ghost slot. The terminator must still be emitted; registration must
+        // not.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gated-big-ended.jsonl");
+        let initial = "{\"type\":\"assistant\",\"cwd\":\"/repo/head\"}\n";
+        let (cursors, seen) = gated_fixture(&path, initial).await;
+
+        let mut full = String::from(initial);
+        full.push_str(&"{\"type\":\"assistant\"}\n".repeat(60_000));
+        full.push_str("{\"type\":\"system\",\"subtype\":\"session_end\"}\n");
+        tokio::fs::write(&path, &full).await.unwrap();
+
+        let events = walk_once(&path, Duration::from_secs(60), t_ended, &cursors, &seen).await;
+        let expected = AgentId::from_parts("test", &default_id_from_path(&path));
+        assert!(
+            events.iter().any(
+                |(_, e)| matches!(e, AgentEvent::SessionEnd { agent_id } if *agent_id == expected)
+            ),
+            "the buried terminator must still emit SessionEnd, got {events:?}"
+        );
+        assert!(
+            !events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "an ended oversized span must not register a ghost, got {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn session_end_unclaims_seen_so_a_later_append_re_registers() {
+        // Self-heal layer: once a decoded line yields SessionEnd for this
+        // path's agent, the path must be UN-claimed from `seen` so a LATER
+        // append re-registers through the documented emit_first_sight revive.
+        // Today `seen` stays claimed forever — the agent can never re-register
+        // without a watcher restart.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("resumed.jsonl");
+        tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n")
+            .await
+            .unwrap();
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        // Pass 1: first-sight registration.
+        let window = Duration::from_secs(3600);
+        let events =
+            walk_once_with(&path, window, t_decode_lifecycle, t_ended, &cursors, &seen).await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "live first sight must register, got {events:?}"
+        );
+
+        // Pass 2: a structural session_end line decodes to SessionEnd.
+        let mut f = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::write_all(
+            &mut f,
+            b"{\"type\":\"system\",\"subtype\":\"session_end\"}\n",
+        )
+        .await
+        .unwrap();
+        tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
+        drop(f);
+        let events =
+            walk_once_with(&path, window, t_decode_lifecycle, t_ended, &cursors, &seen).await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionEnd { .. })),
+            "the structural end must decode to SessionEnd, got {events:?}"
+        );
+        assert!(
+            !seen.lock().await.contains_key(&path),
+            "SessionEnd must un-claim `seen` so a revival can re-register"
+        );
+
+        // Pass 3: the session resumes (normal lines again) — a SECOND
+        // SessionStart must be emitted via the revive path.
+        let mut f = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut f, b"{\"type\":\"assistant\"}\n")
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
+        drop(f);
+        let events =
+            walk_once_with(&path, window, t_decode_lifecycle, t_ended, &cursors, &seen).await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "a post-end append must re-register the agent, got {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn oversized_ended_skip_unclaims_seen_so_a_later_append_re_registers() {
+        // Same self-heal for the oversized branch: a REGISTERED file whose
+        // > MAX_PENDING_BYTES skipped span buries a session_end emits the
+        // terminator AND un-claims `seen`, so a later small append revives the
+        // agent with a fresh SessionStart.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big-resumed.jsonl");
+        let initial = "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n";
+        tokio::fs::write(&path, initial).await.unwrap();
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        // Pass 1: first-sight registration (file is small + live).
+        let window = Duration::from_secs(3600);
+        let events = walk_once(&path, window, t_ended, &cursors, &seen).await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "live first sight must register, got {events:?}"
+        );
+
+        // Pass 2: an oversized span ending in session_end → terminator + skip.
+        let mut full = String::from(initial);
+        full.push_str(&"{\"type\":\"assistant\"}\n".repeat(60_000));
+        full.push_str("{\"type\":\"system\",\"subtype\":\"session_end\"}\n");
+        tokio::fs::write(&path, &full).await.unwrap();
+        let events = walk_once(&path, window, t_ended, &cursors, &seen).await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionEnd { .. })),
+            "the buried terminator must emit SessionEnd, got {events:?}"
+        );
+        assert!(
+            !seen.lock().await.contains_key(&path),
+            "the oversized-ended skip must un-claim `seen`"
+        );
+
+        // Pass 3: a small live append revives the agent.
+        let mut f = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::write_all(&mut f, b"{\"type\":\"assistant\"}\n")
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
+        drop(f);
+        let events = walk_once(&path, window, t_ended, &cursors, &seen).await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "a post-end append must re-register the agent, got {events:?}"
+        );
     }
 
     #[tokio::test]
@@ -765,13 +1250,7 @@ mod tests {
         tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/r\"}\n")
             .await
             .unwrap();
-        filetime::set_file_mtime(
-            &path,
-            filetime::FileTime::from_system_time(
-                std::time::SystemTime::now() - Duration::from_secs(3600),
-            ),
-        )
-        .unwrap();
+        backdate_one_hour(&path);
         let len = tokio::fs::metadata(&path).await.unwrap().len();
 
         let (events, cursor) = first_sight_walk(&path, Duration::from_secs(60), t_ended).await;
@@ -785,10 +1264,9 @@ mod tests {
     #[tokio::test]
     async fn known_oversized_tail_emits_session_end_if_the_skipped_span_ended() {
         // A tracked file grows by > MAX_PENDING_BYTES between passes, and that
-        // skipped span buries a session_end marker (CC's durable /exit
-        // fallback). The watcher must still emit SessionEnd before skipping to
-        // EOF — otherwise the terminator is lost and the slot reaps only via the
-        // slow stale-sweep.
+        // skipped span buries a structural session_end marker. The watcher
+        // must still emit SessionEnd before skipping to EOF — otherwise the
+        // terminator is lost and the slot reaps only via the slow stale-sweep.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("big.jsonl");
         let initial = "{\"type\":\"assistant\",\"cwd\":\"/r\"}\n";
@@ -818,12 +1296,14 @@ mod tests {
             check_ended: t_ended,
             id_derive: default_id_from_path,
         };
+        let live = Arc::new(Mutex::new(HashSet::new()));
         let ctx = WatchCtx {
             source: &source,
             cursors: &cursors,
             seen: &seen,
             tx: &tx,
             window: Duration::from_secs(3600),
+            live: &live,
         };
         walk_jsonl(&path, decoders, &ctx).await;
         drop(tx);
@@ -847,6 +1327,88 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn gated_revive_falls_back_to_head_cwd_when_tail_has_none() {
+        // G4: Codex rollouts carry cwd ONLY on the head session_meta line. A
+        // file gated at first sight then revived by a small cwd-less append
+        // used to register with an EMPTY cwd (downstream: unknown cwd → the
+        // short reap), because the revive read cwd only from the appended
+        // tail. The revive must fall back to a bounded head read.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rollout-gated.jsonl");
+        let head =
+            "{\"type\":\"session_meta\",\"payload\":{\"cwd\":\"/repo/head\",\"id\":\"u\"}}\n";
+        let (cursors, seen) = gated_fixture(&path, head).await;
+
+        let mut full = String::from(head);
+        full.push_str("{\"type\":\"assistant\"}\n");
+        tokio::fs::write(&path, &full).await.unwrap();
+
+        let events = walk_once(&path, Duration::from_secs(60), t_ended, &cursors, &seen).await;
+        let cwds: Vec<PathBuf> = events
+            .iter()
+            .filter_map(|(_, e)| match e {
+                AgentEvent::SessionStart { cwd, .. } => Some(cwd.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            cwds,
+            vec![PathBuf::from("/repo/head")],
+            "the revive SessionStart must carry the head cwd, got {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn gated_file_revives_on_small_append_with_tail_cwd() {
+        // S1 (the audit's never-pinned plain case): a file GATED at first sight
+        // (stale mtime → cursor seeded at EOF, no SessionStart) then revived by
+        // a SMALL newline-terminated append must register — SessionStart +
+        // Rename — and the registration carries the APPEND's cwd (the tail
+        // read wins; the head read is only the G4 fallback when the tail
+        // carries none, pinned by the head-vs-tail value split below).
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("gated-small.jsonl");
+        let head = "{\"type\":\"assistant\",\"cwd\":\"/repo/head\"}\n";
+        let (cursors, seen) = gated_fixture(&path, head).await;
+
+        let mut f = tokio::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .await
+            .unwrap();
+        tokio::io::AsyncWriteExt::write_all(
+            &mut f,
+            b"{\"type\":\"assistant\",\"cwd\":\"/repo/tail\"}\n",
+        )
+        .await
+        .unwrap();
+        tokio::io::AsyncWriteExt::flush(&mut f).await.unwrap();
+        drop(f);
+
+        let events = walk_once(&path, Duration::from_secs(60), t_ended, &cursors, &seen).await;
+        let expected = AgentId::from_parts("test", &default_id_from_path(&path));
+        let starts: Vec<(AgentId, PathBuf)> = events
+            .iter()
+            .filter_map(|(_, e)| match e {
+                AgentEvent::SessionStart { agent_id, cwd, .. } => Some((*agent_id, cwd.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            starts,
+            vec![(expected, PathBuf::from("/repo/tail"))],
+            "the small-append revive must register exactly once, carrying the APPEND's cwd, got {events:?}"
+        );
+        assert!(
+            events.iter().any(|(_, e)| matches!(
+                e,
+                AgentEvent::Rename { agent_id, .. } if *agent_id == expected
+            )),
+            "the revive must emit the Rename half of the registration pair, got {events:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn walk_jsonl_emits_for_a_first_sight_recent_live_file() {
         // The gate must NOT over-suppress: a recent, not-ended file seen first by
         // any path is a live session and must still get its SessionStart.
@@ -862,6 +1424,299 @@ mod tests {
                 .iter()
                 .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
             "a recent, not-ended file seen first must still emit SessionStart, got {events:?}"
+        );
+    }
+
+    const LIVE_UUID: &str = "01000000-0000-7000-8000-0000000000aa";
+
+    #[tokio::test]
+    async fn probe_live_stale_file_registers_at_first_sight() {
+        // T4: pixtuoid starts AFTER a long-idle live session. mtime says
+        // historical (outside the window), but the first-party liveness probe
+        // says the owning process is ALIVE — the gate must not hide it.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LIVE_UUID}.jsonl"));
+        tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n")
+            .await
+            .unwrap();
+        backdate_one_hour(&path);
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        let events = walk_once_live(
+            &path,
+            Duration::from_secs(60),
+            &[LIVE_UUID],
+            &cursors,
+            &seen,
+        )
+        .await;
+        let expected = AgentId::from_parts("test", LIVE_UUID);
+        assert!(
+            events.iter().any(|(_, e)| matches!(
+                e,
+                AgentEvent::SessionStart { agent_id, .. } if *agent_id == expected
+            )),
+            "a probe-live stale transcript must register at first sight, got {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_miss_keeps_the_stale_gate() {
+        // A non-empty live set that does NOT contain this transcript's id
+        // changes nothing: the recency gate applies as today.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LIVE_UUID}.jsonl"));
+        tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n")
+            .await
+            .unwrap();
+        backdate_one_hour(&path);
+        let len = tokio::fs::metadata(&path).await.unwrap().len();
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        let events = walk_once_live(
+            &path,
+            Duration::from_secs(60),
+            &["99999999-9999-7999-8999-999999999999"],
+            &cursors,
+            &seen,
+        )
+        .await;
+        assert!(
+            events.is_empty(),
+            "a stale transcript the probe does not vouch for must stay gated, got {events:?}"
+        );
+        assert_eq!(
+            cursors.lock().await.get(&path).copied(),
+            Some(len),
+            "gated file must be seeded at EOF"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_never_gates_a_recent_file() {
+        // ADDITIVE-ONLY: a recent file absent from a non-empty live set still
+        // registers — the probe can only admit, never hide what mtime admits.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LIVE_UUID}.jsonl"));
+        tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n")
+            .await
+            .unwrap();
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        let events = walk_once_live(
+            &path,
+            Duration::from_secs(3600),
+            &["99999999-9999-7999-8999-999999999999"],
+            &cursors,
+            &seen,
+        )
+        .await;
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "a recent file must register regardless of the probe, got {events:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_live_oversized_stale_file_registers_via_head_read() {
+        // A probe-live stale transcript whose whole body exceeds
+        // MAX_PENDING_BYTES at first sight skips the gate and lands in the
+        // #204 oversized first-sight branch: registered from a bounded head
+        // read (cwd off line 1), backlog skipped to EOF.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LIVE_UUID}.jsonl"));
+        let mut full = String::from("{\"type\":\"assistant\",\"cwd\":\"/repo/head\"}\n");
+        full.push_str(&"{\"type\":\"assistant\"}\n".repeat(60_000));
+        assert!(full.len() as u64 > (1 << 20), "body must exceed 1 MiB");
+        tokio::fs::write(&path, &full).await.unwrap();
+        backdate_one_hour(&path);
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        let events = walk_once_live(
+            &path,
+            Duration::from_secs(60),
+            &[LIVE_UUID],
+            &cursors,
+            &seen,
+        )
+        .await;
+        let cwds: Vec<PathBuf> = events
+            .iter()
+            .filter_map(|(_, e)| match e {
+                AgentEvent::SessionStart { cwd, .. } => Some(cwd.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            cwds,
+            vec![PathBuf::from("/repo/head")],
+            "the oversized probe-live first sight must register with the head cwd, got {events:?}"
+        );
+        assert_eq!(
+            cursors.lock().await.get(&path).copied(),
+            Some(full.len() as u64),
+            "backlog must be skipped to EOF, not replayed"
+        );
+    }
+
+    #[tokio::test]
+    async fn scan_pass_re_vouches_a_transiently_gated_live_file() {
+        // F1: a transient probe miss at first sight (registry file
+        // mid-rewrite, a read race) gates a LIVE session — and without a
+        // re-check every later pass exits at cursor == file_len and never
+        // asks the probe again, hiding the session permanently. Each SCAN
+        // pass (whose probe snapshot was just refreshed) must re-ask about
+        // gated-but-never-registered files and replay a vouched one.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LIVE_UUID}.jsonl"));
+        tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n")
+            .await
+            .unwrap();
+        backdate_one_hour(&path);
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+        let live: Arc<Mutex<HashSet<String>>> = Arc::new(Mutex::new(HashSet::new()));
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(Transport, AgentEvent)>(32);
+        let source: Arc<str> = Arc::from("test");
+        let decoders = SourceDecoders {
+            decode_line: t_decode,
+            derive_label: t_label,
+            check_ended: t_ended,
+            id_derive: crate::source::claude_code::cc_id_from_path,
+        };
+        let ctx = WatchCtx {
+            source: &source,
+            cursors: &cursors,
+            seen: &seen,
+            tx: &tx,
+            window: Duration::from_secs(60),
+            live: &live,
+        };
+
+        // Pass 1: empty probe snapshot (the transient miss) → gated.
+        scan_root(dir.path(), decoders, &ctx).await;
+        assert!(rx.try_recv().is_err(), "pass 1 must gate silently");
+        assert!(
+            !seen.lock().await.contains_key(&path),
+            "gated, not registered"
+        );
+
+        // The next probe refresh sees the session — simulate it by mutating
+        // the shared snapshot the way the run loop's refresh arms do.
+        live.lock().await.insert(LIVE_UUID.to_string());
+
+        // Pass 2: the scan must re-vouch the gated file and register it.
+        scan_root(dir.path(), decoders, &ctx).await;
+        let mut events = Vec::new();
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+        let expected = AgentId::from_parts("test", LIVE_UUID);
+        assert!(
+            events.iter().any(|(_, e)| matches!(
+                e,
+                AgentEvent::SessionStart { agent_id, .. } if *agent_id == expected
+            )),
+            "a re-vouched scan pass must register the gated live session, got {events:?}"
+        );
+
+        // Pass 3 (loop guard): the file registered → claimed `seen` → out of
+        // the candidate set; nothing is re-emitted while the probe vouches.
+        scan_root(dir.path(), decoders, &ctx).await;
+        assert!(
+            rx.try_recv().is_err(),
+            "a registered file must not be re-vouched/replayed again"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_live_oversized_ended_first_sight_stays_unregistered() {
+        // M1: the probe bypasses the first-sight gate — INCLUDING its ended
+        // tail-scan — so a probe-admitted !known >1MiB ENDED transcript
+        // reaches the oversized branch. Its ended check used to be gated on
+        // `known` (assuming should_seed_at_eof had already filtered !known
+        // ended files, which the probe bypass breaks): the terminator was
+        // never emitted AND the #204 path registered a ghost for a session
+        // that is over.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(format!("{LIVE_UUID}.jsonl"));
+        let mut full = String::from("{\"type\":\"assistant\",\"cwd\":\"/repo/head\"}\n");
+        full.push_str(&"{\"type\":\"assistant\"}\n".repeat(60_000));
+        full.push_str("{\"type\":\"system\",\"subtype\":\"session_end\"}\n");
+        assert!(full.len() as u64 > (1 << 20), "body must exceed 1 MiB");
+        tokio::fs::write(&path, &full).await.unwrap();
+        backdate_one_hour(&path);
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        let events = walk_once_live(
+            &path,
+            Duration::from_secs(60),
+            &[LIVE_UUID],
+            &cursors,
+            &seen,
+        )
+        .await;
+        assert!(
+            !events
+                .iter()
+                .any(|(_, e)| matches!(e, AgentEvent::SessionStart { .. })),
+            "an ended oversized probe-admitted first sight must not register a ghost, got {events:?}"
+        );
+        let expected = AgentId::from_parts("test", LIVE_UUID);
+        assert!(
+            events.iter().any(
+                |(_, e)| matches!(e, AgentEvent::SessionEnd { agent_id } if *agent_id == expected)
+            ),
+            "the buried terminator must still emit SessionEnd (a reducer no-op for an unknown id), got {events:?}"
+        );
+        assert_eq!(
+            cursors.lock().await.get(&path).copied(),
+            Some(full.len() as u64),
+            "backlog must be skipped to EOF, not replayed"
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_parent_uuid_does_not_admit_subagent_transcript() {
+        // Subagent transcripts (<parent-uuid>/subagents/agent-*.jsonl) are NOT
+        // in the registry; the join key is the file STEM (an agent id, not a
+        // session UUID), so the parent's registry entry must not admit them —
+        // they keep today's mtime gate.
+        let dir = tempfile::tempdir().unwrap();
+        let sub_dir = dir.path().join(LIVE_UUID).join("subagents");
+        tokio::fs::create_dir_all(&sub_dir).await.unwrap();
+        let path = sub_dir.join("agent-deadbeef.jsonl");
+        tokio::fs::write(&path, "{\"type\":\"assistant\",\"cwd\":\"/repo\"}\n")
+            .await
+            .unwrap();
+        backdate_one_hour(&path);
+        let len = tokio::fs::metadata(&path).await.unwrap().len();
+        let cursors = Arc::new(Mutex::new(HashMap::new()));
+        let seen = Arc::new(Mutex::new(HashMap::new()));
+
+        let events = walk_once_live(
+            &path,
+            Duration::from_secs(60),
+            &[LIVE_UUID],
+            &cursors,
+            &seen,
+        )
+        .await;
+        assert!(
+            events.is_empty(),
+            "a stale subagent transcript must stay gated even when its parent is probe-live, got {events:?}"
+        );
+        assert_eq!(
+            cursors.lock().await.get(&path).copied(),
+            Some(len),
+            "gated subagent transcript must be seeded at EOF"
         );
     }
 }

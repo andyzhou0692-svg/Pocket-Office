@@ -25,6 +25,20 @@ pub const HOOK_WINS_WINDOW: Duration = Duration::from_millis(500);
 /// walkout-to-door animation has time to play before the slot is removed.
 pub const EXIT_GRACE_WINDOW: Duration = Duration::from_millis(4500);
 
+/// How long a hook `SessionEnd` for an UNKNOWN id suppresses hook-synthesis
+/// for that id ([`Reducer::synthesize_hook_registration`]). Hook connections
+/// are per-connection spawned tasks, so a session's SessionEnd and a trailing
+/// Stop/ActivityEnd can be DELIVERED reordered — for an invisible
+/// (never-registered) session ending at /exit, the reordered straggler would
+/// otherwise synthesize a blank Idle ghost with NO SessionEnd left to ever
+/// remove it (it lives out the full 30-min idle sweep). 5s is generous next
+/// to [`HOOK_WINS_WINDOW`]'s modeled transport skew — reordering here is
+/// same-machine task-scheduling jitter, so the headroom costs nothing —
+/// while short enough that a genuinely revived session on the same id is
+/// never visibly delayed.
+#[doc(hidden)]
+pub const HOOK_SESSION_END_TOMBSTONE_TTL: Duration = Duration::from_secs(5);
+
 /// How long a drained parent's b1 completion cascade is deferred before the
 /// delegated subtree is marked exiting (#151). A parallel SECOND Task
 /// dispatch arriving via hook is suppressed as a subagent leak and tracked
@@ -94,10 +108,10 @@ pub const STALE_UNKNOWN_CWD_TIMEOUT: Duration = Duration::from_secs(3 * 60);
 /// false-positive is a *live* session that sits idle between turns past the
 /// threshold, and that is **self-healing** — its next `UserPromptSubmit`
 /// re-emits `SessionStart` and the sprite walks back in. CC keeps the long
-/// [`STALE_IDLE_TIMEOUT`]: it has real `SessionEnd` signals (best-effort
-/// hook plus the durable `/exit` marker) for the common clean exit, so a
-/// short reaper there would only evict genuinely live-but-idle sessions
-/// (lunch-break idle) with no upside.
+/// [`STALE_IDLE_TIMEOUT`]: it has a real `SessionEnd` signal (the
+/// best-effort hook) for the common clean exit, so a short reaper there
+/// would only evict genuinely live-but-idle sessions (lunch-break idle)
+/// with no upside.
 #[doc(hidden)]
 pub const STALE_SHORT_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
@@ -168,6 +182,27 @@ fn source_label_prefix(source: &str) -> &str {
         .unwrap_or(source)
 }
 
+/// Whether `label` is still a derivation FALLBACK for `source` — i.e. carries
+/// no information worth preserving, so the duplicate-SessionStart back-fill may
+/// upgrade it. Three shapes: the bare prefix (`cx`, a JSONL `LabelDeriver`'s
+/// empty-cwd fallback), the ordinal ghost (`cc#3`), and the source-LESS ordinal
+/// (`#1` — minted by the hook-synthesis pre-pass under its empty source, which
+/// a source-only back-fill may have since re-contextualized, so it's matched
+/// regardless of the current prefix). Real labels (`cc·repo`, a Rename's
+/// `code-explorer`) never match.
+fn is_fallback_label(label: &str, source: &str) -> bool {
+    let prefix = source_label_prefix(source);
+    if !prefix.is_empty() && label == prefix {
+        return true;
+    }
+    // `{prefix}#N` (the ordinal ghost) — or bare `#N` even when the prefix
+    // doesn't match: that's the hook-synthesis shape, whose slot a source-only
+    // back-fill may have re-contextualized since the ordinal was minted.
+    let rest = label.strip_prefix(prefix).unwrap_or(label);
+    rest.strip_prefix('#')
+        .is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Outcome flags from [`Reducer::track_active_tasks`], consumed by `apply`'s
 /// main event match.
 struct TaskTracking {
@@ -190,6 +225,12 @@ pub struct Reducer {
     /// Start entry (kind-in-the-VALUE, not the key), which is what lets one
     /// End record cover the tool's whole lagged JSONL pair.
     recent_hook_tool_uses: HashMap<(AgentId, String), (SystemTime, ToolEventKind)>,
+    /// Short-TTL tombstones for hook `SessionEnd`s that arrived for an id
+    /// with NO slot — an invisible (unregistered) session ending. A reordered
+    /// trailing hook event for a tombstoned id must not re-synthesize the
+    /// session (see [`HOOK_SESSION_END_TOMBSTONE_TTL`]). Mirrors
+    /// `recent_hook_tool_uses`, including its `gc` tick-time pruning.
+    recent_hook_session_ends: HashMap<AgentId, SystemTime>,
     /// Per-agent set of Task tool_use_ids currently in flight. CC's hook
     /// payload sets `transcript_path` to the PARENT'S transcript even when a
     /// subagent is the actor, so subagent hook events hash to the parent's
@@ -257,6 +298,30 @@ impl Reducer {
         self.expire_pending_idles(scene, now);
         let id = event.agent_id();
 
+        // PRE-PASS 0 — a hook event is PROOF OF LIFE: it can only come from a
+        // live process. A hook tool/permission event whose id has no slot means
+        // a live session is invisible — its transcript was gated at first sight
+        // (mid-attach, idle >1h), so no JSONL SessionStart ever ran; parked on a
+        // permission prompt (Notification appends nothing to the transcript) it
+        // has no revival path at all. Synthesize the registration the missing
+        // SessionStart would have performed, then let the event itself apply to
+        // the fresh slot. JSONL events must NOT synthesize — a transcript line
+        // can be a historical replay (the watcher's first-sight gate exists
+        // precisely for those), so the unknown-id no-op stays load-bearing
+        // there. SessionEnd/Rename don't synthesize either: an end/rename for
+        // an unknown agent proves nothing worth showing.
+        if from == Transport::Hook {
+            // A SessionEnd for an UNKNOWN id tombstones it: the session ended
+            // while invisible, and a reordered trailing event from the same
+            // dying session (per-connection hook tasks) must not resurrect it
+            // through the synthesis below. A KNOWN id keeps today's behavior
+            // (the main arm marks the slot exiting; no tombstone needed).
+            if matches!(event, AgentEvent::SessionEnd { .. }) && !scene.agents.contains_key(&id) {
+                self.recent_hook_session_ends.insert(id, now);
+            }
+            self.synthesize_hook_registration(scene, &event, id, now);
+        }
+
         // Liveness flows UP the tree: any activity by a descendant keeps its
         // ancestors alive, so a parent isn't stale-swept (and its subtree
         // cascaded out) while a subagent is still working — even if the parent's
@@ -313,7 +378,14 @@ impl Reducer {
             }
         }
 
-        if from == Transport::Hook {
+        // The record is gated on the slot EXISTING (post-synthesis): when the
+        // hook synthesis above was REFUSED (desk exhaustion), the event applies
+        // to nothing — but its record would outlive the refusal, and a desk can
+        // free within HOOK_WINS_WINDOW (an exiting slot's grace elapsing). The
+        // JSONL SessionStart + ActivityStart that then register the session
+        // would have their ActivityStart dedup-eaten by the stale record,
+        // rendering the freshly visible agent Idle through its first tool.
+        if from == Transport::Hook && scene.agents.contains_key(&id) {
             if let Some((kind, tuid)) = event_tool_use_id(&event) {
                 self.recent_hook_tool_uses
                     .insert((id, tuid.to_string()), (now, kind));
@@ -353,6 +425,40 @@ impl Reducer {
                             slot.parent_id = Some(p);
                         }
                     }
+                    // G4 back-fill: a slot can exist with MISSING identity
+                    // context — the hook-synthesis pre-pass registers from
+                    // events that carry only the AgentId (empty source/
+                    // session_id/cwd), and a Codex revive ghost has an empty
+                    // cwd. The first SessionStart carrying the missing piece
+                    // heals it; an established value is never overwritten
+                    // (first-wins, this arm's existing semantics). Judge the
+                    // label's fallback-ness BEFORE the source back-fill — the
+                    // ordinal was minted under the OLD source's prefix.
+                    let label_is_fallback = is_fallback_label(&slot.label, &slot.source);
+                    if slot.source.is_empty() && !source.is_empty() {
+                        slot.source = Arc::<str>::from(source.as_str());
+                    }
+                    if slot.session_id.is_empty() && !session_id.is_empty() {
+                        slot.session_id = Arc::<str>::from(session_id.as_str());
+                    }
+                    if slot.unknown_cwd || slot.cwd.as_os_str().is_empty() {
+                        if let Some(base) = cwd
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .filter(|s| !s.is_empty())
+                        {
+                            slot.cwd = Arc::<std::path::Path>::from(cwd.as_path());
+                            slot.unknown_cwd = false;
+                            // Upgrade ONLY a fallback label — a basename- or
+                            // Rename-derived label is real information.
+                            if label_is_fallback {
+                                slot.label = Arc::<str>::from(
+                                    format!("{}·{base}", source_label_prefix(&slot.source))
+                                        .as_str(),
+                                );
+                            }
+                        }
+                    }
                     // A duplicate SessionStart is still a genuine liveness
                     // signal from the session (Codex/Reasonix re-emit one per
                     // UserPromptSubmit) — refresh it so a prompt landing just
@@ -378,58 +484,7 @@ impl Reducer {
                     }
                     return;
                 }
-                let Some(desk_index) = scene.next_free_desk() else {
-                    tracing::warn!(
-                        ?agent_id,
-                        cwd = %cwd.display(),
-                        session_id = %session_id,
-                        total_capacity = scene.total_capacity(),
-                        "dropped SessionStart — all desks occupied; bump --max-desks"
-                    );
-                    return;
-                };
-                let floor_idx = scene.floor_of(desk_index);
-                let base = cwd
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .filter(|s| !s.is_empty());
-                let has_cwd = base.is_some();
-                let prefix = source_label_prefix(&source);
-                let label: Arc<str> = match base {
-                    Some(b) => Arc::<str>::from(format!("{prefix}·{b}").as_str()),
-                    None => {
-                        // Only an unknown-cwd ghost consumes an ordinal, so labels
-                        // stay contiguous (cc#1, cc#2, …) instead of skipping the
-                        // count of preceding named sessions.
-                        self.next_label_n += 1;
-                        Arc::<str>::from(format!("{prefix}#{}", self.next_label_n).as_str())
-                    }
-                };
-                // Disambiguation for multiple sessions sharing a cwd happens
-                // at render time, not here — we don't want to suffix unique
-                // sessions with a noisy `·xxxx` they don't need.
-                scene.agents.insert(
-                    agent_id,
-                    AgentSlot {
-                        agent_id,
-                        source: Arc::<str>::from(source.as_str()),
-                        session_id: Arc::<str>::from(session_id.as_str()),
-                        cwd: Arc::<std::path::Path>::from(cwd.as_path()),
-                        label,
-                        state: ActivityState::Idle,
-                        state_started_at: now,
-                        last_event_at: now,
-                        created_at: now,
-                        exiting_at: None,
-                        pending_idle_at: None,
-                        desk_index,
-                        floor_idx,
-                        tool_call_count: 0,
-                        active_ms: 0,
-                        unknown_cwd: !has_cwd,
-                        parent_id,
-                    },
-                );
+                self.register_slot(scene, agent_id, &source, &session_id, &cwd, parent_id, now);
             }
             AgentEvent::ActivityStart {
                 agent_id,
@@ -530,6 +585,134 @@ impl Reducer {
                 scope::cascade_exit(scene, agent_id, now);
             }
         }
+    }
+
+    /// Pre-pass 0 of [`Reducer::apply`] (hook transport only) — hook events
+    /// are proof of life: synthesize a registration for a tool/permission
+    /// event whose id has no slot, so a session whose transcript was gated at
+    /// first sight becomes visible the moment it fires a hook. Only
+    /// `ActivityStart`/`ActivityEnd`/`Waiting` qualify — each unambiguously
+    /// proves a live session; `SessionEnd` (nothing to remove) and `Rename`
+    /// (nothing to relabel) stay no-ops for an unknown id.
+    ///
+    /// The decoded hook events carry no identity context beyond the `AgentId`
+    /// (no source / session_id / cwd — and the id is a hash, not reversible),
+    /// so the slot starts blank with the bare ordinal label (`#N`); the next
+    /// real `SessionStart` back-fills it (see the duplicate-SessionStart arm).
+    /// Routed through [`Reducer::register_slot`] so the desk-capacity gate
+    /// applies the same as for a real `SessionStart`.
+    fn synthesize_hook_registration(
+        &mut self,
+        scene: &mut SceneState,
+        event: &AgentEvent,
+        id: AgentId,
+        now: SystemTime,
+    ) {
+        if scene.agents.contains_key(&id)
+            || !matches!(
+                event,
+                AgentEvent::ActivityStart { .. }
+                    | AgentEvent::ActivityEnd { .. }
+                    | AgentEvent::Waiting { .. }
+            )
+        {
+            return;
+        }
+        // A tombstoned id just had its hook SessionEnd arrive with no slot:
+        // this event is a reordered trailing straggler from the DEAD session
+        // (per-connection hook tasks reorder), not proof of new life.
+        // Synthesizing would mint a blank Idle ghost that no future
+        // SessionEnd can remove — only the 30-min idle sweep.
+        if self.recent_hook_session_ends.get(&id).is_some_and(|ts| {
+            now.duration_since(*ts)
+                .is_ok_and(|d| d < HOOK_SESSION_END_TOMBSTONE_TTL)
+        }) {
+            return;
+        }
+        if self.register_slot(scene, id, "", "", std::path::Path::new(""), None, now) {
+            if let Some(slot) = scene.agents.get_mut(&id) {
+                // NOT an unknown-cwd ghost: the 3-min reap exists for startup
+                // JSONL-seeding artifacts that never get a follow-up event.
+                // This slot is process-proven alive, and the motivating case —
+                // parked on a permission prompt, appending nothing — emits no
+                // further event within 3 min, so the ghost reap would kill it
+                // before any JSONL revive could back-fill. It rides the normal
+                // state-adaptive timeouts instead; the cost is a normal-length
+                // linger if the process dies right after — the same linger any
+                // abrupt exit already has.
+                slot.unknown_cwd = false;
+            }
+        }
+    }
+
+    /// The slot-creation half of the `SessionStart` arm, shared with
+    /// [`Reducer::synthesize_hook_registration`] so both run the same
+    /// desk-capacity gate + label derivation. Returns `false` when all desks
+    /// are occupied (the session is dropped, consuming no ghost ordinal).
+    #[allow(clippy::too_many_arguments)]
+    fn register_slot(
+        &mut self,
+        scene: &mut SceneState,
+        agent_id: AgentId,
+        source: &str,
+        session_id: &str,
+        cwd: &std::path::Path,
+        parent_id: Option<AgentId>,
+        now: SystemTime,
+    ) -> bool {
+        let Some(desk_index) = scene.next_free_desk() else {
+            tracing::warn!(
+                ?agent_id,
+                cwd = %cwd.display(),
+                session_id = %session_id,
+                total_capacity = scene.total_capacity(),
+                "dropped SessionStart — all desks occupied; bump --max-desks"
+            );
+            return false;
+        };
+        let floor_idx = scene.floor_of(desk_index);
+        let base = cwd
+            .file_name()
+            .and_then(|n| n.to_str())
+            .filter(|s| !s.is_empty());
+        let has_cwd = base.is_some();
+        let prefix = source_label_prefix(source);
+        let label: Arc<str> = match base {
+            Some(b) => Arc::<str>::from(format!("{prefix}·{b}").as_str()),
+            None => {
+                // Only an unknown-cwd ghost consumes an ordinal, so labels
+                // stay contiguous (cc#1, cc#2, …) instead of skipping the
+                // count of preceding named sessions.
+                self.next_label_n += 1;
+                Arc::<str>::from(format!("{prefix}#{}", self.next_label_n).as_str())
+            }
+        };
+        // Disambiguation for multiple sessions sharing a cwd happens
+        // at render time, not here — we don't want to suffix unique
+        // sessions with a noisy `·xxxx` they don't need.
+        scene.agents.insert(
+            agent_id,
+            AgentSlot {
+                agent_id,
+                source: Arc::<str>::from(source),
+                session_id: Arc::<str>::from(session_id),
+                cwd: Arc::<std::path::Path>::from(cwd),
+                label,
+                state: ActivityState::Idle,
+                state_started_at: now,
+                last_event_at: now,
+                created_at: now,
+                exiting_at: None,
+                pending_idle_at: None,
+                desk_index,
+                floor_idx,
+                tool_call_count: 0,
+                active_ms: 0,
+                unknown_cwd: !has_cwd,
+                parent_id,
+            },
+        );
+        true
     }
 
     /// Pre-pass 1 of [`Reducer::apply`] — subagent-leak suppression (hook
@@ -714,6 +897,10 @@ impl Reducer {
         // (clock went backwards). Drop those — stale entries either way.
         self.recent_hook_tool_uses
             .retain(|_, (ts, _)| now.duration_since(*ts).is_ok_and(|d| d < HOOK_WINS_WINDOW));
+        self.recent_hook_session_ends.retain(|_, ts| {
+            now.duration_since(*ts)
+                .is_ok_and(|d| d < HOOK_SESSION_END_TOMBSTONE_TTL)
+        });
     }
 
     /// Walk through agents with `pending_idle_at` set and flip their
@@ -887,6 +1074,40 @@ mod tests {
                 prefix.chars().count(),
                 2,
                 "source {src:?} has no 2-char label prefix (got {prefix:?}) — fix its SourceDescriptor row in source/registry.rs"
+            );
+        }
+    }
+
+    /// The back-fill's clobber gate: only labels carrying NO information may
+    /// be upgraded. Pins each fallback shape (bare prefix from a JSONL
+    /// LabelDeriver's empty-cwd Rename, the ordinal ghost, the source-less
+    /// hook-synthesis ordinal — also after a source-only back-fill changed the
+    /// prefix) and each real-label negative (basename-derived, Rename-derived,
+    /// a `·`-label whose basename merely contains `#N`).
+    #[test]
+    fn fallback_label_detection_covers_each_shape_and_spares_real_labels() {
+        use super::is_fallback_label;
+        for (label, source) in [
+            ("cx", "codex"),         // bare prefix (LabelDeriver fallback)
+            ("cc#3", "claude-code"), // ordinal ghost
+            ("#1", ""),              // hook-synthesis shape, pre-back-fill
+            ("#1", "claude-code"),   // same slot after a source-only back-fill
+        ] {
+            assert!(
+                is_fallback_label(label, source),
+                "{label:?} under source {source:?} must read as a fallback"
+            );
+        }
+        for (label, source) in [
+            ("cc·repo", "claude-code"),       // basename-derived
+            ("code-explorer", "claude-code"), // Rename-derived
+            ("cc·#3", "claude-code"),         // basename that LOOKS ordinal
+            ("xy#3", "claude-code"),          // foreign prefix — not ours to upgrade
+            ("", "claude-code"),              // degenerate: empty is not an ordinal
+        ] {
+            assert!(
+                !is_fallback_label(label, source),
+                "{label:?} under source {source:?} must NOT be clobbered"
             );
         }
     }
