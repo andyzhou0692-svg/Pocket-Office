@@ -49,14 +49,27 @@ pub(crate) fn hit_test_agent(
 
 /// Lightweight hit-test for click-to-pin without needing router/overlay state.
 /// Uses home desk positions only (no walking agents).
+///
+/// `scene` must be a SINGLE-FLOOR scene matching `layout` — the caller
+/// projects the live scene via `project_floor_scene(scene, current_floor)`
+/// first, so only the visible floor's agents are tested, with their
+/// re-projected desk indices. (Indexing `layout.home_desks` with a raw
+/// multi-floor `desk_index` was exactly the global/local confusion the
+/// `GlobalDeskIndex` newtype exists to prevent: while viewing floor ≥ 1 it
+/// could pin an invisible agent from another floor.)
 pub fn hit_test_from_tui(scene: &SceneState, layout: &Layout, mx: u16, my: u16) -> Option<AgentId> {
     const SPRITE_W: u16 = 8;
     const SPRITE_H_CELLS: u16 = 6;
     for agent in scene.agents.values() {
-        if agent.desk_index >= layout.home_desks.len() {
+        // `single_floor_local()` (the projected-scene identity), NOT the
+        // arithmetic bridge: on an out-of-range desk the bridge would wrap onto
+        // a synthetic later floor of the uniform projection and could land back
+        // in `[0..len)` — hit-testable while invisible to the renderer. The
+        // identity keeps the OOB index OOB, so `home_desk` skips it like the
+        // render path does.
+        let Some(desk) = layout.home_desk(agent.desk_index.single_floor_local()) else {
             continue;
-        }
-        let desk = &layout.home_desks[agent.desk_index];
+        };
         let ax = desk.x + 1;
         let ay = desk.y.saturating_sub(4);
         let cell_x = ax;
@@ -462,7 +475,7 @@ mod tests {
     // --- hit_test_from_tui (click-to-pin, home-desk-only) -----------------
 
     fn scene_with_agent_at_desk(desk_index: usize) -> (SceneState, AgentId) {
-        use pixtuoid_core::state::{ActivityState, AgentSlot};
+        use pixtuoid_core::state::{ActivityState, AgentSlot, GlobalDeskIndex};
         use std::path::Path;
         use std::sync::Arc;
         let id = AgentId::from_transcript_path("/pin/0.jsonl");
@@ -478,7 +491,7 @@ mod tests {
             last_event_at: SystemTime::UNIX_EPOCH,
             exiting_at: None,
             pending_idle_at: None,
-            desk_index,
+            desk_index: GlobalDeskIndex(desk_index),
             floor_idx: 0,
             tool_call_count: 0,
             active_ms: 0,
@@ -516,6 +529,33 @@ mod tests {
         // No agent occupies any cell — scan a few and confirm None everywhere.
         for &(mx, my) in &[(0u16, 0u16), (40, 20), (80, 40)] {
             assert_eq!(hit_test_from_tui(&scene, &layout, mx, my), None);
+        }
+    }
+
+    // Regression for the bridge-choice bug: with the ARITHMETIC bridge
+    // (`scene.floor_local_desk`), an OOB desk equal to the uniform scene's cap
+    // wraps onto a synthetic floor 1 and lands back at local 0 — hit-testable
+    // at desk 0 while the renderer skips it. The identity cast must keep it
+    // OOB everywhere.
+    #[test]
+    fn from_tui_oob_desk_at_capacity_boundary_does_not_wrap_to_desk_zero() {
+        use pixtuoid_core::state::GlobalDeskIndex;
+        let layout = Layout::compute(160, 200, 4).expect("layout");
+        let (mut scene, id) = scene_with_agent_at_desk(0);
+        let cap = scene.floor_capacities[0];
+        // Re-seat the agent at exactly `cap` — the wrap-prone value.
+        scene.agents.get_mut(&id).expect("slot").desk_index = GlobalDeskIndex(cap);
+        // Scan desk 0's whole sprite box — the wrapped bridge would hit here.
+        let desk0 = layout.home_desks[0];
+        let (ax, ay) = (desk0.x + 1, desk0.y.saturating_sub(4) / 2);
+        for dx in 0..8u16 {
+            for dy in 0..6u16 {
+                assert_eq!(
+                    hit_test_from_tui(&scene, &layout, ax + dx, ay + dy),
+                    None,
+                    "an OOB desk at the capacity boundary must never hit-test"
+                );
+            }
         }
     }
 
