@@ -66,6 +66,25 @@ pub trait Router {
     }
 }
 
+/// Path-cache entry cap. The (from, to) key space is unbounded in steady
+/// state: aimless wander mints a fresh pseudo-random destination every cycle
+/// and snap-back/exit legs route from live interpolated origins, so an
+/// always-on office accumulates keys forever — and the per-overlay-change
+/// `retain` scan inside `route` grows linearly with the map. Keys are
+/// per-agent jittered (from, to) PAIRS, not shared anchors: a fully loaded
+/// floor (16 agents × ~12-16 waypoints × 2 directions) recurs ~400-500
+/// keys, which 512 covers. If the working set ever cycles past the cap
+/// anyway, the failure mode is graceful: on overflow the whole map is
+/// cleared, and each evicted route is a sub-ms uncached A* on its next
+/// request — at most #walking-agents re-misses per frame. A mid-leg clear
+/// is safe by construction: cornered in-flight legs are frozen on
+/// `MotionState.walk_path` (they never re-consult the router), and a
+/// straight 2-point leg recomputes bit-identically only while the overlay
+/// is unchanged — after a clear it re-routes under the CURRENT overlay,
+/// the same self-healing re-route class the design already accepts for
+/// unfrozen legs.
+const PATH_CACHE_CAP: usize = 512;
+
 /// A* router with internal path cache. Cache invalidates on overlay
 /// signature change so per-frame occupancy movement (live agents) still
 /// produces correct routes.
@@ -116,6 +135,9 @@ impl Router for AStarRouter {
         let path = find_path(mask, overlay, self.preferred_zone, from, to)
             .unwrap_or_else(|| vec![from, to]);
         self.paths.insert((from, to), path.clone());
+        if self.paths.len() > PATH_CACHE_CAP {
+            self.paths.clear();
+        }
         path
     }
 
@@ -678,6 +700,45 @@ mod tests {
         overlay.add(100, 100, 8, 8);
         let _ = router.route(&l.walkable, &overlay, from, to);
         assert_eq!(router.len(), 1, "cache rebuilt after overlay change");
+    }
+
+    #[test]
+    fn path_cache_is_bounded_and_still_routes_after_the_clear() {
+        // Regression: aimless wander destinations + live-position snap-back/
+        // exit origins mint ever-new (from, to) keys, so without the cap the
+        // cache (and the per-overlay retain scan over it) grew without bound
+        // in an always-on office.
+        let mask = WalkableMask::new_open(400, 400);
+        let overlay = OccupancyOverlay::new();
+        let mut router = AStarRouter::new();
+        // On a cell-center (x % 4 == 2) so same-row routes collapse to the
+        // straight 2-point polyline (see routes_around_dynamic_obstacle).
+        let from = Point { x: 10, y: 50 };
+        // Strictly more distinct (from, to) pairs than the cap holds, so the
+        // overflow clear provably fires at least once.
+        let distinct_routes = PATH_CACHE_CAP + 100;
+        for i in 0..distinct_routes {
+            let to = Point {
+                x: (8 + (i % 90) * 4) as u16,
+                y: (8 + (i / 90) * 4) as u16,
+            };
+            let _ = router.route(&mask, &overlay, from, to);
+            assert!(
+                router.len() <= PATH_CACHE_CAP,
+                "cache must stay bounded: {} entries after {} distinct routes",
+                router.len(),
+                i + 1
+            );
+        }
+        // Routing stays correct after the overflow clear: a same-row route on
+        // an open mask yields the straight [from, to], recomputed
+        // bit-identically.
+        let to = Point { x: 90, y: 50 };
+        assert_eq!(
+            router.route(&mask, &overlay, from, to),
+            vec![from, to],
+            "post-clear routing must still return correct paths"
+        );
     }
 
     #[test]
