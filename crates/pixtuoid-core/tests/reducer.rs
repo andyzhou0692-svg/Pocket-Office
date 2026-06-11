@@ -3,8 +3,8 @@ use std::time::{Duration, SystemTime};
 
 use pixtuoid_core::source::{AgentEvent, Transport};
 use pixtuoid_core::state::reducer::{
-    Reducer, ACTIVE_GRACE_WINDOW, B1_CASCADE_GRACE, HOOK_SESSION_END_TOMBSTONE_TTL,
-    HOOK_WINS_WINDOW,
+    Reducer, ACTIVE_GRACE_WINDOW, B1_CASCADE_GRACE, CHILD_END_LEDGER_TTL,
+    HOOK_SESSION_END_TOMBSTONE_TTL, HOOK_WINS_WINDOW,
 };
 use pixtuoid_core::state::{ActivityState, GlobalDeskIndex, SceneState};
 use pixtuoid_core::AgentId;
@@ -267,7 +267,10 @@ fn session_end_marks_slot_exiting_then_tick_removes_it_after_grace() {
     let t0 = SystemTime::now();
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: a },
+        AgentEvent::SessionEnd {
+            agent_id: a,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -632,7 +635,10 @@ fn capacity_dropped_unknown_cwd_session_consumes_no_ghost_ordinal() {
     // not cc#2 — the dropped one consumed no ordinal.
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: occupant },
+        AgentEvent::SessionEnd {
+            agent_id: occupant,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -1202,7 +1208,10 @@ fn proof_of_life_does_not_block_session_end() {
     // fresh vouch, and the grace GC reclaims the slot on schedule.
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0 + Duration::from_secs(1),
         Transport::Hook,
     );
@@ -1780,7 +1789,10 @@ fn session_end_cascades_to_children() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: parent },
+        AgentEvent::SessionEnd {
+            agent_id: parent,
+            as_child: false,
+        },
         t0 + Duration::from_secs(10),
         Transport::Hook,
     );
@@ -1844,6 +1856,7 @@ fn session_end_cascades_to_grandchildren() {
         &mut scene,
         AgentEvent::SessionEnd {
             agent_id: grandparent,
+            as_child: false,
         },
         t0 + Duration::from_secs(10),
         Transport::Hook,
@@ -1940,7 +1953,10 @@ fn session_end_cascade_marks_all_descendants_exiting() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: parent },
+        AgentEvent::SessionEnd {
+            agent_id: parent,
+            as_child: false,
+        },
         t0 + Duration::from_secs(5),
         Transport::Hook,
     );
@@ -4101,7 +4117,10 @@ fn session_start_on_exiting_slot_resurrects_in_place() {
     start(&mut r, &mut scene, id);
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -4169,7 +4188,10 @@ fn resurrect_in_place_folds_the_active_span_into_active_ms() {
     );
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -4242,7 +4264,10 @@ fn session_start_on_exiting_subagent_does_not_resurrect() {
     // Parent ends → cascade marks the child exiting.
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: parent },
+        AgentEvent::SessionEnd {
+            agent_id: parent,
+            as_child: false,
+        },
         t0 + Duration::from_secs(1),
         Transport::Hook,
     );
@@ -4318,7 +4343,10 @@ fn resurrect_in_place_clears_stale_active_tasks_so_fresh_session_hooks_apply() {
     );
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0 + Duration::from_secs(2),
         Transport::Hook,
     );
@@ -4413,7 +4441,10 @@ fn resurrect_in_place_cancels_stale_pending_b1_cascade() {
     // the armed cascade's grace.
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: parent },
+        AgentEvent::SessionEnd {
+            agent_id: parent,
+            as_child: false,
+        },
         t0 + Duration::from_millis(2_200),
         Transport::Hook,
     );
@@ -4916,7 +4947,10 @@ fn codex_subagent_cascades_with_parent_on_session_end() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: parent },
+        AgentEvent::SessionEnd {
+            agent_id: parent,
+            as_child: false,
+        },
         now,
         Transport::Hook,
     );
@@ -5049,7 +5083,10 @@ fn hook_session_end_for_unknown_id_does_not_create_slot() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -5073,7 +5110,10 @@ fn hook_session_end_tombstone_blocks_reordered_trailing_event_synthesis() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -5121,7 +5161,10 @@ fn hook_event_after_tombstone_ttl_synthesizes_again() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -5160,7 +5203,10 @@ fn jsonl_child_session_start_within_tombstone_is_gated_too() {
     start(&mut r, &mut scene, parent);
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: child },
+        AgentEvent::SessionEnd {
+            agent_id: child,
+            as_child: true,
+        },
         t0,
         Transport::Hook,
     );
@@ -5185,11 +5231,57 @@ fn jsonl_child_session_start_within_tombstone_is_gated_too() {
 }
 
 #[test]
+fn non_child_session_end_tombstone_alone_gates_a_parented_start() {
+    // #242 independence pin: an unknown-id hook SessionEnd with
+    // `as_child: false` mints the 5s tombstone but writes NO child-ledger
+    // `ended_at` (only the SubagentStop decoders stamp as_child), so the 90s
+    // ledger gate cannot fire here — only the original #242 tombstone gate
+    // can block the parented Start inside the TTL. Deleting that gate would
+    // pass every ledger-armed test above; this one keeps it load-bearing.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let parent = AgentId::from_parts("claude-code", "parent-sess");
+    let child = AgentId::from_parts("claude-code", "agent-nonchild-end");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    start(&mut r, &mut scene, parent);
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd {
+            agent_id: child,
+            as_child: false,
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: child,
+            source: "claude-code".into(),
+            session_id: "agent-nonchild-end".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: Some(parent),
+        },
+        t0 + Duration::from_millis(200),
+        Transport::Hook,
+    );
+    assert!(
+        !scene.agents.contains_key(&child),
+        "an as_child: false end arms ONLY the 5s #242 tombstone — that gate \
+         alone must block the parented Start inside the TTL"
+    );
+}
+
+#[test]
 fn child_session_start_past_tombstone_ttl_registers() {
-    // The gate is a tombstone, not a blacklist: child ids are per-spawn
-    // unique, so a Start past the TTL is the late-discovery case (e.g. a
+    // The gates are tombstones, not blacklists: child ids are per-spawn
+    // unique, so a Start past the windows is the late-discovery case (e.g. a
     // notify outage deferring the transcript first-sight to the 60s poll)
-    // and must register — the TTL bounds the guard, the sweeps own the rest.
+    // and must register — the TTLs bound the guards, the sweeps own the rest.
+    // The end here is a SubagentStop (as_child) for an UNKNOWN id, so BOTH
+    // guards arm: the 5s #242 hook tombstone and the 90s child ledger
+    // (#244); the registration must clear the LONGER one.
     let mut scene = SceneState::uniform(4);
     let mut r = Reducer::new();
     let parent = AgentId::from_parts("claude-code", "parent-sess");
@@ -5199,7 +5291,10 @@ fn child_session_start_past_tombstone_ttl_registers() {
     start(&mut r, &mut scene, parent);
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: child },
+        AgentEvent::SessionEnd {
+            agent_id: child,
+            as_child: true,
+        },
         t0,
         Transport::Hook,
     );
@@ -5212,12 +5307,12 @@ fn child_session_start_past_tombstone_ttl_registers() {
             cwd: PathBuf::from("/repo"),
             parent_id: Some(parent),
         },
-        t0 + HOOK_SESSION_END_TOMBSTONE_TTL + Duration::from_secs(1),
+        t0 + CHILD_END_LEDGER_TTL + Duration::from_secs(1),
         Transport::Hook,
     );
     assert!(
         scene.agents.contains_key(&child),
-        "past the TTL a child SessionStart is a fresh registration"
+        "past the ledger TTL a child SessionStart is a fresh registration"
     );
 }
 
@@ -5236,7 +5331,10 @@ fn tombstoned_parentless_session_start_still_registers() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -5256,6 +5354,550 @@ fn tombstoned_parentless_session_start_still_registers() {
         scene.agents.contains_key(&id),
         "a parentless SessionStart must register straight through a fresh \
          tombstone (the Reasonix resurrect)"
+    );
+}
+
+// ---- Child ledger (#244 / #246) -------------------------------------------
+//
+// The #242 hook tombstone above covers only the 5s reorder window for
+// UNKNOWN-id ends. The reducer-private child ledger covers the residual
+// windows: it remembers each child's APPLIED parent and stamps `ended_at`
+// from `as_child` SessionEnds (SubagentStop decodes) and from slot removal,
+// so (w2) a KNOWN child's late parented re-registration is gated for
+// CHILD_END_LEDGER_TTL, and a PARENTLESS start that DOES occur — a
+// post-un-claim revival (#246's adoption seam) or a tombstoned child's
+// flat-rollout first-sight (#244-w1) — re-links to the remembered parent
+// instead of registering as an orphan. (An IN-FLIGHT multi-turn Codex child
+// has NO SessionStart carrier at turn N+1 on either transport — upstream
+// hook_runtime.rs verified 2026-06-11 — so it stays invisible until a
+// carrier exists; #246 stays open for the hook-End→seen-un-claim design.)
+
+/// Drive the captured-shape hook payload through the REAL decoder and apply
+/// every decoded event — the same end-to-end path the listener uses, so these
+/// scenarios exercise the `as_child` stamping, not hand-rolled events.
+fn apply_hook_payload(
+    r: &mut Reducer,
+    scene: &mut SceneState,
+    payload: serde_json::Value,
+    now: SystemTime,
+) {
+    for ev in pixtuoid_core::source::decoder::decode_hook_payload(payload).expect("decodes") {
+        r.apply(scene, ev, now, Transport::Hook);
+    }
+}
+
+#[test]
+fn late_parented_restart_of_an_ended_child_is_gated_by_the_child_ledger() {
+    // #244-w2: Start→Stop on a KNOWN slot mints NO #242 tombstone (the Stop
+    // had a slot to mark exiting), so after the 4.5s GC a late transcript
+    // first-sight (notify outage → the 60s poll backstop) used to re-register
+    // the dead child as a phantom — no future SessionEnd would ever remove
+    // it. The ledger's `ended_at` (stamped by the as_child Stop) must gate it
+    // for CHILD_END_LEDGER_TTL, and registration resumes past the TTL.
+    use pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+    use serde_json::json;
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let parent = AgentId::from_parts("claude-code", "01000000-0000-7000-8000-0000000000cc");
+    let child = AgentId::from_parts("claude-code", "agent-a0000000000000001");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    apply_hook_payload(
+        &mut r,
+        &mut scene,
+        json!({
+            "hook_event_name": "SessionStart",
+            "session_id": "01000000-0000-7000-8000-0000000000cc",
+            "_pixtuoid_source": "claude-code",
+            "cwd": "/repo",
+        }),
+        t0,
+    );
+    apply_hook_payload(
+        &mut r,
+        &mut scene,
+        json!({
+            "hook_event_name": "SubagentStart",
+            "session_id": "01000000-0000-7000-8000-0000000000cc",
+            "agent_id": "a0000000000000001",
+            "cwd": "/repo",
+            "_pixtuoid_source": "claude-code",
+        }),
+        t0 + Duration::from_secs(1),
+    );
+    assert!(scene.agents.contains_key(&child), "child registered");
+    let stop = t0 + Duration::from_secs(2);
+    apply_hook_payload(
+        &mut r,
+        &mut scene,
+        json!({
+            "hook_event_name": "SubagentStop",
+            "session_id": "01000000-0000-7000-8000-0000000000cc",
+            "agent_id": "a0000000000000001",
+            "_pixtuoid_source": "claude-code",
+        }),
+        stop,
+    );
+    // GC the exiting child — well past EXIT_GRACE_WINDOW.
+    r.tick(
+        &mut scene,
+        stop + EXIT_GRACE_WINDOW + Duration::from_secs(1),
+    );
+    assert!(!scene.agents.contains_key(&child), "child GC'd");
+
+    // The late parented first-sight (CC subagent transcripts carry the
+    // parent in their path) lands at +30s: past the 5s #242 tombstone — only
+    // the ledger can catch it.
+    let late_start = |r: &mut Reducer, scene: &mut SceneState, at: SystemTime| {
+        r.apply(
+            scene,
+            AgentEvent::SessionStart {
+                agent_id: child,
+                source: "claude-code".into(),
+                session_id: "agent-a0000000000000001".into(),
+                cwd: PathBuf::from("/repo"),
+                parent_id: Some(parent),
+            },
+            at,
+            Transport::Jsonl,
+        );
+    };
+    late_start(&mut r, &mut scene, stop + Duration::from_secs(30));
+    assert!(
+        !scene.agents.contains_key(&child),
+        "a late parented restart of an ENDED child inside the ledger TTL \
+         must not re-register a phantom (#244-w2)"
+    );
+
+    // The guard is TTL-bounded, not a blacklist.
+    late_start(
+        &mut r,
+        &mut scene,
+        stop + CHILD_END_LEDGER_TTL + Duration::from_secs(1),
+    );
+    assert!(
+        scene.agents.contains_key(&child),
+        "past CHILD_END_LEDGER_TTL the registration resumes"
+    );
+}
+
+#[test]
+fn parentless_revival_start_of_an_ended_codex_child_relinks_via_ledger() {
+    // #246's re-link mechanism, pinned for the carriers that EXIST: when a
+    // parentless SessionStart on a known-ended child id DOES arrive — a
+    // post-un-claim revival (negative vouch / instant exit / decoded
+    // terminator un-claims the rollout from `seen`, so its next line
+    // re-emits SessionStart) or a flat first-sight — the ledger must restore
+    // the remembered parent so the revived child re-joins the scope tree
+    // instead of registering as an orphan, on EITHER transport. This does
+    // NOT cover the IN-FLIGHT multi-turn child: codex-rs fires SubagentStop
+    // at EVERY turn end but SubagentStart only at thread STARTUP, and
+    // provides NO other SessionStart carrier at turn N+1 (hook_runtime.rs
+    // verified 2026-06-11: UserPromptSubmit fires only for direct user
+    // input, never a parent `send_input`; non-Subagent events in a child's
+    // context carry the ROOT session_id) — that child stays invisible until
+    // a carrier exists (#246 stays open for the hook-End→seen-un-claim
+    // design).
+    use pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+    use serde_json::json;
+    for transport in [Transport::Jsonl, Transport::Hook] {
+        let mut scene = SceneState::uniform(4);
+        let mut r = Reducer::new();
+        let parent = AgentId::from_parts("codex", "parent-sess");
+        let child_uuid = "02000000-0000-7000-8000-0000000000cd";
+        let child = AgentId::from_parts("codex", child_uuid);
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+        apply_hook_payload(
+            &mut r,
+            &mut scene,
+            json!({
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "parent-sess",
+                "_pixtuoid_source": "codex",
+                "cwd": "/repo",
+            }),
+            t0,
+        );
+        apply_hook_payload(
+            &mut r,
+            &mut scene,
+            json!({
+                "hook_event_name": "SubagentStart",
+                "session_id": "parent-sess",
+                "agent_id": child_uuid,
+                "cwd": "/repo",
+                "_pixtuoid_source": "codex",
+            }),
+            t0 + Duration::from_secs(1),
+        );
+        assert_eq!(
+            scene.agents.get(&child).map(|s| s.parent_id),
+            Some(Some(parent)),
+            "first life: child registered with the parent link ({transport:?})"
+        );
+        // The child's first life ends; the slot exits and GCs.
+        let stop = t0 + Duration::from_secs(2);
+        apply_hook_payload(
+            &mut r,
+            &mut scene,
+            json!({
+                "hook_event_name": "SubagentStop",
+                "session_id": "parent-sess",
+                "agent_id": child_uuid,
+                "_pixtuoid_source": "codex",
+            }),
+            stop,
+        );
+        r.tick(
+            &mut scene,
+            stop + EXIT_GRACE_WINDOW + Duration::from_secs(1),
+        );
+        assert!(
+            !scene.agents.contains_key(&child),
+            "child GC'd after its first life"
+        );
+
+        // The revival start arrives as a PARENTLESS SessionStart on the same
+        // id (a post-un-claim re-emit / flat first-sight shape).
+        r.apply(
+            &mut scene,
+            AgentEvent::SessionStart {
+                agent_id: child,
+                source: "codex".into(),
+                session_id: child_uuid.into(),
+                cwd: PathBuf::from("/repo"),
+                parent_id: None,
+            },
+            stop + Duration::from_secs(20),
+            transport,
+        );
+        assert_eq!(
+            scene.agents.get(&child).map(|s| s.parent_id),
+            Some(Some(parent)),
+            "the parentless revival start must re-link to the ledger's \
+             remembered parent, not register as an orphan ({transport:?})"
+        );
+    }
+}
+
+#[test]
+fn parentless_session_start_enriching_a_parentless_child_slot_adopts_ledger_parent() {
+    // The ENRICHMENT-path twin of the registration-path adoption above — the
+    // self-heal of the hook-straggler residual: a dead child's hook
+    // straggler landing in the (5s, 90s] window re-registers it PARENTLESS
+    // (the Identity arm / blank hook synthesis consult only the 5s #242
+    // tombstone, never the ledger), so the slot EXISTS parentless when the
+    // later parentless SessionStart arrives. That start lands in the
+    // duplicate-SessionStart arm, whose enrichment must adopt the ledger's
+    // remembered parent — not leave the orphan.
+    use pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let parent = AgentId::from_parts("codex", "parent-sess");
+    let child_uuid = "05000000-0000-7000-8000-0000000000d0";
+    let child = AgentId::from_parts("codex", child_uuid);
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    let session_start = |agent_id, sid: &str, parent_id| AgentEvent::SessionStart {
+        agent_id,
+        source: "codex".into(),
+        session_id: sid.into(),
+        cwd: PathBuf::from("/repo"),
+        parent_id,
+    };
+
+    // The child's first life: registered parented (ledger remembers the
+    // link), ended as_child, GC'd.
+    r.apply(
+        &mut scene,
+        session_start(parent, "parent-sess", None),
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        session_start(child, child_uuid, Some(parent)),
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd {
+            agent_id: child,
+            as_child: true,
+        },
+        t0 + Duration::from_secs(2),
+        Transport::Hook,
+    );
+    let gone = t0 + Duration::from_secs(2) + EXIT_GRACE_WINDOW + Duration::from_secs(1);
+    r.tick(&mut scene, gone);
+    assert!(!scene.agents.contains_key(&child), "child GC'd");
+
+    // The hook straggler at +10s (inside the 90s ledger window, no #242
+    // tombstone — the end had a slot) re-registers the child PARENTLESS via
+    // hook synthesis.
+    r.apply(
+        &mut scene,
+        AgentEvent::ActivityStart {
+            agent_id: child,
+            tool_use_id: Some("t-straggler".into()),
+            detail: None,
+        },
+        gone + Duration::from_secs(10),
+        Transport::Hook,
+    );
+    assert_eq!(
+        scene.agents.get(&child).map(|s| s.parent_id),
+        Some(None),
+        "precondition: the straggler re-registered the child parentless"
+    );
+
+    // The later parentless SessionStart hits the duplicate-SessionStart arm:
+    // enrichment must adopt the ledger parent (the self-heal).
+    r.apply(
+        &mut scene,
+        session_start(child, child_uuid, None),
+        gone + Duration::from_secs(11),
+        Transport::Jsonl,
+    );
+    assert_eq!(
+        scene.agents.get(&child).map(|s| s.parent_id),
+        Some(Some(parent)),
+        "the enrichment path must adopt the ledger's remembered parent for a \
+         parentless child slot"
+    );
+}
+
+#[test]
+fn tombstoned_codex_child_flat_first_sight_relinks_within_ledger_ttl() {
+    // #244-w1: a straggler SubagentStop AFTER the child's slot was GC'd
+    // lands on an unknown id and mints the #242 tombstone — which can't
+    // catch the child's PARENTLESS flat-rollout first-sight (parentless
+    // starts are tombstone-exempt for the Reasonix resurrect). The ledger
+    // turns that former orphan-phantom into a parent-LINKED registration:
+    // it then rides the parent's cascade / the 5-min Codex short-idle reap
+    // instead of ghosting as a flat root.
+    use pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+    use serde_json::json;
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let parent = AgentId::from_parts("codex", "parent-sess");
+    let child_uuid = "03000000-0000-7000-8000-0000000000ce";
+    let child = AgentId::from_parts("codex", child_uuid);
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+
+    apply_hook_payload(
+        &mut r,
+        &mut scene,
+        json!({
+            "hook_event_name": "UserPromptSubmit",
+            "session_id": "parent-sess",
+            "_pixtuoid_source": "codex",
+            "cwd": "/repo",
+        }),
+        t0,
+    );
+    let subagent_stop = json!({
+        "hook_event_name": "SubagentStop",
+        "session_id": "parent-sess",
+        "agent_id": child_uuid,
+        "_pixtuoid_source": "codex",
+    });
+    apply_hook_payload(
+        &mut r,
+        &mut scene,
+        json!({
+            "hook_event_name": "SubagentStart",
+            "session_id": "parent-sess",
+            "agent_id": child_uuid,
+            "cwd": "/repo",
+            "_pixtuoid_source": "codex",
+        }),
+        t0 + Duration::from_secs(1),
+    );
+    let stop = t0 + Duration::from_secs(2);
+    apply_hook_payload(&mut r, &mut scene, subagent_stop.clone(), stop);
+    r.tick(
+        &mut scene,
+        stop + EXIT_GRACE_WINDOW + Duration::from_secs(1),
+    );
+    assert!(!scene.agents.contains_key(&child), "child GC'd");
+
+    // The straggler Stop (codex fires one per child turn end) hits the now
+    // UNKNOWN id → #242 tombstone minted.
+    let straggler = stop + EXIT_GRACE_WINDOW + Duration::from_secs(2);
+    apply_hook_payload(&mut r, &mut scene, subagent_stop, straggler);
+
+    // The flat rollout's first-sight lands INSIDE the 5s hook tombstone —
+    // parentless, so the #242 gate must not block it, and the ledger must
+    // supply the parent.
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: child,
+            source: "codex".into(),
+            session_id: child_uuid.into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: None,
+        },
+        straggler + Duration::from_millis(500),
+        Transport::Jsonl,
+    );
+    assert_eq!(
+        scene.agents.get(&child).map(|s| s.parent_id),
+        Some(Some(parent)),
+        "the tombstoned child's parentless flat first-sight must register \
+         parent-LINKED via the ledger (#244-w1), not as an orphan phantom"
+    );
+}
+
+#[test]
+fn adopted_ledger_parent_still_runs_the_cycle_filter() {
+    // The adoption seam must not bypass #240's cycle refusal: a ledger entry
+    // whose remembered parent has SINCE become a descendant of the reviving
+    // child (constructible only through a dangling-parent enrichment naming
+    // the dead child — i.e. a poisoned/degenerate lineage) must degrade to
+    // PARENTLESS, exactly like a wire-carried cyclic link. Guards the
+    // implementation against adopt-without-filter.
+    use pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let p = AgentId::from_parts("codex", "p-root");
+    let x = AgentId::from_parts("codex", "x-child");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    let session_start = |agent_id, sid: &str, parent_id| AgentEvent::SessionStart {
+        agent_id,
+        source: "codex".into(),
+        session_id: sid.into(),
+        cwd: PathBuf::from("/repo"),
+        parent_id,
+    };
+
+    // X registers as P's child → ledger remembers X→P. Then X ends as_child
+    // and GCs.
+    r.apply(
+        &mut scene,
+        session_start(p, "p-root", None),
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        session_start(x, "x-child", Some(p)),
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd {
+            agent_id: x,
+            as_child: true,
+        },
+        t0 + Duration::from_secs(2),
+        Transport::Hook,
+    );
+    r.tick(
+        &mut scene,
+        t0 + Duration::from_secs(2) + EXIT_GRACE_WINDOW + Duration::from_secs(1),
+    );
+    assert!(!scene.agents.contains_key(&x), "X GC'd");
+
+    // Poison the lineage: P is enriched with the DEAD X as its parent (X has
+    // no slot, so the cycle walk can't see X→P any more — the link applies
+    // as a tolerated dangle).
+    r.apply(
+        &mut scene,
+        session_start(p, "p-root", Some(x)),
+        t0 + Duration::from_secs(10),
+        Transport::Hook,
+    );
+    assert_eq!(
+        scene.agents.get(&p).map(|s| s.parent_id),
+        Some(Some(x)),
+        "precondition: P now dangles on the dead X"
+    );
+
+    // X revives parentless inside the ledger TTL → adopting P would close
+    // the cycle X→P→X. The filter must refuse and register X parentless.
+    r.apply(
+        &mut scene,
+        session_start(x, "x-child", None),
+        t0 + Duration::from_secs(11),
+        Transport::Jsonl,
+    );
+    let slot = scene.agents.get(&x).expect("X re-registers");
+    assert_eq!(
+        slot.parent_id, None,
+        "an adopted ledger parent that would close a cycle must degrade to \
+         parentless (the #240 filter runs on adopted links too)"
+    );
+}
+
+#[test]
+fn reasonix_resurrect_is_unaffected_by_a_ledger_entry_for_another_id() {
+    // Reasonix safety pin: its cwd-keyed sessions are parentless and never
+    // end as_child, so they never enter the ledger — a fresh ledger entry
+    // for a DIFFERENT id (a just-ended Codex child) must not perturb the
+    // documented SessionEnd→SessionStart resurrect in any way.
+    let mut scene = SceneState::uniform(4);
+    let mut r = Reducer::new();
+    let codex_parent = AgentId::from_parts("codex", "parent-sess");
+    let codex_child = AgentId::from_parts("codex", "04000000-0000-7000-8000-0000000000cf");
+    let rx = AgentId::from_parts("reasonix", "/Users/dev/proj");
+    let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_000_000);
+    start(&mut r, &mut scene, codex_parent);
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: codex_child,
+            source: "codex".into(),
+            session_id: "04000000-0000-7000-8000-0000000000cf".into(),
+            cwd: PathBuf::from("/repo"),
+            parent_id: Some(codex_parent),
+        },
+        t0,
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd {
+            agent_id: codex_child,
+            as_child: true,
+        },
+        t0 + Duration::from_secs(1),
+        Transport::Hook,
+    );
+
+    // The Reasonix `/new` rotation, inside every ledger/tombstone window.
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionEnd {
+            agent_id: rx,
+            as_child: false,
+        },
+        t0 + Duration::from_secs(2),
+        Transport::Hook,
+    );
+    r.apply(
+        &mut scene,
+        AgentEvent::SessionStart {
+            agent_id: rx,
+            source: "reasonix".into(),
+            session_id: "/Users/dev/proj".into(),
+            cwd: PathBuf::from("/Users/dev/proj"),
+            parent_id: None,
+        },
+        t0 + Duration::from_secs(2) + Duration::from_millis(20),
+        Transport::Hook,
+    );
+    let slot = scene
+        .agents
+        .get(&rx)
+        .expect("the Reasonix resurrect registers");
+    assert_eq!(
+        slot.parent_id, None,
+        "a ledger entry for a DIFFERENT id must never re-parent a Reasonix \
+         session (its ids never enter the ledger by construction)"
     );
 }
 
@@ -5374,7 +6016,10 @@ fn refused_hook_registration_does_not_poison_dedup_for_the_later_jsonl_copy() {
     );
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: occupant },
+        AgentEvent::SessionEnd {
+            agent_id: occupant,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );
@@ -5859,7 +6504,10 @@ fn hook_identity_respects_session_end_tombstone() {
 
     r.apply(
         &mut scene,
-        AgentEvent::SessionEnd { agent_id: id },
+        AgentEvent::SessionEnd {
+            agent_id: id,
+            as_child: false,
+        },
         t0,
         Transport::Hook,
     );

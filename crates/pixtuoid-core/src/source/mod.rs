@@ -157,6 +157,25 @@ pub enum AgentEvent {
     },
     SessionEnd {
         agent_id: AgentId,
+        /// True ONLY when this end was decoded from a `SubagentStop` hook
+        /// (CC #241 / Codex) — the SUBJECT is a CHILD agent ending *as a
+        /// child*. The reducer's child ledger (#244/#246) keys on this stamp:
+        /// it remembers the child's applied parent and starts the
+        /// ended-recently window that blocks a late/reordered parented
+        /// re-registration and re-links a parentless revival. EVERY other
+        /// constructor — the shared hook `SessionEnd` arm, JSONL terminators,
+        /// the watcher's negative-vouch/instant-exit synthesis, Reasonix's
+        /// `/new` rotation — stamps `false` and never writes the ledger, so
+        /// parentless root resurrects stay untouched by construction.
+        ///
+        /// Source-trait CONTRACT: only SubagentStop decoders may stamp `true`;
+        /// a custom `Source` must stamp `false` on every root end. (Not
+        /// enforced structurally on purpose: a misbehaving source already
+        /// controls the whole event stream — it can forge `SessionStart`
+        /// parent links directly, which is strictly stronger than poisoning
+        /// the ledger — so a private constructor would add friction to the
+        /// documented extension seam without adding a trust boundary.)
+        as_child: bool,
     },
     /// Emitted by a watcher once per liveness-probe refresh for EVERY session
     /// id the probe currently vouches for (CC's `sessions/<pid>.json`
