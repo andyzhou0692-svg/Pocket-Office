@@ -142,7 +142,12 @@ rule salvaged into `CLAUDE.md`. The lesson generalizes to every layer above:
 ## Measuring it
 
 The collector (`scripts/review-metrics.py`) turns any review workflow journal
-into per-stage token/agent metrics. The experiment design, for anyone
+into per-stage token/agent metrics, and the review history itself gets mined:
+[`mining-2026-06.md`](review-metrics/mining-2026-06.md) censused all 185
+merged PRs' reviews plus 50 post-merge fixes — 7 adjudicated escapes, each
+of which named a concrete guideline change — plus one bot-missed design
+lesson, caught pre-merge by a self-dispatched architect pass and validated
+by a controlled backtest on the original diff. The experiment design, for anyone
 replicating this on their own repo:
 
 | experiment | metric | quality guard |
