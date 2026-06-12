@@ -21,7 +21,14 @@ pub(crate) fn cwd_basename_label(prefix: &str, cwd: &Path) -> Option<String> {
         return None;
     }
     let base = cwd.file_name().and_then(|n| n.to_str())?;
-    Some(format!("{prefix}·{base}"))
+    // The cwd is transcript/hook CONTENT (extract_cwd / read_head_cwd /
+    // payload cwd), and a slashless crafted value makes the whole string the
+    // basename — capped here so all three derivers (cc/cx/ag) are bounded at
+    // one chokepoint (pitfall 3); the label persists in slot state.
+    Some(format!(
+        "{prefix}·{}",
+        ellipsize(base, MAX_DECODED_FIELD_CHARS)
+    ))
 }
 
 /// Canonical form of a transcript-path STRING before it is used as an
@@ -220,7 +227,7 @@ pub fn decode_hook_payload(v: Value) -> Result<Vec<AgentEvent>> {
                 identity(),
                 AgentEvent::Waiting {
                     agent_id,
-                    reason: msg.into(),
+                    reason: ellipsize(msg, MAX_DECODED_FIELD_CHARS),
                 },
             ])
         }
@@ -308,7 +315,14 @@ pub(crate) fn make_tool_detail(tool_name: &str, input: Option<&Value>) -> ToolDe
         // path, and callers can't pass a `target` computed from a different
         // `input` than the one used for detection.
         ToolDetail::Generic {
-            display: format!("{tool_name}{}", describe_tool_target(tool_name, input)),
+            // tool_name is wire/transcript content like the target — capped
+            // in the display (the raw name still drives the target-key match
+            // above; legitimate names are far shorter than the cap).
+            display: format!(
+                "{}{}",
+                ellipsize(tool_name, MAX_DECODED_FIELD_CHARS),
+                describe_tool_target(tool_name, input)
+            ),
         }
     }
 }
@@ -329,12 +343,34 @@ pub(crate) fn describe_tool_target(tool: &str, input: Option<&Value>) -> String 
     let Some(s) = input.get(key).and_then(|v| v.as_str()) else {
         return String::new();
     };
-    let total_chars = s.chars().count();
-    let mut s: String = s.chars().take(40).collect();
-    if total_chars > 40 {
-        s.push('…');
+    format!(": {}", ellipsize(s, MAX_TOOL_TARGET_CHARS))
+}
+
+/// Tighter cap for the tool-target descriptor (the `: file/cmd` suffix on a
+/// Generic tool display) — a glanceable fragment, not a full field.
+pub(crate) const MAX_TOOL_TARGET_CHARS: usize = 40;
+
+/// Cap for content-derived strings that become slot state (Waiting reason,
+/// Rename label) — generous against every legitimate value on those fields
+/// (subagent names, "Claude needs your permission to use Bash"), tight
+/// against a crafted ~1 MiB hook/transcript line: every TUI display site is
+/// individually bounded (tooltip char cap + rect clip, 512-char ticker
+/// buffer, ratatui cell clipping), but the headless summary line is not, and
+/// the uncapped value would sit in `AgentSlot` for the session's lifetime
+/// either way.
+pub(crate) const MAX_DECODED_FIELD_CHARS: usize = 80;
+
+/// Char-safe truncation for untrusted display strings at the decode boundary
+/// — where the content ENTERS (CONTRIBUTING pitfall 3), on char boundaries,
+/// never bytes (pitfall 1). Shared by the tool-target cap above and the
+/// Waiting-reason / Rename-label caps (CC + Reasonix) so the sites can't
+/// drift apart.
+pub(crate) fn ellipsize(s: &str, max_chars: usize) -> String {
+    let mut out: String = s.chars().take(max_chars).collect();
+    if s.chars().count() > max_chars {
+        out.push('…');
     }
-    format!(": {s}")
+    out
 }
 
 #[cfg(test)]
@@ -800,6 +836,83 @@ mod tests {
                 assert_eq!(source, crate::source::claude_code::SOURCE_NAME)
             }
             other => panic!("expected SessionStart, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ellipsize_caps_on_chars_only_past_the_limit() {
+        // Exactly AT the limit → unchanged (the negative branch of the cap),
+        // multi-byte chars so a byte-slicing regression would panic/garble.
+        let at = "é".repeat(MAX_DECODED_FIELD_CHARS);
+        assert_eq!(ellipsize(&at, MAX_DECODED_FIELD_CHARS), at);
+        // One char past → capped at the limit + '…'.
+        let over = "é".repeat(MAX_DECODED_FIELD_CHARS + 1);
+        let capped = ellipsize(&over, MAX_DECODED_FIELD_CHARS);
+        assert_eq!(capped.chars().count(), MAX_DECODED_FIELD_CHARS + 1);
+        assert!(capped.ends_with('…'), "cap must be marked: {capped:?}");
+    }
+
+    // conf-35 (#262 item 5): a Notification `message` is content-derived and
+    // a hook line can legally be ~1 MiB — the Waiting reason must be capped
+    // where it ENTERS (pitfall 3), like describe_tool_target already does.
+    #[test]
+    fn notification_reason_is_capped_at_the_decode_boundary() {
+        let long = "メ".repeat(MAX_DECODED_FIELD_CHARS * 100);
+        let evs = decode_hook_payload(json!({
+            "hook_event_name": "Notification",
+            "session_id": "ses-abc",
+            "transcript_path": "/p/ses-abc.jsonl",
+            "cwd": "/repo",
+            "message": long
+        }))
+        .expect("decodes");
+        match &evs[1] {
+            AgentEvent::Waiting { reason, .. } => {
+                assert_eq!(reason.chars().count(), MAX_DECODED_FIELD_CHARS + 1);
+                assert!(reason.ends_with('…'));
+            }
+            other => panic!("expected Waiting, got {other:?}"),
+        }
+        // A legitimate short reason passes through untouched — pinned by
+        // notification_decodes_to_identity_plus_waiting above ("permission?").
+    }
+
+    // Review round (lens-1/lens-2 converged): the cwd is transcript/hook
+    // content too, and a SLASHLESS crafted value makes the whole string the
+    // basename — the chokepoint shared by all three derivers must cap it.
+    #[test]
+    fn cwd_basename_label_caps_a_content_derived_basename() {
+        let long = "é".repeat(MAX_DECODED_FIELD_CHARS * 10);
+        let label = cwd_basename_label("cc", Path::new(&long)).expect("a basename exists");
+        assert_eq!(
+            label.chars().count(),
+            "cc·".chars().count() + MAX_DECODED_FIELD_CHARS + 1
+        );
+        assert!(label.ends_with('…'));
+        // A legitimate cwd passes through unchanged.
+        assert_eq!(
+            cwd_basename_label("cc", Path::new("/repo/app")),
+            Some("cc·app".to_string())
+        );
+    }
+
+    // Review round (lens-3): tool_name is wire/transcript content landing in
+    // Active.detail → the unbounded headless summary — capped in the Generic
+    // display like its target.
+    #[test]
+    fn generic_tool_name_is_capped_in_the_display() {
+        let long = "T".repeat(MAX_DECODED_FIELD_CHARS * 10);
+        match make_tool_detail(&long, None) {
+            ToolDetail::Generic { display } => {
+                assert_eq!(display.chars().count(), MAX_DECODED_FIELD_CHARS + 1);
+                assert!(display.ends_with('…'));
+            }
+            other => panic!("expected Generic, got {other:?}"),
+        }
+        // A legitimate short name passes through unchanged.
+        match make_tool_detail("Read", None) {
+            ToolDetail::Generic { display } => assert_eq!(display, "Read"),
+            other => panic!("expected Generic, got {other:?}"),
         }
     }
 }
