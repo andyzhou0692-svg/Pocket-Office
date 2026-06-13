@@ -84,6 +84,18 @@ pub struct TuiRenderer<B: Backend<Error: Send + Sync + 'static>> {
     dashboard_rows: Vec<crate::tui::dashboard::DashboardRow>,
     dashboard_selected: Option<pixtuoid_core::AgentId>,
     dashboard_scroll: usize,
+    /// Connection-panel frame mirror, pushed each tick by the event loop via
+    /// `set_connection_frame`. The HOOK facet (`connection_rows`) is cached by the event
+    /// loop (rebuilt on open + after actions); the LIVE facet (`connection_live`) is
+    /// recomputed per frame from the scene snapshot. Both kept here — disjoint
+    /// from the floor buffers — for borrow-free `DrawCtx` assembly.
+    connection_open: bool,
+    connection_rows: Vec<crate::tui::connection::ConnectionRow>,
+    connection_live: Vec<crate::tui::connection::LiveInfo>,
+    connection_selected: usize,
+    connection_confirm: Option<usize>,
+    connection_result: Option<String>,
+    connection_socket_line: String,
 }
 
 impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
@@ -121,6 +133,13 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
             dashboard_rows: Vec::new(),
             dashboard_selected: None,
             dashboard_scroll: 0,
+            connection_open: false,
+            connection_rows: Vec::new(),
+            connection_live: Vec::new(),
+            connection_selected: 0,
+            connection_confirm: None,
+            connection_result: None,
+            connection_socket_line: String::new(),
         }
     }
 
@@ -139,6 +158,29 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         self.dashboard_rows = rows;
         self.dashboard_selected = selected;
         self.dashboard_scroll = scroll;
+    }
+
+    /// Mirror the Connection-panel frame the event loop built this tick. `rows` is
+    /// the cached hook facet (cloned only on open / after an action); `live` is
+    /// the per-frame connection facet aligned to it.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_connection_frame(
+        &mut self,
+        open: bool,
+        rows: Vec<crate::tui::connection::ConnectionRow>,
+        live: Vec<crate::tui::connection::LiveInfo>,
+        selected: usize,
+        confirm: Option<usize>,
+        result: Option<String>,
+        socket_line: String,
+    ) {
+        self.connection_open = open;
+        self.connection_rows = rows;
+        self.connection_live = live;
+        self.connection_selected = selected;
+        self.connection_confirm = confirm;
+        self.connection_result = result;
+        self.connection_socket_line = socket_line;
     }
 
     pub fn help_open(&self) -> bool {
@@ -526,6 +568,15 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         let dashboard_rows = self.dashboard_rows.clone();
         let dashboard_selected = self.dashboard_selected;
         let dashboard_scroll = self.dashboard_scroll;
+        // Connection panel can likewise be opened mid-slide (`c` isn't gated); clone
+        // its frame for the brief transition.
+        let connection_open = self.connection_open;
+        let connection_rows = self.connection_rows.clone();
+        let connection_live = self.connection_live.clone();
+        let connection_selected = self.connection_selected;
+        let connection_confirm = self.connection_confirm;
+        let connection_result = self.connection_result.clone();
+        let connection_socket_line = self.connection_socket_line.clone();
         // Floor label tracks the destination floor for the duration of the
         // slide so the per-floor agent count in the footer matches the
         // label (otherwise users see "F1/3 ... 5 agents" with floor 2's
@@ -559,6 +610,19 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
                     theme,
                 );
             }
+            if connection_open {
+                crate::tui::renderer::paint_connection_panel(
+                    f,
+                    &connection_rows,
+                    &connection_live,
+                    connection_selected,
+                    connection_confirm,
+                    connection_result.as_deref(),
+                    &connection_socket_line,
+                    actual_full,
+                    theme,
+                );
+            }
             if popup_scale > 0.0 {
                 if let Some(notes) = crate::version::release_notes(env!("CARGO_PKG_VERSION")) {
                     crate::tui::renderer::paint_version_popup(
@@ -568,7 +632,6 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
                         actual_full,
                         theme,
                         popup_scale,
-                        now,
                     );
                 }
             }
@@ -710,6 +773,13 @@ impl<B: Backend<Error: Send + Sync + 'static>> Renderer for TuiRenderer<B> {
             dashboard_rows: self.dashboard_rows.as_slice(),
             dashboard_selected: self.dashboard_selected,
             dashboard_scroll: self.dashboard_scroll,
+            connection_open: self.connection_open,
+            connection_rows: self.connection_rows.as_slice(),
+            connection_live: self.connection_live.as_slice(),
+            connection_selected: self.connection_selected,
+            connection_confirm: self.connection_confirm,
+            connection_result: self.connection_result.as_deref(),
+            connection_socket_line: self.connection_socket_line.as_str(),
         };
         let result = draw_scene(&mut self.terminal, &floor_scene, pack, now, &mut draw_ctx);
         self.last_pet_pos = draw_ctx.last_pet_pos;

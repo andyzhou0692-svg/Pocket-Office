@@ -1,5 +1,6 @@
 pub mod anim;
 pub mod chitchat;
+pub mod connection;
 pub mod dashboard;
 pub mod embedded_pack;
 pub mod floor;
@@ -47,6 +48,10 @@ struct KeyCtx {
     version_popup: bool,
     theme_picker: Option<usize>,
     dashboard_open: bool,
+    connection_open: bool,
+    /// Whether the Connection panel has an uninstall armed (awaiting y/n). Splits the
+    /// open-connection dispatch into the armed (y/n only) vs unarmed (nav/actions) sub-tiers.
+    connection_confirm: bool,
     n_themes: usize,
     n_floors: usize,
     current_floor: usize,
@@ -94,6 +99,21 @@ enum KeyAction {
     DashboardJump,
     /// `Esc`/`Tab`: close without jumping.
     DashboardClose,
+    /// Open/close the Connection panel (`c`, from the normal scene; `c`/Esc closes).
+    ToggleConnection,
+    /// Connection list navigation.
+    ConnectionUp,
+    ConnectionDown,
+    /// `i`: install the selected CLI's hooks (immediate, idempotent).
+    ConnectionInstall,
+    /// `u`: arm the uninstall confirm on the selected CLI.
+    ConnectionArmUninstall,
+    /// `y` while armed: run the uninstall.
+    ConnectionConfirm,
+    /// `n`/`Esc` while armed: cancel the arm (panel stays open).
+    ConnectionCancelConfirm,
+    /// `c`/`Esc` while unarmed: close the panel.
+    ConnectionClose,
 }
 
 /// Left-click pin toggle: if an agent is pinned, clear it; otherwise hit-test
@@ -157,6 +177,28 @@ fn dispatch_key(code: KeyCode, mods: KeyModifiers, ctx: KeyCtx) -> KeyAction {
             _ => KeyAction::None,
         };
     }
+    if ctx.connection_open {
+        // Armed sub-tier: a uninstall is awaiting confirmation — only y/n/Esc
+        // (and the quit chord) act; nav/action keys are swallowed.
+        if ctx.connection_confirm {
+            return match (code, mods) {
+                _ if is_quit_chord(code, mods) => KeyAction::Quit,
+                (KeyCode::Char('y'), _) => KeyAction::ConnectionConfirm,
+                (KeyCode::Char('n'), _) | (KeyCode::Esc, _) => KeyAction::ConnectionCancelConfirm,
+                _ => KeyAction::None,
+            };
+        }
+        return match (code, mods) {
+            _ if is_quit_chord(code, mods) => KeyAction::Quit,
+            // Bare `c` (not Ctrl+C — that hit the quit chord above) toggles closed.
+            (KeyCode::Esc, _) | (KeyCode::Char('c'), _) => KeyAction::ConnectionClose,
+            (KeyCode::Up, _) | (KeyCode::Char('k'), _) => KeyAction::ConnectionUp,
+            (KeyCode::Down, _) | (KeyCode::Char('j'), _) => KeyAction::ConnectionDown,
+            (KeyCode::Char('i'), _) => KeyAction::ConnectionInstall,
+            (KeyCode::Char('u'), _) => KeyAction::ConnectionArmUninstall,
+            _ => KeyAction::None,
+        };
+    }
     if ctx.dashboard_open {
         return match (code, mods) {
             _ if is_quit_chord(code, mods) => KeyAction::Quit,
@@ -190,6 +232,8 @@ fn dispatch_key(code: KeyCode, mods: KeyModifiers, ctx: KeyCtx) -> KeyAction {
         KeyCode::Char('t') => KeyAction::OpenThemePicker,
         KeyCode::Char('?') => KeyAction::ToggleHelp,
         KeyCode::Tab => KeyAction::ToggleDashboard,
+        // Bare `c` only — `Ctrl+C` already returned Quit at the top of this arm.
+        KeyCode::Char('c') => KeyAction::ToggleConnection,
         // Dev-only walkable/approach/route overlay — gated out of release builds.
         #[cfg(debug_assertions)]
         KeyCode::Char('w') => KeyAction::ToggleWalkableDebug,
@@ -265,6 +309,9 @@ pub async fn run_tui(
     mut source_health: tokio::sync::watch::Receiver<
         Vec<pixtuoid_core::source::manager::SourceDeath>,
     >,
+    // The resolved hook socket (Unix) / named pipe (Windows) the daemon bound,
+    // shown in the Connection panel's connection line.
+    socket_path: std::path::PathBuf,
 ) -> Result<()> {
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
@@ -296,6 +343,7 @@ pub async fn run_tui(
         .position(|t| std::ptr::eq(*t, theme))
         .unwrap_or(0);
     let mut dashboard_ui = dashboard::DashboardUi::default();
+    let mut connection_ui = connection::ConnectionUi::default();
 
     let tick = Duration::from_millis(33);
     let result: Result<()> = (async {
@@ -354,9 +402,10 @@ pub async fn run_tui(
             }
             renderer.set_theme_picker(theme_picker);
             renderer.set_version_popup(version_popup, now);
-            renderer.set_source_warning(widgets::source_warning_message(
-                &source_health.borrow_and_update(),
-            ));
+            // Capture the health snapshot ONCE this frame — both the footer
+            // warning and the Connection panel's per-source `dead` flag read it.
+            let health = source_health.borrow_and_update().clone();
+            renderer.set_source_warning(widgets::source_warning_message(&health));
             // Mirror the dashboard frame: while open, rebuild the rows from the
             // live snapshot, re-anchor the selection by AgentId (an agent may
             // have exited), and keep it in the scroll viewport. Closed → push an
@@ -378,6 +427,34 @@ pub async fn run_tui(
                 );
             } else {
                 renderer.set_dashboard_frame(false, Vec::new(), dashboard_ui.selected, 0);
+            }
+            // Mirror the Connection frame: the HOOK facet (`connection_ui.rows`) is cached
+            // (rebuilt on open + after actions, NOT per frame — it does FS reads);
+            // only the LIVE facet + socket line recompute here from the snapshot.
+            if connection_ui.open {
+                connection_ui.selected =
+                    connection::move_selection(&connection_ui.rows, connection_ui.selected, 0);
+                let live = connection::live_view(now, &connection_ui.rows, &snapshot, &health);
+                let socket_line = format!("socket  {}  (listening)", socket_path.display());
+                renderer.set_connection_frame(
+                    true,
+                    connection_ui.rows.clone(),
+                    live,
+                    connection_ui.selected,
+                    connection_ui.confirm,
+                    connection_ui.last_result.clone(),
+                    socket_line,
+                );
+            } else {
+                renderer.set_connection_frame(
+                    false,
+                    Vec::new(),
+                    Vec::new(),
+                    0,
+                    None,
+                    None,
+                    String::new(),
+                );
             }
             renderer.render(&snapshot, &pack, now)?;
 
@@ -425,6 +502,8 @@ pub async fn run_tui(
                             version_popup,
                             theme_picker,
                             dashboard_open: dashboard_ui.open,
+                            connection_open: connection_ui.open,
+                            connection_confirm: connection_ui.confirm.is_some(),
                             n_themes: theme::ALL_THEMES.len(),
                             n_floors: crate::tui::floor::num_floors(&snapshot),
                             current_floor: renderer.current_floor(),
@@ -542,6 +621,103 @@ pub async fn run_tui(
                                     }
                                 }
                                 dashboard_ui.open = false;
+                            }
+                            KeyAction::ToggleConnection => {
+                                connection_ui.open = !connection_ui.open;
+                                connection_ui.confirm = None;
+                                if connection_ui.open {
+                                    // Cached hook facet: FS reads happen HERE (on
+                                    // open) + after each action, never per frame.
+                                    connection_ui.rows = connection::build_rows();
+                                    connection_ui.selected = connection::move_selection(
+                                        &connection_ui.rows,
+                                        connection_ui.selected,
+                                        0,
+                                    );
+                                    connection_ui.last_result = None;
+                                }
+                            }
+                            KeyAction::ConnectionUp => {
+                                connection_ui.selected = connection::move_selection(
+                                    &connection_ui.rows,
+                                    connection_ui.selected,
+                                    -1,
+                                );
+                                connection_ui.last_result = None;
+                            }
+                            KeyAction::ConnectionDown => {
+                                connection_ui.selected = connection::move_selection(
+                                    &connection_ui.rows,
+                                    connection_ui.selected,
+                                    1,
+                                );
+                                connection_ui.last_result = None;
+                            }
+                            KeyAction::ConnectionInstall => {
+                                // Copy the fields out before any rebuild of `rows`
+                                // (which would invalidate a `&ConnectionRow` borrow).
+                                let action =
+                                    connection_ui.rows.get(connection_ui.selected).map(|r| {
+                                        (r.target, r.display_name, connection::no_action_hint(r))
+                                    });
+                                if let Some((target, name, hint)) = action {
+                                    match target {
+                                        Some(t) => {
+                                            let res =
+                                                match crate::install::install_target(t, None, None)
+                                                {
+                                                    Ok(r) => {
+                                                        connection::format_install_result(&r, name)
+                                                    }
+                                                    Err(e) => {
+                                                        format!("{name}: install failed — {e:#}")
+                                                    }
+                                                };
+                                            connection_ui.last_result = Some(res);
+                                            connection_ui.rows = connection::build_rows();
+                                        }
+                                        None => connection_ui.last_result = Some(hint),
+                                    }
+                                }
+                            }
+                            KeyAction::ConnectionArmUninstall => {
+                                let info =
+                                    connection_ui.rows.get(connection_ui.selected).map(|r| {
+                                        (
+                                            r.target.is_some()
+                                                && r.hooks == connection::HookState::On,
+                                            connection::no_action_hint(r),
+                                        )
+                                    });
+                                if let Some((armable, hint)) = info {
+                                    if armable {
+                                        connection_ui.confirm = Some(connection_ui.selected);
+                                    } else {
+                                        connection_ui.last_result = Some(hint);
+                                    }
+                                }
+                            }
+                            KeyAction::ConnectionConfirm => {
+                                if let Some(idx) = connection_ui.confirm {
+                                    let action = connection_ui
+                                        .rows
+                                        .get(idx)
+                                        .map(|r| (r.target, r.display_name));
+                                    if let Some((Some(t), name)) = action {
+                                        let res = match crate::install::uninstall_target(t, None) {
+                                            Ok(r) => connection::format_uninstall_result(&r, name),
+                                            Err(e) => format!("{name}: uninstall failed — {e:#}"),
+                                        };
+                                        connection_ui.last_result = Some(res);
+                                        connection_ui.rows = connection::build_rows();
+                                    }
+                                }
+                                connection_ui.confirm = None;
+                            }
+                            KeyAction::ConnectionCancelConfirm => connection_ui.confirm = None,
+                            KeyAction::ConnectionClose => {
+                                connection_ui.open = false;
+                                connection_ui.confirm = None;
                             }
                         }
                     }
@@ -680,6 +856,8 @@ mod dispatch_tests {
             version_popup: false,
             theme_picker: None,
             dashboard_open: false,
+            connection_open: false,
+            connection_confirm: false,
             n_themes: 6,
             n_floors: 3,
             current_floor: 1,
@@ -950,5 +1128,113 @@ mod dispatch_tests {
             ..ctx()
         };
         assert_eq!(dispatch_key(KeyCode::Tab, NONE, p), KeyAction::None);
+    }
+
+    #[test]
+    fn c_opens_connection_from_normal_scene() {
+        assert_eq!(
+            dispatch_key(KeyCode::Char('c'), NONE, ctx()),
+            KeyAction::ToggleConnection
+        );
+        // Ctrl+C remains the quit chord, never the connection toggle.
+        assert_eq!(
+            dispatch_key(KeyCode::Char('c'), CTRL, ctx()),
+            KeyAction::Quit
+        );
+    }
+
+    #[test]
+    fn connection_tier_maps_nav_install_uninstall_close() {
+        let s = KeyCtx {
+            connection_open: true,
+            ..ctx()
+        };
+        assert_eq!(dispatch_key(KeyCode::Up, NONE, s), KeyAction::ConnectionUp);
+        assert_eq!(
+            dispatch_key(KeyCode::Char('k'), NONE, s),
+            KeyAction::ConnectionUp
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Down, NONE, s),
+            KeyAction::ConnectionDown
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char('j'), NONE, s),
+            KeyAction::ConnectionDown
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char('i'), NONE, s),
+            KeyAction::ConnectionInstall
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char('u'), NONE, s),
+            KeyAction::ConnectionArmUninstall
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char('c'), NONE, s),
+            KeyAction::ConnectionClose
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Esc, NONE, s),
+            KeyAction::ConnectionClose
+        );
+        // Quit chord passes through; unarmed swallows y/n.
+        assert_eq!(dispatch_key(KeyCode::Char('q'), NONE, s), KeyAction::Quit);
+        assert_eq!(dispatch_key(KeyCode::Char('c'), CTRL, s), KeyAction::Quit);
+        assert_eq!(dispatch_key(KeyCode::Char('y'), NONE, s), KeyAction::None);
+        assert_eq!(dispatch_key(KeyCode::Char('n'), NONE, s), KeyAction::None);
+    }
+
+    #[test]
+    fn connection_armed_tier_maps_yn_and_swallows_nav() {
+        let s = KeyCtx {
+            connection_open: true,
+            connection_confirm: true,
+            ..ctx()
+        };
+        assert_eq!(
+            dispatch_key(KeyCode::Char('y'), NONE, s),
+            KeyAction::ConnectionConfirm
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char('n'), NONE, s),
+            KeyAction::ConnectionCancelConfirm
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Esc, NONE, s),
+            KeyAction::ConnectionCancelConfirm
+        );
+        // Armed swallows navigation + action keys.
+        for k in [
+            KeyCode::Char('j'),
+            KeyCode::Char('k'),
+            KeyCode::Char('i'),
+            KeyCode::Char('u'),
+        ] {
+            assert_eq!(dispatch_key(k, NONE, s), KeyAction::None);
+        }
+        // Quit chord still quits even while armed.
+        assert_eq!(dispatch_key(KeyCode::Char('c'), CTRL, s), KeyAction::Quit);
+    }
+
+    #[test]
+    fn connection_precedence_help_version_win_and_connection_swallows_tab() {
+        // help / version tiers precede the connection tier — bare `c` does nothing.
+        let h = KeyCtx {
+            help_open: true,
+            ..ctx()
+        };
+        assert_eq!(dispatch_key(KeyCode::Char('c'), NONE, h), KeyAction::None);
+        let v = KeyCtx {
+            version_popup: true,
+            ..ctx()
+        };
+        assert_eq!(dispatch_key(KeyCode::Char('c'), NONE, v), KeyAction::None);
+        // connection precedes dashboard: with connection open, Tab is swallowed.
+        let s = KeyCtx {
+            connection_open: true,
+            ..ctx()
+        };
+        assert_eq!(dispatch_key(KeyCode::Tab, NONE, s), KeyAction::None);
     }
 }
