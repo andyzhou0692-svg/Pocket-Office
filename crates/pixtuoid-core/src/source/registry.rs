@@ -22,7 +22,7 @@ use serde_json::Value;
 
 use crate::source::jsonl::LineDecoder;
 use crate::source::{
-    antigravity, claude_code, codewhale, codex, copilot, opencode, reasonix, AgentEvent,
+    antigravity, claude_code, codewhale, codex, copilot, cursor, opencode, reasonix, AgentEvent,
 };
 
 /// How the shared hook decoder derives the AgentId for this source. Moot for
@@ -141,6 +141,7 @@ pub const REGISTRY: &[SourceDescriptor] = &[
     CODEWHALE,
     OPENCODE,
     COPILOT,
+    CURSOR,
 ];
 
 /// Linear scan — at most a handful of entries, called on slot creation and
@@ -324,6 +325,45 @@ const COPILOT: SourceDescriptor = SourceDescriptor {
     },
 };
 
+/// HOOK-ONLY: Cursor CLI (`cursor-agent`) has no passively-observable transcript
+/// — its `--output-format stream-json` NDJSON is per-invocation stdout (pixtuoid
+/// never spawns the agent) and its on-disk sessions are SQLite, not a tailable
+/// JSONL. The reachable seam is Cursor Hooks (`~/.cursor/hooks.json`). The hook
+/// envelope reuses CC's `hook_event_name` field NAME but with camelCase values,
+/// so the custom decoder claims every event and keys on `session_id`
+/// (capture-verified present + consistent; `workspace_roots[0]` is the fallback
+/// label/cwd — `source/cursor.rs`). Subagents render FLAT, not nested: a `Task`
+/// dispatch makes the parent Delegating, but children run as independent
+/// sessions with no parent-link in the stream (a proven upstream absence;
+/// drift-watched).
+const CURSOR: SourceDescriptor = SourceDescriptor {
+    name: cursor::SOURCE_NAME,
+    label_prefix: "cu",
+    line_decoder: None,
+    hook: HookDecoding {
+        id_key: IdKey::TranscriptPathThenSessionId, // inert: custom claims all
+        custom: Some(cursor::decode_cursor_hook_custom),
+    },
+    caps: SourceCaps {
+        // `sessionEnd` FIRES on clean completion (capture-verified 2026-06-14:
+        // `reason:"completed"`) — best-effort counts, CC/Reasonix class. Abrupt
+        // exits (no PID exposed) fall to the generic stale-sweep.
+        has_exit_signal: true,
+        // Each `cursor-agent` invocation is a NEW session_id, so a stale-swept
+        // session does NOT walk back in on a later prompt — but moot: with an
+        // exit signal the short reaper never applies (short_idle_reap == false).
+        resurrects_on_prompt: false,
+        // Cursor's `Task` dispatch (capture-verified) makes the parent Delegating,
+        // and it gets NO `postToolUse` for the Task — the parent is hook-silent
+        // through the delegation (the children run as separate, unlinkable
+        // sessions), so the Delegating slot needs the Waiting-class stale window
+        // rather than a mid-delegation sweep (matches Reasonix/CodeWhale; safe —
+        // it can only over-retain a dead Delegating slot, the parent's own
+        // `sessionEnd` reaps it cleanly in the normal case).
+        delegations_are_hook_silent: true,
+    },
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -372,9 +412,10 @@ mod tests {
         assert_eq!(CODEWHALE.name, codewhale::SOURCE_NAME);
         assert_eq!(OPENCODE.name, opencode::SOURCE_NAME);
         assert_eq!(COPILOT.name, copilot::SOURCE_NAME);
+        assert_eq!(CURSOR.name, cursor::SOURCE_NAME);
         // Hand-enumerated above — the len pin turns "forgot the new row's
         // assert" from a silent gap into a loud failure.
-        assert_eq!(REGISTRY.len(), 7, "new row? add its name-pin assert above");
+        assert_eq!(REGISTRY.len(), 8, "new row? add its name-pin assert above");
     }
 
     #[test]
