@@ -29,7 +29,7 @@ use super::effects::{
 };
 use super::epoch_ms;
 use super::furniture::{
-    paint_area_rug, paint_coffee_table, paint_pantry_chair, paint_pantry_table, paint_side_table,
+    paint_area_rug, paint_meeting_table, paint_pantry_chair, paint_pantry_table, paint_side_table,
 };
 use super::paint_character_at;
 use crate::tui::frame_cache::FrameCache;
@@ -226,14 +226,16 @@ pub(super) fn pet_position(
             false,
         ));
     }
-    for sofa in &layout.meeting_sofas {
-        spots.push((
-            Point {
-                x: sofa.x + 4,
-                y: sofa.y + 4,
-            },
-            false,
-        ));
+    for room in &layout.meeting_furniture {
+        for sofa in room.sofas {
+            spots.push((
+                Point {
+                    x: sofa.x + 4,
+                    y: sofa.y + 4,
+                },
+                false,
+            ));
+        }
     }
     if let Some(wp) = layout
         .waypoints
@@ -387,22 +389,25 @@ const MASCOT_BUSY_CYCLE_MS: u64 = 4500;
 const MASCOT_DEGRADED_CYCLE_MS: u64 = 14000;
 const MASCOT_WALK_FRAC: f32 = 0.45;
 
-/// Per-source mascot sprite (walk, rest). The ONE place a new gateway registers
-/// its creature; `None` for non-gateway / un-mascotted sources.
-pub(super) fn gateway_mascot_anims(source: &str) -> Option<(&'static str, &'static str)> {
-    match source {
-        s if s == pixtuoid_core::source::openclaw::SOURCE_NAME => {
-            Some(("lobster_walk", "lobster_rest"))
-        }
-        _ => None,
-    }
+/// Per-source gateway mascot facts: its sprite (walk, rest) + the hover-tooltip
+/// display name. The ONE place a new gateway registers its creature — `None` for
+/// non-gateway / un-mascotted sources (which gates the whole mascot in
+/// `enqueue_gateway_mascot`), so a 2nd daemon adds exactly one arm here, not two
+/// parallel `match source` tables kept in lockstep.
+pub(super) struct GatewayMascotDef {
+    pub walk: &'static str,
+    pub rest: &'static str,
+    pub display_name: &'static str,
 }
 
-/// Human-readable gateway name for the hover tooltip.
-pub(super) fn gateway_display_name(source: &str) -> &'static str {
+pub(super) fn gateway_mascot_def(source: &str) -> Option<GatewayMascotDef> {
     match source {
-        s if s == pixtuoid_core::source::openclaw::SOURCE_NAME => "OpenClaw",
-        _ => "Gateway",
+        s if s == pixtuoid_core::source::openclaw::SOURCE_NAME => Some(GatewayMascotDef {
+            walk: "lobster_walk",
+            rest: "lobster_rest",
+            display_name: "OpenClaw",
+        }),
+        _ => None,
     }
 }
 
@@ -482,11 +487,13 @@ fn mascot_spots(layout: &Layout, state: DaemonState, home: Point) -> Vec<Point> 
                 y: wp.pos.y + 6,
             });
         }
-        for sofa in &layout.meeting_sofas {
-            spots.push(Point {
-                x: sofa.x + 4,
-                y: sofa.y + 4,
-            });
+        for room in &layout.meeting_furniture {
+            for sofa in room.sofas {
+                spots.push(Point {
+                    x: sofa.x + 4,
+                    y: sofa.y + 4,
+                });
+            }
         }
         if let Some(wp) = layout
             .waypoints
@@ -776,11 +783,11 @@ pub(super) fn paint_drawable(
         }
         DrawableKind::MeetingTable { pos } => {
             // Sprite size from the table (== footprint for the meeting table) so
-            // the painted coffee table can't drift from the masked obstacle.
+            // the painted meeting table can't drift from the masked obstacle.
             let Size { w, h } =
                 crate::tui::layout::furniture_def(crate::tui::layout::Furniture::MeetingTable)
                     .visual;
-            paint_coffee_table(buf, pos.x, pos.y, w, h, theme);
+            paint_meeting_table(buf, pos.x, pos.y, w, h, theme);
         }
         DrawableKind::AreaRug { pos, width, height } => {
             paint_area_rug(buf, pos.x, pos.y, *width, *height, theme);
@@ -1137,7 +1144,7 @@ mod tests {
         // corridor centre on the RIGHT.
         layout.home_desks = vec![Point { x: 20, y: 30 }];
         layout.waypoints.clear();
-        layout.meeting_sofas.clear();
+        layout.meeting_furniture.clear();
         layout.corridor = Some(Bounds {
             x: 150,
             y: 40,
