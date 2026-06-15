@@ -544,3 +544,24 @@ Correctness lens: 0 findings. Online security review: 0 findings. Online code-re
 | R0615-07 | `doctor::run` config-load warnings | warnings from `config::load` were collected but never surfaced — a malformed config would show every source disconnected with NO explanation (ironic for a diagnostic) | CONFIRMED→fixed (med, online) | render `⚠ config: <sanitized>` lines INTO the report (stdout, where the diagnosis lives — better than eprintln) | A | #304 | 2026-06-15 |
 | R0615-08 | `doctor::scan_log_for_source` loose `contains(TARGET)` | a non-drift line mentioning the literal target string + carrying source/kind would be counted (false-positive PATH) | CONFIRMED→deferred (nit) — filed | latent: no production code emits the literal outside drift.rs; only other source= line (manager.rs) won't carry a drift kind. Tracked for a scanner-hardening PR (structural ` TARGET: ` anchor + a test) | B | #304 | 2026-06-15 |
 | R0615-09 | `doctor::field` first-match + spaced values | first `source=` wins (would undercount if a future tracing span carried `source`); a spaced wire name truncates the sample | CONFIRMED→deferred (nit) — filed | latent: ZERO tracing spans exist; no wire name has spaces; sample stays sanitized + count stays correct. Tracked with R0615-08 (one parse_drift_line hardening + per-case tests) | B | #304 | 2026-06-15 |
+
+#### PR #306 (version-awareness) two-lens review — 3 findings (2 fixed, 1 filed)
+
+| # | seam (file/mechanism) | claim (1 line) | verdict | anchor (paths + fix) | tier | head | date |
+|---|---|---|---|---|---|---|---|
+| R0615-10 | `doctor::probe_version` inherited stdin | `Command::output()` inherits the parent TTY stdin + has no timeout → a `<cli> --version` that reads stdin would hang doctor (contradicts its own "no hang" doc) | CONFIRMED→fixed (low) | `.stdin(Stdio::null())` (verifier: exactly right + sufficient; a wall-clock timeout is YAGNI). Latent only — all 8 registry `--version` argv short-circuit (<3s total) | A | #306 | 2026-06-15 |
+| R0615-11 | `doctor.rs` module-doc "Strictly READ-ONLY" list | the enumeration (log + config + install-state) omitted the NEW `<cli> --version` subprocess probes | CONFIRMED→fixed (nit) | added the version-probe (stdin-nulled, static argv) to the READ-ONLY enumeration | A | #306 | 2026-06-15 |
+| R0615-12 | `doctor::parse_version` first-dotted-run | a future anchored row whose `--version` banner prints a dotted date/build BEFORE the semver would silently mis-skew | CONFIRMED→deferred (nit) — filed | latent: copilot's banner leads with the version; cursor is `unknown` (never compared). UTF-8 slicing verified SAFE (panic worry refuted). Filed for a per-anchor banner-parse test / smarter extractor | B | #306 | 2026-06-15 |
+
+#### PR #306 online security review — 2 MEDIUM (both fixed)
+
+| # | seam (file/mechanism) | claim (1 line) | verdict | anchor (paths + fix) | tier | head | date |
+|---|---|---|---|---|---|---|---|
+| R0615-13 | `doctor::probe_version` no timeout | `Command::output()` blocks indefinitely — a `<cli> --version` that hangs (network call, prompt, PATH-substituted binary) hangs doctor; the stdin-null fix (R0615-10) only covers stdin-blocking. Two reviewers flagged the hang | CONFIRMED→fixed (med) | spawn + `try_wait` poll loop with a 5s deadline → `child.kill()` on timeout (no new dep, no orphan); stdin still nulled. Now genuinely no-hang | A | #306 | 2026-06-15 |
+| R0615-14 | `doctor::probe_version` unsanitized output | the version-probe subprocess output flowed to `print!` RAW (not through `sanitize`) — a PATH-substituted binary's `--version` could emit ANSI/OSC to drive the terminal; the module's own R0615-06 claim ("untrusted values sanitized") didn't hold for this path | CONFIRMED→fixed (med) | extracted pure `first_sanitized_line` (control-char-strips before display) + a test (ANSI/OSC/BEL stripped, first-non-empty, empty→None). Now every displayed untrusted value is sanitized | A | #306 | 2026-06-15 |
+
+#### PR #306 online code-review — 3rd distinct finding (+ a doc-orphan fix)
+
+| # | seam (file/mechanism) | claim (1 line) | verdict | anchor (paths + fix) | tier | head | date |
+|---|---|---|---|---|---|---|---|
+| R0615-15 | `doctor::probe_version` nonzero-exit | `wait_with_output().ok()?` returns a FAILED `--version`'s captured output, so a CLI whose `--version` exits nonzero + prints an error ("cannot reach daemon") would display that error AS the version (the doc claimed "nonzero exit → None"; the code didn't) | CONFIRMED→fixed (med) | `if !output.status.success() { return None }` — a broken `--version` is "unknown", never its error text. Also fixed a doc-orphan from the timeout rewrite (the probe_version doc had detached onto first_sanitized_line); contract now matches code. All 8 real CLIs exit 0 → live output unchanged | A | #306 | 2026-06-15 |
