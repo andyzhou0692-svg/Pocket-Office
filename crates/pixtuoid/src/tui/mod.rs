@@ -1438,6 +1438,7 @@ mod dispatch_tests {
         needs_resolved_binary: false,
         post_install_note: None,
         presence_probe: None,
+        extra_artifacts: None,
     };
 
     #[test]

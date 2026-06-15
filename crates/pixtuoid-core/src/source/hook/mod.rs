@@ -20,16 +20,20 @@ use windows as imp;
 mod pid_watch;
 pub(crate) use pid_watch::HookPidWatch;
 
+mod router;
+pub use router::HookRouter;
+
 pub(crate) const MAX_CONCURRENT_CONNS: usize = 128;
 pub(crate) const CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Typed marker for "another live instance owns the hook endpoint" — bind's
 /// ONE recoverable failure (Unix: the sibling `<sock>.lock` advisory lock is
 /// held by a live owner; Windows: CreateNamedPipeW fails ACCESS_DENIED
-/// against the owner's `first_pipe_instance`). `ClaudeCodeSource::run`
-/// downcasts for it and degrades to transcript-only (hooks disabled) instead
-/// of taking the whole CC source (and the hook-only Reasonix source riding
-/// the same socket) down with the bail. Every other bind error stays fatal.
+/// against the owner's `first_pipe_instance`). `HookRouter::run` downcasts for
+/// it and degrades the HOOK PLANE to a quiet `Ok(())` (no `SourceDeath`) instead
+/// of dying — so a second instance takes ONLY the hook plane down while the
+/// transcript watchers (CC/Codex/…) keep running as independent `SourceManager`
+/// tasks. Every other bind error stays fatal → `SourceDeath`.
 #[derive(Debug)]
 pub struct SocketBusy {
     pub path: PathBuf,
@@ -55,7 +59,17 @@ pub struct HookSocketListener {
     /// `with_pid_watch`; a builder field rather than a `run` parameter so
     /// `run`'s public signature stays put (no semver break on pixtuoid-core).
     pid_watch: Option<HookPidWatch>,
+    /// Optional presence side-channel for the daemon fixture (OpenClaw): its
+    /// payloads decode to presence deltas sent here (they yield no `AgentEvent`s).
+    /// A builder field like `pid_watch`, so `run`'s signature stays put.
+    presence_tx: Option<PresenceSender>,
 }
+
+/// The daemon-presence side channel (invariant #2: NOT the one `AgentEvent`
+/// channel). The shared, source-tagged tuple form (`(source, delta)`) so N
+/// daemons route to distinct `SceneState::daemons` entries — see
+/// [`crate::source::daemon::PresenceSender`].
+pub(crate) type PresenceSender = crate::source::daemon::PresenceSender;
 
 impl HookSocketListener {
     pub async fn bind(path: impl Into<PathBuf>) -> Result<Self> {
@@ -65,6 +79,7 @@ impl HookSocketListener {
             inner,
             path,
             pid_watch: None,
+            presence_tx: None,
         })
     }
 
@@ -80,8 +95,16 @@ impl HookSocketListener {
         self
     }
 
+    /// Attach the presence side-channel so daemon payloads decode to presence
+    /// deltas (they produce no `AgentEvent`s). Wired by the `HookRouter`, which
+    /// owns the shared socket every CLI's hooks ride.
+    pub(crate) fn with_presence(mut self, presence_tx: Option<PresenceSender>) -> Self {
+        self.presence_tx = presence_tx;
+        self
+    }
+
     pub async fn run(self, tx: TaggedSender) -> Result<()> {
-        self.inner.run(tx, self.pid_watch).await
+        self.inner.run(tx, self.pid_watch, self.presence_tx).await
     }
 }
 
@@ -166,6 +189,7 @@ pub(crate) async fn handle_conn(
     stream: impl AsyncRead + Unpin,
     tx: TaggedSender,
     pid_watch: Option<HookPidWatch>,
+    presence_tx: Option<PresenceSender>,
 ) {
     let reader = BufReader::new(stream.take(MAX_CONN_BYTES));
     let mut lines = reader.lines();
@@ -182,6 +206,31 @@ pub(crate) async fn handle_conn(
                         continue;
                     }
                 };
+                // DAEMON demux (registry-DRIVEN — NO source named here): a daemon
+                // (the OpenClaw gateway is instance #1) emits ZERO `AgentEvent`s;
+                // its payloads decode to presence deltas on the sibling channel
+                // (invariant #2), source-tagged so N daemons route to distinct
+                // `SceneState::daemons` entries. `presence_decoder_for` returns
+                // `None` for every agent source, so this is inert for them — and a
+                // 2nd daemon needs NO edit here.
+                if let (Some(ptx), Some(src)) = (
+                    presence_tx.as_ref(),
+                    v.get("_pixtuoid_source")
+                        .and_then(serde_json::Value::as_str),
+                ) {
+                    if let Some(decode) = crate::source::registry::presence_decoder_for(src) {
+                        match decode(&v) {
+                            Ok(updates) => {
+                                for u in updates {
+                                    let _ = ptx.send((src.to_string(), u));
+                                }
+                            }
+                            Err(e) => warn!("daemon presence decode error: {e}"),
+                        }
+                        // A daemon produces no AgentEvents — never the agent arms.
+                        continue;
+                    }
+                }
                 // Peek the shim-supplied CLI pid BEFORE `v` is consumed by
                 // decode. Only sources whose shim/plugin stamps `_pid`
                 // (CodeWhale, opencode) have it, so this is inert for the rest.
@@ -351,7 +400,7 @@ mod tests {
         let (mut client, server) = tokio::io::duplex(4096);
         let (tx, mut rx) = tokio::sync::mpsc::channel::<(Transport, AgentEvent)>(8);
 
-        let task = tokio::spawn(handle_conn(server, tx, None));
+        let task = tokio::spawn(handle_conn(server, tx, None, None));
         client
             .write_all(
                 b"{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s1\",\
@@ -364,6 +413,62 @@ mod tests {
         let (transport, ev) = rx.recv().await.expect("one decoded event");
         assert_eq!(transport, Transport::Hook);
         assert!(matches!(ev, AgentEvent::SessionStart { .. }));
+        task.await.unwrap();
+    }
+
+    // The daemon demux is registry-DRIVEN (no source named in handle_conn): an
+    // OpenClaw line routes to the SIDE channel as a SOURCE-TAGGED tuple
+    // `("openclaw", GatewayUp)` and emits ZERO AgentEvents, while an ordinary CC
+    // line decodes only on the AgentEvent channel.
+    #[tokio::test]
+    async fn handle_conn_routes_openclaw_presence_to_the_side_channel_only() {
+        use crate::source::daemon::DaemonPresenceUpdate;
+        let (mut client, server) = tokio::io::duplex(4096);
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<(Transport, AgentEvent)>(8);
+        let (ptx, mut prx) =
+            tokio::sync::mpsc::unbounded_channel::<(String, DaemonPresenceUpdate)>();
+
+        let task = tokio::spawn(handle_conn(server, tx, None, Some(ptx)));
+        // A shim-stamped OpenClaw presence line, then an ordinary CC agent line.
+        client
+            .write_all(
+                b"{\"_pixtuoid_source\":\"openclaw\",\"type\":\"gateway_start\",\"_pid\":4242}\n",
+            )
+            .await
+            .unwrap();
+        client
+            .write_all(
+                b"{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s1\",\
+                  \"transcript_path\":\"/Users/me/.claude/projects/x/s1.jsonl\"}\n",
+            )
+            .await
+            .unwrap();
+        drop(client);
+
+        // The OpenClaw line → exactly one ("openclaw", GatewayUp) on the SIDE
+        // channel, and the AgentEvent channel never sees it (zero AgentEvents).
+        let (src, update) = prx.recv().await.expect("one presence update");
+        assert_eq!(
+            src, "openclaw",
+            "presence is source-tagged for N-daemon routing"
+        );
+        assert!(matches!(
+            update,
+            DaemonPresenceUpdate::GatewayUp { pid: Some(4242) }
+        ));
+        assert!(
+            prx.try_recv().is_err(),
+            "the CC line must not reach presence"
+        );
+
+        // The CC line → exactly one SessionStart on the AgentEvent channel.
+        let (transport, ev) = rx.recv().await.expect("one agent event");
+        assert_eq!(transport, Transport::Hook);
+        assert!(matches!(ev, AgentEvent::SessionStart { .. }));
+        assert!(
+            rx.try_recv().is_err(),
+            "the openclaw line emits no AgentEvent"
+        );
         task.await.unwrap();
     }
 
@@ -384,7 +489,7 @@ mod tests {
 
         let timed_out = tokio::time::timeout(
             std::time::Duration::from_millis(50),
-            handle_conn(server, tx, None),
+            handle_conn(server, tx, None, None),
         )
         .await
         .is_err();
@@ -425,7 +530,7 @@ mod tests {
 
         client.write_all(PRE_TOOL_USE_LINE).await.unwrap();
         drop(client);
-        handle_conn(server, tx, None).await;
+        handle_conn(server, tx, None, None).await;
 
         assert!(rx.try_recv().is_ok());
         assert!(rx.try_recv().is_ok());
@@ -444,7 +549,7 @@ mod tests {
         let (logs, _guard) = capture_warns();
 
         client.write_all(PRE_TOOL_USE_LINE).await.unwrap();
-        handle_conn(server, tx, None).await;
+        handle_conn(server, tx, None, None).await;
 
         let out = logs.contents();
         assert!(

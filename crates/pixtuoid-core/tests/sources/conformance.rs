@@ -28,7 +28,7 @@ use pixtuoid_core::source::{registry, AgentEvent, REGISTERED_SOURCES};
 /// reaches this fn (`is_hook_only` gates the transcript requirement).
 fn decoder_for(source: &str) -> LineDecoder {
     registry::descriptor_for(source)
-        .and_then(|d| d.line_decoder)
+        .and_then(|d| d.line_decoder())
         .unwrap_or_else(|| {
             panic!(
                 "fixture source {source:?} has no line_decoder — add/extend its \
@@ -37,12 +37,20 @@ fn decoder_for(source: &str) -> LineDecoder {
         })
 }
 
-/// Hook-only-ness comes from the registry row (`line_decoder: None`), never a
-/// harness-side list — a second list could mark a JSONL source hook-only and
+/// Hook-only-ness comes from the registry row (`line_decoder()` is `None`), never
+/// a harness-side list — a second list could mark a JSONL source hook-only and
 /// pass the harness without its LineDecoder ever running ("registration is
 /// not coverage").
 fn is_hook_only(source: &str) -> bool {
-    registry::descriptor_for(source).is_some_and(|d| d.line_decoder.is_none())
+    registry::descriptor_for(source).is_some_and(|d| d.line_decoder().is_none())
+}
+
+/// Daemon sources (`SourceKind::Daemon` in the registry) decode to ZERO
+/// AgentEvents — their `presence_decoder` claims all but presence rides a sibling
+/// channel into `SceneState::daemons` (the OpenClaw daemon fixture). The
+/// coalesce-to-one-AgentId contract doesn't apply (no agent slots).
+fn is_daemon(source: &str) -> bool {
+    registry::descriptor_for(source).is_some_and(|d| d.is_daemon())
 }
 
 fn fixtures_root() -> PathBuf {
@@ -77,6 +85,10 @@ fn sorted_dirs(dir: &Path) -> Vec<PathBuf> {
 struct Decoded {
     jsonl: Vec<AgentEvent>,
     hooks: Vec<AgentEvent>,
+    /// The raw parsed hook payloads (before the registry dispatcher), so a
+    /// presence-only source can pin its OWN field-reading decoder against the
+    /// byte-real fixture — `hooks` is empty for those by design.
+    hooks_raw: Vec<serde_json::Value>,
     had_hook_file: bool,
 }
 
@@ -150,6 +162,7 @@ fn decode_fixture(source: &str, dir: &Path) -> Decoded {
     let hooks_path = dir.join("hook-payloads.jsonl");
     let had_hook_file = hooks_path.exists();
     let mut hooks = Vec::new();
+    let mut hooks_raw = Vec::new();
     if had_hook_file {
         for line in read_lines(&hooks_path) {
             // `{{TRANSCRIPT_PATH}}` lets a path-keyed hook (CC) line up with its
@@ -157,6 +170,7 @@ fn decode_fixture(source: &str, dir: &Path) -> Decoded {
             let line = line.replace("{{TRANSCRIPT_PATH}}", &logical);
             let v: serde_json::Value = serde_json::from_str(&line)
                 .unwrap_or_else(|e| panic!("bad hook json in {}: {e}", hooks_path.display()));
+            hooks_raw.push(v.clone());
             match decode_hook_payload(v) {
                 // One payload can decode to multiple events (Identity attached
                 // ahead of a tool/permission event, #221).
@@ -168,6 +182,7 @@ fn decode_fixture(source: &str, dir: &Path) -> Decoded {
     Decoded {
         jsonl,
         hooks,
+        hooks_raw,
         had_hook_file,
     }
 }
@@ -217,6 +232,48 @@ fn all_source_fixtures_decode_and_coalesce() {
                 .to_string_lossy()
                 .into_owned();
             let d = decode_fixture(&source, &scenario_dir);
+            let events: Vec<AgentEvent> = d.jsonl.iter().chain(d.hooks.iter()).cloned().collect();
+
+            // DAEMON (OpenClaw): the presence_decoder claims every event but
+            // emits ZERO AgentEvents — presence rides a sibling channel into
+            // SceneState::daemons. The fixture must still ship hooks (so the
+            // decoder runs + can't panic) and decode to NO AgentEvents (the
+            // by-design emptiness `is_daemon` guards). The contribution +
+            // coalesce contracts below don't apply (no agent slots).
+            if is_daemon(&source) {
+                assert!(
+                    d.had_hook_file && !d.hooks_raw.is_empty(),
+                    "{source}/{scenario}: a daemon source must ship a NON-EMPTY \
+                     hook-payloads.jsonl (an empty fixture passes the zero-events check vacuously)"
+                );
+                assert!(
+                    events.is_empty(),
+                    "{source}/{scenario}: a daemon source must decode to ZERO AgentEvents \
+                     (presence rides the sibling channel), got {events:?}"
+                );
+                // Byte-real PIN for the field-reading presence decoder (openclaw is
+                // the only presence-only source): the captured fixture must decode
+                // to a non-empty set of presence deltas — so a wire field rename
+                // (`runId`→`run_id`) FAILS here, not just the synthetic units that
+                // hardcode the same names. Matches the byte-real-pin standard
+                // (Copilot #294 / CodeWhale #276).
+                let updates: Vec<_> = d
+                    .hooks_raw
+                    .iter()
+                    .flat_map(|v| {
+                        pixtuoid_core::source::openclaw::decode_openclaw_hook_payload(v)
+                            .unwrap_or_default()
+                    })
+                    .collect();
+                assert!(
+                    !updates.is_empty(),
+                    "{source}/{scenario}: the byte-real fixture decoded to ZERO presence deltas \
+                     — the presence decoder's field names drifted from the captured wire format"
+                );
+                insta::assert_yaml_snapshot!(format!("{source}__{scenario}"), events);
+                ran += 1;
+                continue;
+            }
 
             // Each present transport must actually contribute — else a
             // degenerate fixture (e.g. all-no-op JSONL) could pass coalescing
@@ -239,8 +296,6 @@ fn all_source_fixtures_decode_and_coalesce() {
                     "{source}/{scenario}: hook-payloads.jsonl decoded to ZERO events"
                 );
             }
-
-            let events: Vec<AgentEvent> = d.jsonl.iter().chain(d.hooks.iter()).cloned().collect();
 
             // Contract 1: the decoded event sequence is stable (golden snapshot).
             insta::assert_yaml_snapshot!(format!("{source}__{scenario}"), events);

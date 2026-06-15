@@ -2,6 +2,10 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+/// Builds a target's extra wholly-owned artifacts (absolute path + content) from
+/// the resolved shim path — see `Target::extra_artifacts`.
+pub type ExtraArtifactsFn = fn(hook_path: &Path) -> Result<Vec<(PathBuf, String)>>;
+
 /// Result of a merge: the reserialized config plus whether anything *semantically*
 /// changed. `changed` is computed by comparing the PARSED document before and after
 /// the merge — NOT by byte-comparing serialized output, which always differs from a
@@ -80,6 +84,17 @@ pub struct Target {
     /// user-authored), so checking it would mean auto-detection can never fire
     /// for the one target it was added for — probe install markers instead.
     pub presence_probe: Option<fn() -> bool>,
+    /// Extra wholly-owned artifacts written verbatim on install (absolute path +
+    /// content) BEYOND the merged `config_path` — for OpenClaw, the plugin dir
+    /// (manifest + package.json + entry module) that the openclaw.json
+    /// `plugins.load.paths` entry points at. Takes the resolved shim path to bake
+    /// into the entry module. `None` for single-file targets. Left in place on
+    /// uninstall (the config un-merge disables loading) — an accepted residual
+    /// like opencode's stub. **Rewritten verbatim on every (re)install**, even
+    /// when the config merge is a semantic no-op — the deliberate refresh that
+    /// repairs a tampered/stale plugin file (`install_target` does an
+    /// unconditional write, NOT a content-diff).
+    pub extra_artifacts: Option<ExtraArtifactsFn>,
 }
 
 /// Backup suffix — the same constant for every target (not a per-target field).
@@ -102,6 +117,7 @@ pub const CLAUDE: Target = Target {
     needs_resolved_binary: cfg!(windows),
     post_install_note: None,
     presence_probe: None,
+    extra_artifacts: None,
 };
 
 pub const CODEX: Target = Target {
@@ -120,6 +136,7 @@ pub const CODEX: Target = Target {
         "note: comments and formatting in config.toml are not preserved (restore from the backup if needed).",
     ),
     presence_probe: None,
+    extra_artifacts: None,
 };
 
 pub const REASONIX: Target = Target {
@@ -136,6 +153,7 @@ pub const REASONIX: Target = Target {
     needs_resolved_binary: true,
     post_install_note: None,
     presence_probe: Some(crate::install::reasonix::detect_installed),
+    extra_artifacts: None,
 };
 
 pub const CODEWHALE: Target = Target {
@@ -154,6 +172,7 @@ pub const CODEWHALE: Target = Target {
         "note: comments and formatting in config.toml are not preserved (restore from the backup if needed).",
     ),
     presence_probe: Some(crate::install::codewhale::detect_installed),
+    extra_artifacts: None,
 };
 
 pub const OPENCODE: Target = Target {
@@ -181,6 +200,7 @@ pub const OPENCODE: Target = Target {
     // fresh install, and a post-uninstall stub still exists — so detect on the
     // `@pixtuoid-opencode-plugin` sentinel, not mere file existence.
     presence_probe: Some(crate::install::opencode::detect_installed),
+    extra_artifacts: None,
 };
 
 pub const CURSOR: Target = Target {
@@ -198,9 +218,39 @@ pub const CURSOR: Target = Target {
     post_install_note: None,
     // Cursor never creates ~/.cursor/hooks.json itself — probe ~/.cursor instead.
     presence_probe: Some(crate::install::cursor::detect_installed),
+    extra_artifacts: None,
 };
 
-pub const TARGETS: &[&Target] = &[&CLAUDE, &CODEX, &REASONIX, &CODEWHALE, &OPENCODE, &CURSOR];
+pub const OPENCLAW: Target = Target {
+    name: "openclaw",
+    core_source: pixtuoid_core::source::openclaw::SOURCE_NAME,
+    display_name: "OpenClaw",
+    restart_noun: "OpenClaw gateway",
+    // We MERGE openclaw.json (plugins.load.paths + plugins.entries.<id>.enabled +
+    // the hooks.allowConversationAccess grant) AND write the plugin dir as an
+    // extra artifact — the two-ownership split (confirmed by capture: `plugins
+    // install --link` writes exactly these config keys, no separate registry).
+    default_config_path: crate::install::openclaw::default_config_path,
+    hook_command: crate::install::openclaw::hook_command,
+    merge_install: crate::install::openclaw::merge_install,
+    merge_uninstall: crate::install::openclaw::merge_uninstall,
+    needs_path_warning: false,
+    // The plugin bakes the absolute shim path (run under the gateway's Node, no
+    // PATH reliance), so an unresolvable binary is fatal.
+    needs_resolved_binary: true,
+    post_install_note: Some(
+        "note: restart the OpenClaw gateway to load the plugin. Uninstall removes the openclaw.json entries (incl. the conversation-access grant) but leaves the plugin files — a harmless residual the gateway no longer loads.",
+    ),
+    // openclaw.json is created by OpenClaw itself; probe OpenClaw's own dir so
+    // auto-detect fires whether or not we've installed (the opencode rationale).
+    presence_probe: Some(crate::install::openclaw::detect_installed),
+    extra_artifacts: Some(crate::install::openclaw::plugin_artifacts),
+    verify_schema: crate::install::openclaw::verify_schema,
+};
+
+pub const TARGETS: &[&Target] = &[
+    &CLAUDE, &CODEX, &REASONIX, &CODEWHALE, &OPENCODE, &CURSOR, &OPENCLAW,
+];
 
 pub fn by_name(name: &str) -> Option<&'static Target> {
     TARGETS.iter().copied().find(|t| t.name == name)
@@ -245,6 +295,7 @@ mod tests {
         assert_eq!(by_name("codewhale").unwrap().name, "codewhale");
         assert_eq!(by_name("opencode").unwrap().name, "opencode");
         assert_eq!(by_name("cursor").unwrap().name, "cursor");
+        assert_eq!(by_name("openclaw").unwrap().name, "openclaw");
         assert!(by_name("nope").is_none());
         assert!(by_name("all").is_none()); // "all" is a meta-value, not a Target
     }
@@ -296,6 +347,7 @@ mod tests {
             needs_resolved_binary: false,
             post_install_note: None,
             presence_probe: None,
+            extra_artifacts: None,
         };
         assert!(!is_present(&NO_HOME));
     }
@@ -318,19 +370,20 @@ mod tests {
         }
     }
 
-    // A HOOK-ONLY source (no JSONL watcher, `line_decoder: None`) reaches pixtuoid
-    // ONLY through its installed hooks — so it MUST have an install target, or it
-    // is invisible at runtime (hooks never installed → no sprite ever appears),
-    // shipped green. Transcript-bearing sources may legitimately have no target
-    // (Antigravity reads its transcript, installs no hooks). Derived from
-    // `line_decoder.is_none()`, so there is no hand-maintained exemption list to
+    // A source with no JSONL watcher (`line_decoder()` is `None` — a hook-only
+    // agent OR a daemon) reaches pixtuoid ONLY through its installed hooks/plugin
+    // — so it MUST have an install target, or it is invisible at runtime (hooks
+    // never installed → no sprite/mascot ever appears), shipped green.
+    // Transcript-bearing sources may legitimately have no target (Antigravity
+    // reads its transcript, installs no hooks). Derived from
+    // `line_decoder().is_none()`, so there is no hand-maintained exemption list to
     // drift.
     #[test]
     fn every_hook_only_source_has_an_install_target() {
         use pixtuoid_core::source::{registry::descriptor_for, REGISTERED_SOURCES};
         for &src in REGISTERED_SOURCES {
             let d = descriptor_for(src).expect("registered source must have a descriptor row");
-            if d.line_decoder.is_none() {
+            if d.line_decoder().is_none() {
                 assert!(
                     TARGETS.iter().any(|t| t.core_source == src),
                     "hook-only source {src:?} has no install target — its hooks would never \

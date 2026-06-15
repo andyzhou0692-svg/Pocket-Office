@@ -322,6 +322,48 @@ pub(crate) fn paint_pet_tooltip(
     paint_simple_tooltip(f, text, mx, my, scene_rect, theme);
 }
 
+/// Hover tooltip for the gateway mascot (Molty) — which gateway it represents
+/// and whether an agent run is in flight (`busy`). The verb keys on the run
+/// state, not the session count (a single-user gateway holds one persistent
+/// session even at rest); the session count rides along only as a >1 garnish
+/// (the multi-tenant power-user case). Plain text (no emoji) to keep
+/// `paint_simple_tooltip`'s width math exact.
+#[allow(clippy::too_many_arguments)]
+pub fn paint_mascot_tooltip(
+    f: &mut ratatui::Frame<'_>,
+    name: &str,
+    busy: bool,
+    degraded: bool,
+    active_sessions: u32,
+    mx: u16,
+    my: u16,
+    scene_rect: Rect,
+    theme: &crate::tui::theme::Theme,
+) {
+    let text = mascot_tooltip_text(name, busy, degraded, active_sessions);
+    paint_simple_tooltip(f, &text, mx, my, scene_rect, theme);
+}
+
+/// The mascot tooltip's text (pure, unit-tested separately from the ratatui
+/// paint). Verb keys on the run state; `degraded` (#317: gateway up but its
+/// model backend failing every run) takes precedence over busy/idle so a
+/// sickly-red Molty reads "model error". The `>1` session count is a power-user
+/// garnish only. Plain text (no emoji) to keep the width math exact.
+fn mascot_tooltip_text(name: &str, busy: bool, degraded: bool, active_sessions: u32) -> String {
+    let verb = if degraded {
+        "model error"
+    } else if busy {
+        "working"
+    } else {
+        "idle"
+    };
+    if active_sessions > 1 {
+        format!(" {name} gateway · {verb} · {active_sessions} sessions ")
+    } else {
+        format!(" {name} gateway · {verb} ")
+    }
+}
+
 /// Fit a label into `budget` chars without losing the `·xxxx` session-id
 /// disambiguation suffix that the reducer appends to colliding cwds.
 /// Truncates from the base (left side of the `·`), not from the suffix —
@@ -405,7 +447,48 @@ fn disambig_suffix(session_id: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::disambig_suffix;
+    use super::{disambig_suffix, mascot_tooltip_text};
+
+    #[test]
+    fn mascot_tooltip_verb_keys_on_run_state_not_session_count() {
+        // idle vs working keys on `busy`; the session count only shows as a >1
+        // garnish (one persistent session is the single-user norm, not "1 session").
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", false, false, 0),
+            " OpenClaw gateway · idle "
+        );
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", false, false, 1),
+            " OpenClaw gateway · idle "
+        );
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", true, false, 1),
+            " OpenClaw gateway · working "
+        );
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", true, false, 3),
+            " OpenClaw gateway · working · 3 sessions "
+        );
+    }
+
+    #[test]
+    fn mascot_tooltip_degraded_overrides_busy_and_idle() {
+        // #317: gateway up but every model call failing → "model error", and it
+        // wins over both busy and idle (a degraded gateway is degraded whether or
+        // not a run is in flight). The session garnish still rides along.
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", false, true, 0),
+            " OpenClaw gateway · model error "
+        );
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", true, true, 1),
+            " OpenClaw gateway · model error "
+        );
+        assert_eq!(
+            mascot_tooltip_text("OpenClaw", true, true, 3),
+            " OpenClaw gateway · model error · 3 sessions "
+        );
+    }
 
     #[test]
     fn uuid_ids_get_distinct_suffixes() {

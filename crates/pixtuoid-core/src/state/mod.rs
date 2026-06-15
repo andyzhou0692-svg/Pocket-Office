@@ -176,10 +176,81 @@ pub struct AgentSlot {
     pub parent_id: Option<AgentId>,
 }
 
+/// Liveness of a daemon-style source (the OpenClaw gateway). Drives the
+/// wandering "Molty" mascot's behaviour (idle ambles, busy shuttles, down
+/// walks out). A daemon is NOT an `AgentSlot` (it has no desk / no agent
+/// activity), so its presence lives in `SceneState::daemons`, read
+/// directly by the geometry pass. `Down` is distinct from *absent* (no map
+/// entry): absent = not configured / plugin not loaded (Molty not on the
+/// floor); `Down` = the daemon was seen and then died (Molty walks out).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DaemonState {
+    Idle,
+    Busy,
+    /// Gateway is UP but its model backend is failing every run (#317) — the
+    /// Apr-2026 Anthropic-ban failure mode: `gateway_start`/`session_start`/
+    /// `before_agent_run` all fire normally, but each `agent_end` reports
+    /// `success: false`, so the daemon is alive-but-broken, NOT idle. Entered on
+    /// a failed run; self-heals on the next successful run (or a new run start /
+    /// gateway restart). The mascot renders distressed (sickly red, sluggish).
+    Degraded,
+    Down,
+}
+
+/// Per-daemon presence for the gateway mascot (the P-A representation): lives on
+/// `SceneState` so the serializable scene snapshot the renderer reads carries
+/// the mascot's state + concurrency (bubble) intensity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonPresence {
+    pub state: DaemonState,
+    /// Concurrent sessions the gateway is multiplexing (bubble intensity).
+    pub active_sessions: u32,
+    /// Last time ANY presence event arrived — drives the busy→idle decay and
+    /// the presence-TTL stale-down sweep (a daemon has no per-session pid).
+    /// Also the leave-animation anchor: when `state == Down`, this is the
+    /// moment the gateway died, so the mascot's walk-to-the-elevator exit is
+    /// timed `now − last_seen`.
+    pub last_seen: SystemTime,
+    /// When the gateway first appeared (absent/Down → up). Anchors the
+    /// mascot's enter animation (walk in from the elevator) and is the steady
+    /// wander clock — process-local timing only, like `AgentSlot.state_started_at`.
+    pub entered_at: SystemTime,
+    /// In-flight run keys (busy iff non-empty). Transient process state: a
+    /// daemon restart resets it and a dropped `agent_end` self-heals via the
+    /// TTL decay, so it is NOT serialized (a restored dump must not strand a
+    /// perpetual Busy).
+    #[serde(skip)]
+    pub in_flight_run_keys: std::collections::HashSet<String>,
+    /// The gateway pid currently armed for `ExitWatch` (None until first seen).
+    /// Kept for debug dumps + the restart pid-rebind guard; not a wire contract.
+    pub current_pid: Option<i32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneState {
     pub agents: BTreeMap<AgentId, AgentSlot>,
     pub floor_capacities: [usize; MAX_FLOORS],
+    /// Daemon-style sources (the OpenClaw gateway is instance #1) rendered as
+    /// wandering mascots, keyed on the registry source name. Empty for an
+    /// all-agent scene. PRIVATE (with `daemons`/`daemons_mut` accessors) on
+    /// purpose: a pub mutable `BTreeMap` is a leaky surface — the renderer reads
+    /// via the accessor. `pub(crate)` so the reducer/source modules still touch
+    /// it directly while the field stays out of the external public API.
+    #[serde(default)]
+    pub(crate) daemons: BTreeMap<String, DaemonPresence>,
+}
+
+impl SceneState {
+    /// Daemon-presence map (the gateway mascots) — read access for the renderer.
+    pub fn daemons(&self) -> &BTreeMap<String, DaemonPresence> {
+        &self.daemons
+    }
+
+    /// Mutable daemon-presence map — for the shared `daemon::apply_presence`
+    /// merge and the per-floor projection.
+    pub fn daemons_mut(&mut self) -> &mut BTreeMap<String, DaemonPresence> {
+        &mut self.daemons
+    }
 }
 
 impl Default for SceneState {
@@ -187,6 +258,7 @@ impl Default for SceneState {
         Self {
             agents: BTreeMap::new(),
             floor_capacities: [0; MAX_FLOORS],
+            daemons: BTreeMap::new(),
         }
     }
 }
@@ -196,6 +268,7 @@ impl SceneState {
         Self {
             agents: BTreeMap::new(),
             floor_capacities,
+            daemons: BTreeMap::new(),
         }
     }
 
@@ -339,6 +412,73 @@ mod tests {
         assert_eq!(back.agents[&c].state, ActivityState::Idle);
         assert_eq!(&*back.agents[&a].cwd, Path::new("/repo"));
         assert_eq!(back.agents[&b].parent_id, Some(a));
+    }
+
+    #[test]
+    fn daemon_presence_round_trips_and_skips_in_flight_keys() {
+        // The openclaw daemon-presence (mascot) state lives on SceneState (P-A) so
+        // the geometry pass can read it. It serializes like the rest of the tree
+        // (#279). `in_flight_run_keys` is transient process state — a daemon
+        // restart resets it — so it is `#[serde(skip)]` and restores empty.
+        let mut p = DaemonPresence {
+            state: DaemonState::Busy,
+            active_sessions: 3,
+            last_seen: SystemTime::now(),
+            entered_at: SystemTime::now(),
+            in_flight_run_keys: ["run-1".to_string(), "run-2".to_string()]
+                .into_iter()
+                .collect(),
+            current_pid: Some(4242),
+        };
+        let json = serde_json::to_string(&p).expect("serialize");
+        assert!(
+            !json.contains("run-1"),
+            "in_flight_run_keys must be skipped on the wire: {json}"
+        );
+        let back: DaemonPresence = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.state, DaemonState::Busy);
+        assert_eq!(back.active_sessions, 3);
+        assert_eq!(back.current_pid, Some(4242));
+        assert!(
+            back.in_flight_run_keys.is_empty(),
+            "skipped field restores empty"
+        );
+
+        for st in [DaemonState::Idle, DaemonState::Busy, DaemonState::Down] {
+            p.state = st;
+            let j = serde_json::to_string(&p).unwrap();
+            assert_eq!(
+                serde_json::from_str::<DaemonPresence>(&j).unwrap().state,
+                st
+            );
+        }
+    }
+
+    #[test]
+    fn scene_state_daemons_round_trips() {
+        // A SceneState carrying an openclaw daemon-presence entry round-trips
+        // byte-stably alongside the agents tree.
+        let mut s = SceneState::uniform(8);
+        s.daemons.insert(
+            "openclaw".to_string(),
+            DaemonPresence {
+                state: DaemonState::Idle,
+                active_sessions: 0,
+                last_seen: SystemTime::now(),
+                entered_at: SystemTime::now(),
+                in_flight_run_keys: Default::default(),
+                current_pid: Some(900),
+            },
+        );
+        let json = serde_json::to_string(&s).expect("serialize");
+        let back: SceneState = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(
+            json,
+            serde_json::to_string(&back).expect("re-serialize"),
+            "round-trip must be byte-stable"
+        );
+        assert_eq!(back.daemons["openclaw"].state, DaemonState::Idle);
+        assert_eq!(back.daemons["openclaw"].current_pid, Some(900));
     }
 
     #[test]
