@@ -11,8 +11,8 @@ use anyhow::{Context as _, Result};
 use clap::Parser;
 use image::codecs::gif::{GifEncoder, Repeat};
 use image::{Delay, Frame as GifFrame, Rgb as ImgRgb, RgbImage, Rgba, RgbaImage};
-use pixtuoid::tui::embedded_pack::load_sprite_pack;
-use pixtuoid::tui::frame_cache::FrameCache;
+use pixtuoid::scene::embedded_pack::load_sprite_pack;
+use pixtuoid::scene::frame_cache::FrameCache;
 use pixtuoid::tui::renderer::{draw_scene, DrawCtx, TickerQueue};
 use pixtuoid_core::source::jsonl::JsonlWatcher;
 use pixtuoid_core::source::AgentEvent;
@@ -308,7 +308,7 @@ fn main() -> Result<()> {
     // Force-weather override (screenshot/gallery only) — set once; the
     // thread-local it sets is honored by every weather derivation on this
     // thread, including each frame of the GIF path.
-    if let Err(valid) = pixtuoid::tui::pixel_painter::force_weather(args.weather.as_deref()) {
+    if let Err(valid) = pixtuoid::scene::pixel_painter::force_weather(args.weather.as_deref()) {
         anyhow::bail!(
             "unknown --weather {:?}; valid: {}",
             args.weather.unwrap_or_default(),
@@ -382,13 +382,13 @@ fn main() -> Result<()> {
     let mut buf = RgbBuffer::filled(0, 0, Rgb { r: 0, g: 0, b: 0 });
     let pack = load_sprite_pack(args.pack_dir.clone())?;
     let mut cache = FrameCache::new();
-    let mut router = pixtuoid::tui::pathfind::AStarRouter::new();
+    let mut router = pixtuoid::scene::pathfind::AStarRouter::new();
     let mut overlay = pixtuoid_core::walkable::OccupancyOverlay::new();
-    let mut history = pixtuoid::tui::pose::PoseHistory::new();
+    let mut history = pixtuoid::scene::pose::PoseHistory::new();
     // Fail loudly like --weather above — a typo'd theme silently rendering
     // NORMAL would put wrong-palette art into the docs/site screenshot pipelines.
-    let theme = pixtuoid::tui::theme::theme_by_name(&args.theme).ok_or_else(|| {
-        let valid: Vec<&str> = pixtuoid::tui::theme::ALL_THEMES
+    let theme = pixtuoid::scene::theme::theme_by_name(&args.theme).ok_or_else(|| {
+        let valid: Vec<&str> = pixtuoid::scene::theme::ALL_THEMES
             .iter()
             .map(|t| t.name)
             .collect();
@@ -401,10 +401,10 @@ fn main() -> Result<()> {
     let ticker = TickerQueue::new();
 
     let navigations = parse_navigations(&args.navigate_at)?;
-    let pet_vec: Vec<pixtuoid::tui::pet::Pet> = match args.pets.as_deref() {
+    let pet_vec: Vec<pixtuoid::scene::pet::Pet> = match args.pets.as_deref() {
         None => vec![],
         Some(kind_str) => {
-            use pixtuoid::tui::pet::{Pet, PetKind};
+            use pixtuoid::scene::pet::{Pet, PetKind};
             let kind = match kind_str {
                 "cat" => PetKind::Cat,
                 "dog" => PetKind::Dog,
@@ -489,10 +489,10 @@ fn main() -> Result<()> {
         .unwrap_or_default();
     let warning_text = pixtuoid::doctor::footer_warning(death_text.as_deref(), &drifted);
     let mut chitchat_state = std::collections::HashMap::new();
-    let mut light = pixtuoid::tui::floor::LightingState::new();
+    let mut light = pixtuoid::scene::floor::LightingState::new();
     let mut motion: std::collections::HashMap<
         pixtuoid_core::AgentId,
-        pixtuoid::tui::motion::MotionState,
+        pixtuoid::scene::motion::MotionState,
     > = std::collections::HashMap::new();
     // Static snapshots have no time to animate the fade — snap straight
     // to the steady-state level for the chosen scene.
@@ -609,7 +609,7 @@ fn main() -> Result<()> {
         theme_picker: args.theme_picker,
         floor_info: None,
         floor: {
-            let mut m = pixtuoid::tui::floor::FloorMeta::ground();
+            let mut m = pixtuoid::scene::floor::FloorMeta::ground();
             m.floor_seed = args.floor_seed;
             m
         },
@@ -688,7 +688,7 @@ fn debug_paint_walkable_overlay(
     term: &mut Terminal<TestBackend>,
     scene: &SceneState,
 ) -> Result<()> {
-    use pixtuoid::tui::layout::SceneLayout;
+    use pixtuoid::scene::layout::SceneLayout;
 
     let size = term.size()?;
     let scene_w = size.width;
@@ -769,7 +769,7 @@ fn debug_paint_walkable_overlay(
     Ok(())
 }
 
-fn compute_reachable(layout: &pixtuoid::tui::layout::SceneLayout) -> Vec<bool> {
+fn compute_reachable(layout: &pixtuoid::scene::layout::SceneLayout) -> Vec<bool> {
     use std::collections::VecDeque;
     let w = layout.buf_w as usize;
     let h = layout.buf_h as usize;
@@ -807,7 +807,7 @@ fn compute_reachable(layout: &pixtuoid::tui::layout::SceneLayout) -> Vec<bool> {
 
 fn is_reachable(
     mask: &[bool],
-    layout: &pixtuoid::tui::layout::SceneLayout,
+    layout: &pixtuoid::scene::layout::SceneLayout,
     x: u16,
     y: u16,
 ) -> bool {
@@ -1463,7 +1463,7 @@ fn anim_scene(
 fn compute_crop_rect(
     args: &SnapshotArgs,
     scene: &SceneState,
-    history: &pixtuoid::tui::pose::PoseHistory,
+    history: &pixtuoid::scene::pose::PoseHistory,
     cols: u16,
     rows: u16,
     now: SystemTime,
@@ -1472,7 +1472,8 @@ fn compute_crop_rect(
 
     // Fail loudly like --theme/--weather above — a typo'd crop target silently
     // writing the full uncropped PNG defeats the point of the flag.
-    let target_pixel: pixtuoid::tui::layout::Point = if let Some(ref agent_label) = args.crop_agent
+    let target_pixel: pixtuoid::scene::layout::Point = if let Some(ref agent_label) =
+        args.crop_agent
     {
         let slot = scene
             .agents
@@ -1592,7 +1593,9 @@ fn save_backend_as_png(
                 fill_rect(&mut img, x0, y0 + CELL_H / 2, CELL_W, CELL_H / 2, bg);
             } else if symbol.trim().is_empty() {
                 fill_rect(&mut img, x0, y0, CELL_W, CELL_H, bg);
-            } else if let Some(rows) = glyph8x8(symbol) {
+            } else if let Some(rows) =
+                pixtuoid::scene::font::glyph8x8(symbol.chars().next().unwrap_or(' '))
+            {
                 fill_rect(&mut img, x0, y0, CELL_W, CELL_H, bg);
                 blit_glyph_cell(rows, x0, y0, |px, py| {
                     if px < img_w && py < img_h {
@@ -1645,7 +1648,9 @@ fn cells_to_rgba(
                 fill_rgba_rect(&mut rgba, x0, y0 + CELL_H / 2, CELL_W, CELL_H / 2, bg);
             } else if symbol.trim().is_empty() {
                 fill_rgba_rect(&mut rgba, x0, y0, CELL_W, CELL_H, bg);
-            } else if let Some(rows) = glyph8x8(symbol) {
+            } else if let Some(rows) =
+                pixtuoid::scene::font::glyph8x8(symbol.chars().next().unwrap_or(' '))
+            {
                 fill_rgba_rect(&mut rgba, x0, y0, CELL_W, CELL_H, bg);
                 let fg_rgba = Rgba([fg[0], fg[1], fg[2], 255]);
                 blit_glyph_cell(rows, x0, y0, |px, py| {
@@ -1704,9 +1709,9 @@ fn save_renderer_gif(
     rows: u16,
     fps: u64,
     duration_secs: u64,
-    theme: &'static pixtuoid::tui::theme::Theme,
+    theme: &'static pixtuoid::scene::theme::Theme,
     navigations: &[(u64, usize)],
-    pets: Vec<pixtuoid::tui::pet::Pet>,
+    pets: Vec<pixtuoid::scene::pet::Pet>,
 ) -> Result<()> {
     use pixtuoid_core::render::Renderer as _;
     let frame_count = (duration_secs * fps) as usize;
@@ -1752,12 +1757,12 @@ fn save_as_gif(
     rows: u16,
     buf: &mut RgbBuffer,
     cache: &mut FrameCache,
-    router: &mut pixtuoid::tui::pathfind::AStarRouter,
+    router: &mut pixtuoid::scene::pathfind::AStarRouter,
     overlay: &mut pixtuoid_core::walkable::OccupancyOverlay,
-    history: &mut pixtuoid::tui::pose::PoseHistory,
+    history: &mut pixtuoid::scene::pose::PoseHistory,
     fps: u64,
     duration_secs: u64,
-    theme: &pixtuoid::tui::theme::Theme,
+    theme: &pixtuoid::scene::theme::Theme,
     floor_seed: u64,
     skip_ms: u64,
     debug_walkable: bool,
@@ -1777,10 +1782,10 @@ fn save_as_gif(
     encoder.set_repeat(Repeat::Infinite)?;
 
     let mut chitchat_state = std::collections::HashMap::new();
-    let mut light = pixtuoid::tui::floor::LightingState::new();
+    let mut light = pixtuoid::scene::floor::LightingState::new();
     let mut motion: std::collections::HashMap<
         pixtuoid_core::AgentId,
-        pixtuoid::tui::motion::MotionState,
+        pixtuoid::scene::motion::MotionState,
     > = std::collections::HashMap::new();
     for i in 0..(skip_frames + frame_count) {
         let now = start_now + Duration::from_millis(i as u64 * frame_ms);
@@ -1801,7 +1806,7 @@ fn save_as_gif(
             theme_picker: None,
             floor_info: None,
             floor: {
-                let mut m = pixtuoid::tui::floor::FloorMeta::ground();
+                let mut m = pixtuoid::scene::floor::FloorMeta::ground();
                 m.floor_seed = floor_seed;
                 m
             },
@@ -1874,38 +1879,6 @@ fn fill_rect(img: &mut RgbImage, x: u32, y: u32, w: u32, h: u32, color: ImgRgb<u
     }
 }
 
-/// 8x8 bitmaps for the few status glyphs font8x8 lacks but the popups lean on
-/// for at-a-glance state — the dashboard/connection dots `●` `○` `◐`. Without
-/// these all three collapse to the same fallback block, distinct only by color.
-/// Rows top→bottom, bit 0 (LSB) = leftmost pixel — same convention as font8x8,
-/// so `blit_glyph_cell` renders them unchanged.
-fn custom_glyph(ch: char) -> Option<[u8; 8]> {
-    match ch {
-        '\u{25CF}' => Some([0x3C, 0x7E, 0xFF, 0xFF, 0xFF, 0xFF, 0x7E, 0x3C]), // ● filled disc
-        '\u{25CB}' => Some([0x3C, 0x42, 0x81, 0x81, 0x81, 0x81, 0x42, 0x3C]), // ○ ring
-        '\u{25D0}' => Some([0x3C, 0x4E, 0x8F, 0x8F, 0x8F, 0x8F, 0x4E, 0x3C]), // ◐ left-half disc
-        _ => None,
-    }
-}
-
-/// The demo rasterizer's "font": an 8x8 bitmap per char — our `custom_glyph`
-/// status dots first, then font8x8's sets (ASCII, then Latin/box/block/misc/
-/// greek). Returns rows top→bottom; within a row bit 0 (LSB) is the leftmost
-/// pixel. `None` for a glyph nothing covers — the caller draws a block.
-fn glyph8x8(symbol: &str) -> Option<[u8; 8]> {
-    use font8x8::{
-        UnicodeFonts, BASIC_FONTS, BLOCK_FONTS, BOX_FONTS, GREEK_FONTS, LATIN_FONTS, MISC_FONTS,
-    };
-    let ch = symbol.chars().next()?;
-    custom_glyph(ch)
-        .or_else(|| BASIC_FONTS.get(ch))
-        .or_else(|| LATIN_FONTS.get(ch))
-        .or_else(|| BOX_FONTS.get(ch))
-        .or_else(|| BLOCK_FONTS.get(ch))
-        .or_else(|| MISC_FONTS.get(ch))
-        .or_else(|| GREEK_FONTS.get(ch))
-}
-
 /// Blit an 8x8 glyph into one 8x16 cell, doubled vertically (1px → 2px tall) so
 /// it fills the cell. `put` paints one foreground pixel (bg is pre-filled).
 fn blit_glyph_cell(rows: [u8; 8], x0: u32, y0: u32, mut put: impl FnMut(u32, u32)) {
@@ -1947,38 +1920,6 @@ fn color_to_rgb(c: Color, default: ImgRgb<u8>) -> ImgRgb<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn glyph8x8_covers_ascii_and_custom_dots_but_not_arbitrary_symbols() {
-        // ASCII resolves via font8x8's BASIC set; · (U+00B7) via LATIN — both
-        // are the legibility win, so pin them.
-        assert!(glyph8x8("A").is_some());
-        assert!(glyph8x8("z").is_some());
-        assert!(
-            glyph8x8("\u{00b7}").is_some(),
-            "middle-dot separator must be legible"
-        );
-        // The status dots resolve via our custom_glyph table (added so they're
-        // shape-distinct, not merely color-distinct).
-        assert!(glyph8x8("\u{25cf}").is_some(), "\u{25cf} filled disc");
-        assert!(glyph8x8("\u{25cb}").is_some(), "\u{25cb} ring");
-        assert!(glyph8x8("\u{25d0}").is_some(), "\u{25d0} left-half disc");
-        // ...and the three are DISTINCT bitmaps — the whole point of custom_glyph.
-        let (filled, ring, half) = (
-            glyph8x8("\u{25cf}").unwrap(),
-            glyph8x8("\u{25cb}").unwrap(),
-            glyph8x8("\u{25d0}").unwrap(),
-        );
-        assert_ne!(filled, ring);
-        assert_ne!(filled, half);
-        assert_ne!(ring, half);
-        // A glyph nothing covers falls through to None → the caller's block fallback.
-        assert!(
-            glyph8x8("\u{2713}").is_none(),
-            "\u{2713} check has no glyph"
-        );
-        assert!(glyph8x8("").is_none(), "empty symbol → None");
-    }
 
     #[test]
     fn blit_glyph_cell_lsb_is_leftmost_and_doubles_vertically() {
@@ -2103,7 +2044,7 @@ mod tests {
     fn crop_rect_centers_on_the_pantry_waypoint() {
         let now = SystemTime::now();
         let scene = sample_scene(now, 12, 12);
-        let history = pixtuoid::tui::pose::PoseHistory::new();
+        let history = pixtuoid::scene::pose::PoseHistory::new();
         let args = crop_args(&["--crop-furniture", "pantry"]);
         let rect = compute_crop_rect(&args, &scene, &history, 192, 64, now)
             .unwrap()
@@ -2124,7 +2065,7 @@ mod tests {
     fn crop_rect_without_flags_is_none() {
         let now = SystemTime::now();
         let scene = sample_scene(now, 12, 12);
-        let history = pixtuoid::tui::pose::PoseHistory::new();
+        let history = pixtuoid::scene::pose::PoseHistory::new();
         let args = crop_args(&[]);
         assert!(compute_crop_rect(&args, &scene, &history, 192, 64, now)
             .unwrap()
@@ -2135,7 +2076,7 @@ mod tests {
     fn crop_rect_fails_loudly_on_typos_and_unknown_agents() {
         let now = SystemTime::now();
         let scene = sample_scene(now, 12, 12);
-        let history = pixtuoid::tui::pose::PoseHistory::new();
+        let history = pixtuoid::scene::pose::PoseHistory::new();
 
         let typo = crop_args(&["--crop-furniture", "fridge"]);
         let err = compute_crop_rect(&typo, &scene, &history, 192, 64, now).unwrap_err();

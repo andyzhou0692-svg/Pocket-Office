@@ -15,7 +15,7 @@ pub(super) use hud::{
     paint_elevator_indicator, paint_footer, paint_theme_picker, paint_version_popup,
     paint_wall_display, version_popup_url_rect, VERSION_POPUP_URL,
 };
-pub(in crate::tui) use panel::{borderless_panel, PANEL_PAD_X, PANEL_PAD_Y};
+pub(crate) use panel::{borderless_panel, PANEL_PAD_X, PANEL_PAD_Y};
 // `pub`: the snapshot example reuses the real formatter for its
 // --source-warning screenshots so the wording cannot drift from production
 // (the pixtuoid lib target is not a semver surface).
@@ -217,36 +217,6 @@ mod tests {
     use pixtuoid_core::{AgentId, AgentSlot, GlobalDeskIndex};
     use std::path::PathBuf;
     use std::sync::Arc;
-    use tooltip::truncate_label;
-
-    #[test]
-    fn truncate_label_passes_short_labels_through() {
-        assert_eq!(truncate_label("hello", 16), "hello");
-    }
-
-    #[test]
-    fn truncate_label_preserves_disambig_suffix() {
-        let out = truncate_label("TikTok-Android\u{00b7}a09a", 16);
-        assert_eq!(out.chars().count(), 16);
-        assert!(out.ends_with("\u{00b7}a09a"), "suffix lost: {out}");
-        assert!(out.starts_with("TikTok"), "base over-truncated: {out}");
-    }
-
-    #[test]
-    fn truncate_label_falls_back_to_plain_truncate_when_no_separator() {
-        let out = truncate_label("a-very-long-project-name", 8);
-        assert_eq!(out, "a-very-l");
-    }
-
-    #[test]
-    fn truncate_label_plain_take_when_suffix_exceeds_budget() {
-        // The disambig suffix ("·abcdefgh") is longer than budget=4, so the
-        // suffix-preserving branch can't fit and it falls through to a plain
-        // budget-char take from the front.
-        let out = truncate_label("x\u{00b7}abcdefgh", 4);
-        assert_eq!(out.chars().count(), 4);
-        assert_eq!(out, "x\u{00b7}ab");
-    }
 
     // --- marquee_window ----------------------------------------------------
 
@@ -637,7 +607,7 @@ mod tests {
     // so concatenating the spans must equal build_status_summary exactly.
     #[test]
     fn status_spans_text_matches_summary_across_tiers() {
-        let theme = &crate::tui::theme::NORMAL;
+        let theme = &crate::scene::theme::NORMAL;
         let s = scene_of(vec![
             active_with("Edit src/a.rs", "a"),
             waiting("b"),
@@ -662,7 +632,7 @@ mod tests {
 
     #[test]
     fn status_spans_color_code_state_segments() {
-        let theme = &crate::tui::theme::NORMAL;
+        let theme = &crate::scene::theme::NORMAL;
         let s = scene_of(vec![
             active_with("Edit src/a.rs", "a"),
             waiting("b"),

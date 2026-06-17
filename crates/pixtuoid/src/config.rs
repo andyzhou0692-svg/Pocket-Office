@@ -49,6 +49,12 @@ pub struct AppConfig {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub sources: BTreeMap<String, bool>,
+    /// `pixtuoid floating` desktop-window geometry — a single `[floating]` table
+    /// (size/position/opacity). Absent ⇒ defaults from [`resolve_floating`]. Keep
+    /// BEFORE `pets`: it's a `[table]`, and the `[[pets]]` array-of-tables must
+    /// stay last (a table written after an AoT would re-parent under it).
+    #[serde(rename = "floating", default, skip_serializing_if = "Option::is_none")]
+    pub floating: Option<FloatingConfigRaw>,
     /// The office's pets — one `[[pets]]` stanza each (`kind` + optional
     /// `name`). Absent = all kinds with default names; `pets = []` = no pets;
     /// an unknown `kind` is warn-skipped (non-fatal). Resolved into the runtime
@@ -60,6 +66,52 @@ pub struct AppConfig {
     /// an AoT — but don't rely on its key/table interleaving; just keep it last.
     #[serde(rename = "pets", default, skip_serializing_if = "Option::is_none")]
     pub pets: Option<Vec<PetEntry>>,
+}
+
+/// Default `pixtuoid floating` window size (logical px) + the minimum below which the
+/// half-block office art is unreadable — `resolve_floating` clamps up to it.
+pub const FLOATING_DEFAULT_W: u32 = 360;
+pub const FLOATING_DEFAULT_H: u32 = 240;
+pub const FLOATING_MIN_W: u32 = 240;
+pub const FLOATING_MIN_H: u32 = 160;
+
+/// Raw `[floating]` table as parsed — every field optional so a partial table (or an
+/// absent one) is valid; [`resolve_floating`] fills defaults + clamps.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FloatingConfigRaw {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f32>,
+}
+
+/// Resolved floating-window geometry: defaults applied, size clamped up to the legible
+/// minimum, opacity clamped to `[0.2, 1.0]` (fully transparent / over-opaque are both
+/// useless). Position stays `Option` — `None` lets the OS place the window.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FloatingConfig {
+    pub width: u32,
+    pub height: u32,
+    pub x: Option<i32>,
+    pub y: Option<i32>,
+    pub opacity: f32,
+}
+
+pub fn resolve_floating(config: &AppConfig) -> FloatingConfig {
+    let raw = config.floating.clone().unwrap_or_default();
+    FloatingConfig {
+        width: raw.width.unwrap_or(FLOATING_DEFAULT_W).max(FLOATING_MIN_W),
+        height: raw.height.unwrap_or(FLOATING_DEFAULT_H).max(FLOATING_MIN_H),
+        x: raw.x,
+        y: raw.y,
+        opacity: raw.opacity.unwrap_or(1.0).clamp(0.2, 1.0),
+    }
 }
 
 pub fn resolve_pack_dir(config: &AppConfig, cli_pack_dir: Option<PathBuf>) -> Option<PathBuf> {
@@ -214,6 +266,40 @@ pub fn save_source_connected(path: &Path, source_id: &'static str, connected: bo
     })
 }
 
+/// Persist the `pixtuoid floating` window geometry into the `[floating]` table (size always;
+/// position when the OS reported it). Same `toml_edit` ConfigLock round as
+/// `save_source_connected`, so the user's other settings + hand-formatting survive.
+pub fn save_floating(
+    path: &Path,
+    width: u32,
+    height: u32,
+    x: Option<i32>,
+    y: Option<i32>,
+) -> Result<()> {
+    update_config(path, |doc| {
+        doc["floating"]["width"] = toml_edit::value(width as i64);
+        doc["floating"]["height"] = toml_edit::value(height as i64);
+        // Set-or-CLEAR x/y: a `None` means the OS couldn't report the window position
+        // (`outer_position()` returned `Err` — ALWAYS on Wayland, or a transient at close).
+        // Persisting the OLD coords would (1) leave width/height/x/y internally inconsistent
+        // (new size, stale position) and (2) restore a stale/offscreen spot next launch — so
+        // drop the keys instead and let the OS place the window.
+        for (key, val) in [("x", x), ("y", y)] {
+            match val {
+                Some(v) => doc["floating"][key] = toml_edit::value(v as i64),
+                // `as_table_like_mut` (not `as_table_mut`): save_floating serializes
+                // `floating` as an INLINE table (`floating = { … }`), so the standard-table
+                // accessor returns None and the key would never drop.
+                None => {
+                    if let Some(t) = doc["floating"].as_table_like_mut() {
+                        t.remove(key);
+                    }
+                }
+            }
+        }
+    })
+}
+
 /// Resolve the runtime connected-set the office gates its sprites on. An
 /// explicit `[sources]` flag wins; an absent id MIGRATES: a source with an
 /// install target is connected iff its hooks are already installed, and a
@@ -266,8 +352,8 @@ pub fn resolve_theme(
     config: &AppConfig,
     cli_theme: Option<&str>,
     warnings: &mut Vec<String>,
-) -> Result<&'static crate::tui::theme::Theme> {
-    use crate::tui::theme::{theme_by_name, ALL_THEMES, NORMAL};
+) -> Result<&'static crate::scene::theme::Theme> {
+    use crate::scene::theme::{theme_by_name, ALL_THEMES, NORMAL};
 
     // Validate the config theme even when the CLI overrides it — the warn is
     // the only signal that a persisted theme in config.toml has gone stale.
@@ -296,8 +382,8 @@ pub fn resolve_theme(
 /// `name` is trimmed; empty/absent → [`PetKind::default_name`]. Resolving HERE
 /// (once, at startup) means the render path reads `pet.name` directly — no
 /// per-frame lookup, no parallel kind→name map to keep in sync.
-pub fn resolve_pets(config: &AppConfig, warnings: &mut Vec<String>) -> Vec<crate::tui::pet::Pet> {
-    use crate::tui::pet::{Pet, PetKind};
+pub fn resolve_pets(config: &AppConfig, warnings: &mut Vec<String>) -> Vec<crate::scene::pet::Pet> {
+    use crate::scene::pet::{Pet, PetKind};
 
     match &config.pets {
         None => PetKind::ALL.iter().map(|&k| Pet::defaulted(k)).collect(),
@@ -596,7 +682,7 @@ mod tests {
         let err = resolve_theme(&cfg, Some("definitely-not-a-theme"), &mut Vec::new()).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("unknown theme"), "got: {msg}");
-        for t in crate::tui::theme::ALL_THEMES {
+        for t in crate::scene::theme::ALL_THEMES {
             assert!(
                 msg.contains(t.name),
                 "should list every valid theme, missing {:?} in: {msg}",
@@ -781,7 +867,7 @@ mod tests {
     fn pets_absent_returns_all_with_default_names() {
         let cfg = AppConfig::default();
         let pets = resolve_pets(&cfg, &mut Vec::new());
-        assert_eq!(pets.len(), crate::tui::pet::PetKind::ALL.len());
+        assert_eq!(pets.len(), crate::scene::pet::PetKind::ALL.len());
         for pet in &pets {
             assert_eq!(pet.name, pet.kind.default_name());
         }
@@ -813,7 +899,7 @@ mod tests {
         };
         let pets = resolve_pets(&cfg, &mut Vec::new());
         assert_eq!(pets.len(), 1);
-        assert_eq!(pets[0].kind, crate::tui::pet::PetKind::Cat);
+        assert_eq!(pets[0].kind, crate::scene::pet::PetKind::Cat);
         assert_eq!(pets[0].name, "Office Cat");
     }
 
@@ -852,8 +938,8 @@ mod tests {
         };
         let pets = resolve_pets(&cfg, &mut Vec::new());
         let name = |k| pets.iter().find(|p| p.kind == k).map(|p| p.name.as_str());
-        assert_eq!(name(crate::tui::pet::PetKind::Cat), Some("Whiskers"));
-        assert_eq!(name(crate::tui::pet::PetKind::Dog), Some("Rex"));
+        assert_eq!(name(crate::scene::pet::PetKind::Cat), Some("Whiskers"));
+        assert_eq!(name(crate::scene::pet::PetKind::Dog), Some("Rex"));
     }
 
     #[test]
@@ -885,8 +971,8 @@ mod tests {
         };
         let pets = resolve_pets(&cfg, &mut Vec::new());
         let name = |k| pets.iter().find(|p| p.kind == k).map(|p| p.name.as_str());
-        assert_eq!(name(crate::tui::pet::PetKind::Cat), Some("Mittens"));
-        assert_eq!(name(crate::tui::pet::PetKind::Dog), Some("Office Dog"));
+        assert_eq!(name(crate::scene::pet::PetKind::Cat), Some("Mittens"));
+        assert_eq!(name(crate::scene::pet::PetKind::Dog), Some("Office Dog"));
     }
 
     #[test]
@@ -917,8 +1003,8 @@ mod tests {
         let pets = resolve_pets(&cfg, &mut Vec::new());
         assert_eq!(pets.len(), 2);
         let name = |k| pets.iter().find(|p| p.kind == k).map(|p| p.name.as_str());
-        assert_eq!(name(crate::tui::pet::PetKind::Cat), Some("Luna"));
-        assert_eq!(name(crate::tui::pet::PetKind::Dog), Some("Office Dog"));
+        assert_eq!(name(crate::scene::pet::PetKind::Cat), Some("Luna"));
+        assert_eq!(name(crate::scene::pet::PetKind::Dog), Some("Office Dog"));
     }
 
     #[test]
@@ -996,7 +1082,7 @@ mod tests {
             1,
             "the kindless stanza is skipped, the cat kept"
         );
-        assert_eq!(pets[0].kind, crate::tui::pet::PetKind::Cat);
+        assert_eq!(pets[0].kind, crate::scene::pet::PetKind::Cat);
     }
 
     // --- data safety: malformed-config refusal + one-time backup (#3) ---------
@@ -1159,6 +1245,81 @@ mod tests {
             ..Default::default()
         };
         assert!(!toml::to_string(&c).unwrap().contains("[sources]"));
+    }
+
+    #[test]
+    fn floating_config_defaults_and_explicit_roundtrip() {
+        // Absent [floating] → defaults, OS-placed (x/y None), opaque.
+        let cfg: AppConfig = toml::from_str("theme = \"normal\"\n").unwrap();
+        let f = resolve_floating(&cfg);
+        assert_eq!(
+            (f.width, f.height),
+            (FLOATING_DEFAULT_W, FLOATING_DEFAULT_H)
+        );
+        assert_eq!((f.x, f.y), (None, None));
+        assert!((f.opacity - 1.0).abs() < f32::EPSILON);
+        // Explicit values parse through.
+        let cfg: AppConfig = toml::from_str(
+            "[floating]\nwidth = 480\nheight = 300\nx = 10\ny = 20\nopacity = 0.8\n",
+        )
+        .unwrap();
+        let f = resolve_floating(&cfg);
+        assert_eq!(
+            (f.width, f.height, f.x, f.y),
+            (480, 300, Some(10), Some(20))
+        );
+        assert!((f.opacity - 0.8).abs() < 1e-6);
+        // An absent [floating] is omitted on serialize (skip_serializing_if + None).
+        assert!(!toml::to_string(&AppConfig::default())
+            .unwrap()
+            .contains("[floating]"));
+    }
+
+    #[test]
+    fn save_floating_roundtrips_geometry_and_preserves_other_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "theme = \"normal\"\n").unwrap();
+        save_floating(&path, 480, 320, Some(12), Some(34)).unwrap();
+        let cfg = load(&path, &mut Vec::new());
+        let f = resolve_floating(&cfg);
+        assert_eq!(
+            (f.width, f.height, f.x, f.y),
+            (480, 320, Some(12), Some(34))
+        );
+        // toml_edit preserves the user's other settings (not an all-or-nothing rewrite).
+        assert_eq!(cfg.theme.as_deref(), Some("normal"));
+    }
+
+    #[test]
+    fn save_floating_clears_stale_position_when_os_cannot_report_it() {
+        // A `None` x/y (outer_position() Err — always on Wayland) must DROP the prior coords,
+        // not leave them: a new size + stale position would restore an offscreen window.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        std::fs::write(&path, "theme = \"normal\"\n").unwrap();
+        save_floating(&path, 480, 320, Some(12), Some(34)).unwrap();
+        // A later save where the OS can't report position: size updates, x/y are cleared.
+        save_floating(&path, 500, 360, None, None).unwrap();
+        let cfg = load(&path, &mut Vec::new());
+        let f = resolve_floating(&cfg);
+        assert_eq!((f.width, f.height), (500, 360));
+        assert_eq!((f.x, f.y), (None, None), "stale position keys were dropped");
+        // Unrelated settings still survive the rewrite.
+        assert_eq!(cfg.theme.as_deref(), Some("normal"));
+    }
+
+    #[test]
+    fn floating_size_clamps_to_legible_min_and_opacity_is_bounded() {
+        // Below-min size clamps UP so the office stays legible; over-opacity clamps to 1.0.
+        let cfg: AppConfig =
+            toml::from_str("[floating]\nwidth = 1\nheight = 1\nopacity = 9.0\n").unwrap();
+        let f = resolve_floating(&cfg);
+        assert_eq!((f.width, f.height), (FLOATING_MIN_W, FLOATING_MIN_H));
+        assert!((f.opacity - 1.0).abs() < f32::EPSILON);
+        // Opacity floors at 0.2 (a fully-transparent window is useless).
+        let cfg: AppConfig = toml::from_str("[floating]\nopacity = 0.0\n").unwrap();
+        assert!((resolve_floating(&cfg).opacity - 0.2).abs() < 1e-6);
     }
 
     #[test]
