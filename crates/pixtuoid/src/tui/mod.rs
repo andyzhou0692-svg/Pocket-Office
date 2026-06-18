@@ -3,6 +3,7 @@ pub mod dashboard;
 pub mod hit_test;
 pub mod renderer;
 pub mod tui_renderer;
+pub mod welcome;
 pub mod widgets;
 
 use std::io::{stdout, Stdout};
@@ -33,6 +34,8 @@ use pixtuoid_scene::{embedded_pack, floor, pet, theme};
 /// event loop. The modal priority is help > version-popup > theme-picker > normal.
 #[derive(Clone, Copy)]
 struct KeyCtx {
+    /// First-run onboarding overlay open — the TOP of the modal precedence chain.
+    onboarding_open: bool,
     help_open: bool,
     version_popup: bool,
     theme_picker: Option<usize>,
@@ -103,6 +106,15 @@ enum KeyAction {
     ConnectionCancelConfirm,
     /// `s`/`Esc` while unarmed: close the panel.
     ConnectionClose,
+    /// First-run onboarding roster navigation (`↑↓`/`jk`).
+    OnboardingUp,
+    OnboardingDown,
+    /// `space`: toggle the selected CLI's checkbox.
+    OnboardingToggle,
+    /// `Enter`: apply the checked sources (connect) + close onboarding.
+    OnboardingConfirm,
+    /// `Esc`: skip onboarding (mark done without connecting) + close.
+    OnboardingSkip,
 }
 
 /// Left-click pin toggle: if an agent is pinned, clear it; otherwise hit-test
@@ -207,6 +219,19 @@ fn should_dispatch_key(kind: KeyEventKind) -> bool {
 /// modal + floor state. Modal precedence (highest first): help overlay,
 /// version popup, theme picker, then the normal scene.
 fn dispatch_key(code: KeyCode, mods: KeyModifiers, ctx: KeyCtx) -> KeyAction {
+    // Onboarding is modal and the TOP of the precedence chain — it swallows every
+    // other key (no other overlay can open while it's up) except the quit chord.
+    if ctx.onboarding_open {
+        return match (code, mods) {
+            _ if is_quit_chord(code, mods) => KeyAction::Quit,
+            (KeyCode::Up, _) | (KeyCode::Char('k'), _) => KeyAction::OnboardingUp,
+            (KeyCode::Down, _) | (KeyCode::Char('j'), _) => KeyAction::OnboardingDown,
+            (KeyCode::Char(' '), _) => KeyAction::OnboardingToggle,
+            (KeyCode::Enter, _) => KeyAction::OnboardingConfirm,
+            (KeyCode::Esc, _) => KeyAction::OnboardingSkip,
+            _ => KeyAction::None,
+        };
+    }
     if ctx.help_open {
         return match (code, mods) {
             (KeyCode::Enter, _) | (KeyCode::Esc, _) | (KeyCode::Char('?'), _) => {
@@ -384,33 +409,82 @@ fn rescan_drift(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn run_tui(
-    mut scene_rx: SceneRx,
-    pack_dir: Option<std::path::PathBuf>,
-    floor_caps: Arc<[std::sync::atomic::AtomicUsize; pixtuoid_core::state::MAX_FLOORS]>,
-    theme: &'static theme::Theme,
-    config_path: std::path::PathBuf,
-    desk_cap: Option<usize>,
-    pets: Vec<pet::Pet>,
-    mut source_health: tokio::sync::watch::Receiver<
-        Vec<pixtuoid_core::source::manager::SourceDeath>,
-    >,
-    // The resolved hook socket (Unix) / named pipe (Windows) the daemon bound,
-    // shown in the Sources panel's connection line.
-    socket_path: std::path::PathBuf,
-    // The live connected-source set — the Sources panel's mutation seam: a
-    // toggle calls `connected.set(src, on)`, which the reducer task's reconciler
-    // observes (gate + graceful evict). Shared `Arc<Mutex<…>>` with the reducer.
-    connected: crate::runtime::ConnectedSources,
-    // The warn-floor log path — throttle-scanned for decode-drift breadcrumbs to
-    // drive the footer nudge (`main` owns the resolution; `None` = no surfacing).
-    log_path: Option<std::path::PathBuf>,
-) -> Result<()> {
+/// The bundled inputs to [`run_tui`] — the runtime (`driver.rs`) builds it once
+/// and hands it over. Grouping these into a named struct kills the positional-arg
+/// transposition hazard (it had grown to 11 args of mostly `Option`/`PathBuf`/
+/// `bool`, several interchangeable by type) and gives new features a named home
+/// instead of another positional argument.
+pub(crate) struct TuiSession {
+    pub scene_rx: SceneRx,
+    pub pack_dir: Option<std::path::PathBuf>,
+    pub floor_caps: Arc<[std::sync::atomic::AtomicUsize; pixtuoid_core::state::MAX_FLOORS]>,
+    pub theme: &'static theme::Theme,
+    pub config_path: std::path::PathBuf,
+    pub desk_cap: Option<usize>,
+    pub pets: Vec<pet::Pet>,
+    pub source_health:
+        tokio::sync::watch::Receiver<Vec<pixtuoid_core::source::manager::SourceDeath>>,
+    /// The resolved hook socket (Unix) / named pipe (Windows) the daemon bound,
+    /// shown in the Sources panel's connection line.
+    pub socket_path: std::path::PathBuf,
+    /// The live connected-source set — the Sources panel's mutation seam: a
+    /// toggle calls `connected.set(src, on)`, which the reducer task's reconciler
+    /// observes (gate + graceful evict). Shared `Arc<Mutex<…>>` with the reducer.
+    pub connected: crate::runtime::ConnectedSources,
+    /// The warn-floor log path — throttle-scanned for decode-drift breadcrumbs to
+    /// drive the footer nudge (`main` owns the resolution; `None` = no surfacing).
+    pub log_path: Option<std::path::PathBuf>,
+    /// First launch ever → seed the one-time onboarding overlay open.
+    pub first_run: bool,
+}
+
+pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
+    let TuiSession {
+        mut scene_rx,
+        pack_dir,
+        floor_caps,
+        theme,
+        config_path,
+        desk_cap,
+        pets,
+        mut source_health,
+        socket_path,
+        connected,
+        log_path,
+        first_run,
+    } = session;
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let term = setup_terminal()?;
     let mut renderer = TuiRenderer::new(term, theme, pets);
-    let mut version_popup = resolve_version_popup(&config_path);
+    // First-run onboarding "move-in" overlay (TOP of the modal precedence chain).
+    // The roster is built only on first run; if no agent CLIs are detected there's
+    // nothing to connect, so it stays closed and the office shows normally. The
+    // overlay is "open" exactly while `onboarding_opened_at` is `Some` (also the
+    // clock its painter's typewriter reads); confirm/skip clears it to `None`.
+    let detected_clis = if first_run {
+        crate::sources::detect()
+    } else {
+        Vec::new()
+    };
+    let mut onboarding_ui = welcome::WelcomeUi::from_detected(&detected_clis);
+    let mut onboarding_opened_at: Option<Instant> = (!onboarding_ui.is_empty()).then(Instant::now);
+    // Set on confirm/skip: the close fade-out — the office dims back UP over
+    // `welcome::DIM_FADE_OUT_MS` after the card is gone, then clears to fully live.
+    let mut onboarding_closing_at: Option<Instant> = None;
+
+    // The "what's new in vX" version popup yields to onboarding ONLY when the
+    // overlay actually takes the screen (a fresh install WITH detected CLIs): both
+    // are centered cards, and it's noise to a first-time user. Suppress + still
+    // STAMP `last_seen_version` (so it won't pop later — onboarding is the one
+    // welcome). Gating on the overlay SHOWING (not bare `first_run`) is load-bearing:
+    // a no-CLI first-run user gets the version popup normally, incl. on a later
+    // upgrade (otherwise `first_run` stays true forever and would mute it for good).
+    let mut version_popup = if onboarding_opened_at.is_some() {
+        let _ = resolve_version_popup(&config_path);
+        false
+    } else {
+        resolve_version_popup(&config_path)
+    };
     let mut last_layout_sig: Option<(u16, u16)> = None;
     let mut paused = false;
     let mut frozen_now: Option<SystemTime> = None;
@@ -557,6 +631,34 @@ pub async fn run_tui(
                     String::new(),
                 );
             }
+            // Onboarding frame: while OPEN, paint the card + dim ramps in (the
+            // painter's `elapsed_ms` drives the typewriter). While CLOSING, the card
+            // is gone but the office keeps fading back UP for a beat; once the fade
+            // completes, drop the closing state to fully live.
+            let onboarding_frame = if let Some(opened) = onboarding_opened_at {
+                let e = opened.elapsed().as_millis() as u64;
+                welcome::OnboardingFrame {
+                    open: true,
+                    rows: onboarding_ui.rows.clone(),
+                    selected: onboarding_ui.selected,
+                    elapsed_ms: e,
+                    dim: welcome::dim_opening(e),
+                }
+            } else if let Some(closing) = onboarding_closing_at {
+                match welcome::dim_closing(closing.elapsed().as_millis() as u64) {
+                    Some(dim) => welcome::OnboardingFrame {
+                        dim,
+                        ..Default::default()
+                    },
+                    None => {
+                        onboarding_closing_at = None;
+                        welcome::OnboardingFrame::default()
+                    }
+                }
+            } else {
+                welcome::OnboardingFrame::default()
+            };
+            renderer.set_onboarding_frame(onboarding_frame);
             renderer.render(&snapshot, &pack, now)?;
 
             // Auto-compute per-floor desk capacity from the current
@@ -594,6 +696,7 @@ pub async fn run_tui(
                     // there (e.g. `p` pauses then instantly unpauses).
                     Event::Key(k) if should_dispatch_key(k.kind) => {
                         let ctx = KeyCtx {
+                            onboarding_open: onboarding_opened_at.is_some(),
                             help_open: renderer.help_open(),
                             version_popup,
                             theme_picker,
@@ -846,7 +949,73 @@ pub async fn run_tui(
                                 connection_ui.open = false;
                                 connection_ui.confirm = None;
                             }
+                            KeyAction::OnboardingUp => onboarding_ui.move_up(),
+                            KeyAction::OnboardingDown => onboarding_ui.move_down(),
+                            KeyAction::OnboardingToggle => onboarding_ui.toggle_selected(),
+                            KeyAction::OnboardingConfirm => {
+                                // Apply the roster: connect the checked, disconnect
+                                // the unchecked — SCOPED to the detected sources, so
+                                // a migrate-default (antigravity) is never touched.
+                                // Blocking ConfigLock I/O → block_in_place (run_tui
+                                // is on the multi-thread runtime, like the panel).
+                                let choices = onboarding_ui.decisions();
+                                let outcomes = tokio::task::block_in_place(|| {
+                                    crate::sources::apply_choices(&config_path, &choices)
+                                });
+                                // Reflect each into the LIVE connected-set off its
+                                // ACTUAL outcome (a failed connect must NOT go live),
+                                // and surface any failure to the warn-floor log (doctor
+                                // + the footer drift nudge read it) — a hook install
+                                // that errors here would otherwise be silently lost.
+                                use crate::sources::ChangeOutcome;
+                                for (id, oc) in &outcomes {
+                                    match oc {
+                                        ChangeOutcome::Connected => connected.set(id, true),
+                                        ChangeOutcome::Disconnected | ChangeOutcome::NoOp => {
+                                            connected.set(id, false)
+                                        }
+                                        ChangeOutcome::Failed(e) => {
+                                            connected.set(id, false);
+                                            tracing::warn!(
+                                                "onboarding: {id} failed to connect: {e}"
+                                            );
+                                        }
+                                    }
+                                }
+                                onboarding_opened_at = None;
+                                onboarding_closing_at = Some(Instant::now());
+                            }
+                            KeyAction::OnboardingSkip => {
+                                // Skip = mark onboarding done WITHOUT changing any
+                                // connection: persist each detected source's CURRENT
+                                // state (freeze), so `[sources]` becomes non-empty
+                                // (onboarding won't re-trigger) yet no hooks are
+                                // added/removed (a pre-existing install survives).
+                                let snap = connected.snapshot();
+                                let freeze: Vec<(&'static str, bool)> = onboarding_ui
+                                    .rows
+                                    .iter()
+                                    .map(|r| (r.source_id, snap.contains(r.source_id)))
+                                    .collect();
+                                let outcomes = tokio::task::block_in_place(|| {
+                                    crate::sources::apply_choices(&config_path, &freeze)
+                                });
+                                for (id, oc) in &outcomes {
+                                    if let crate::sources::ChangeOutcome::Failed(e) = oc {
+                                        tracing::warn!(
+                                            "onboarding(skip): {id} persist failed: {e}"
+                                        );
+                                    }
+                                }
+                                onboarding_opened_at = None;
+                                onboarding_closing_at = Some(Instant::now());
+                            }
                         }
+                    }
+                    Event::Mouse(_) if onboarding_opened_at.is_some() => {
+                        // Onboarding is modal for the mouse too — swallow every
+                        // event so nothing leaks to the scene behind the overlay
+                        // (it's keyboard-driven; there are no clickable targets).
                     }
                     Event::Mouse(m) if renderer.help_open() => {
                         // The help overlay is modal for the mouse: a left
@@ -991,6 +1160,7 @@ mod dispatch_tests {
     // Default: normal scene, mid-stack floor (1 of 3), no transition.
     fn ctx() -> KeyCtx {
         KeyCtx {
+            onboarding_open: false,
             help_open: false,
             version_popup: false,
             theme_picker: None,
@@ -1091,6 +1261,50 @@ mod dispatch_tests {
         assert_eq!(dispatch_key(KeyCode::Char('c'), CTRL, c), KeyAction::Quit);
         // Up does not leak to the floor-nav / picker handlers while help is open.
         assert_eq!(dispatch_key(KeyCode::Up, NONE, c), KeyAction::None);
+    }
+
+    #[test]
+    fn onboarding_is_top_precedence_and_maps_its_keys() {
+        // Onboarding sits ABOVE every other overlay (help/version/connection all
+        // flagged) — the version-popup-lockstep precedence class.
+        let on = KeyCtx {
+            onboarding_open: true,
+            help_open: true,
+            version_popup: true,
+            connection_open: true,
+            ..ctx()
+        };
+        assert_eq!(dispatch_key(KeyCode::Up, NONE, on), KeyAction::OnboardingUp);
+        assert_eq!(
+            dispatch_key(KeyCode::Char('k'), NONE, on),
+            KeyAction::OnboardingUp
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Down, NONE, on),
+            KeyAction::OnboardingDown
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char('j'), NONE, on),
+            KeyAction::OnboardingDown
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Char(' '), NONE, on),
+            KeyAction::OnboardingToggle
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Enter, NONE, on),
+            KeyAction::OnboardingConfirm
+        );
+        assert_eq!(
+            dispatch_key(KeyCode::Esc, NONE, on),
+            KeyAction::OnboardingSkip
+        );
+        // The quit chord still escapes; every other key is SWALLOWED (it must not
+        // leak to the help / connection handlers flagged open underneath).
+        assert_eq!(dispatch_key(KeyCode::Char('c'), CTRL, on), KeyAction::Quit);
+        assert_eq!(dispatch_key(KeyCode::Char('s'), NONE, on), KeyAction::None);
+        assert_eq!(dispatch_key(KeyCode::Char('?'), NONE, on), KeyAction::None);
+        assert_eq!(dispatch_key(KeyCode::Char('t'), NONE, on), KeyAction::None);
     }
 
     #[test]

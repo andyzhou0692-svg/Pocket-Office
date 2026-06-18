@@ -1493,6 +1493,85 @@ fn help_overlay_renders_shortcuts() {
     );
 }
 
+#[test]
+fn onboarding_overlay_renders_roster_and_hint() {
+    use crate::tui::welcome::{OnboardingFrame, WelcomeRow};
+    let scene = scene_with(vec![idle("/onboard/0.jsonl", 0, t0())], 16);
+    let mut r = build(100, 40, vec![]);
+    // A two-CLI roster; a large elapsed so the typewriter + every staggered row
+    // + the key hint are all fully revealed.
+    r.set_onboarding_frame(OnboardingFrame {
+        open: true,
+        rows: vec![
+            WelcomeRow {
+                source_id: "codex",
+                label_prefix: "cx",
+                display_name: "Codex".into(),
+                checked: true,
+            },
+            WelcomeRow {
+                source_id: "claude-code",
+                label_prefix: "cc",
+                display_name: "Claude Code".into(),
+                checked: false,
+            },
+        ],
+        selected: 0,
+        elapsed_ms: 100_000,
+        dim: 0.4,
+    });
+    r.render(&scene, &pack(), t0()).unwrap();
+    let text = frame_text(r.frame_buffer());
+    assert!(
+        text.contains("Welcome to pixtuoid"),
+        "onboarding title; frame:\n{text}"
+    );
+    assert!(text.contains("Codex"), "checked roster row; frame:\n{text}");
+    assert!(
+        text.contains("Claude Code"),
+        "unchecked roster row; frame:\n{text}"
+    );
+    assert!(
+        text.contains("space toggle") && text.contains("esc skip"),
+        "key hint shown once rows are in; frame:\n{text}"
+    );
+}
+
+#[test]
+fn onboarding_dims_the_office_buffer() {
+    use crate::tui::welcome::{OnboardingFrame, WelcomeRow};
+    let scene = scene_with(vec![idle("/dim/0.jsonl", 0, t0())], 16);
+
+    // Baseline: onboarding closed → full-brightness office.
+    let mut base = build(100, 40, vec![]);
+    base.render(&scene, &pack(), t0()).unwrap();
+    let bright = avg_lum(base.buf(), 0, 0, base.buf().width, base.buf().height);
+
+    // Same scene, onboarding open + fully ramped (large elapsed) → the office
+    // pixel buffer is dimmed as the modal backdrop (the card paints on the cell
+    // layer, not the buffer, so this measures the office only).
+    let mut dimmed = build(100, 40, vec![]);
+    dimmed.set_onboarding_frame(OnboardingFrame {
+        open: true,
+        rows: vec![WelcomeRow {
+            source_id: "codex",
+            label_prefix: "cx",
+            display_name: "Codex".into(),
+            checked: true,
+        }],
+        selected: 0,
+        elapsed_ms: 100_000,
+        dim: 0.4,
+    });
+    dimmed.render(&scene, &pack(), t0()).unwrap();
+    let dim = avg_lum(dimmed.buf(), 0, 0, dimmed.buf().width, dimmed.buf().height);
+
+    assert!(
+        dim < bright * 0.6,
+        "onboarding should dim the office buffer: dim={dim} vs bright={bright}"
+    );
+}
+
 // ===================================================================
 // Footer / HUD (rendered text)
 // ===================================================================

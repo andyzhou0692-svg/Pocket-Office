@@ -41,7 +41,7 @@ pub(super) use crate::tui::widgets::{
     paint_chitchat_bubbles, paint_coffee_tooltip, paint_connection_panel, paint_dashboard,
     paint_elevator_indicator, paint_footer, paint_furniture_tooltip, paint_help_overlay,
     paint_label_widgets, paint_mascot_tooltip, paint_pet_tooltip, paint_theme_picker,
-    paint_version_popup, paint_wall_display,
+    paint_version_popup, paint_wall_display, paint_welcome,
 };
 
 pub use pixtuoid_scene::pet::PetState;
@@ -138,6 +138,10 @@ pub struct DrawCtx<'a> {
     pub connection_confirm: Option<usize>,
     pub connection_result: Option<&'a str>,
     pub connection_socket_line: &'a str,
+    /// First-run onboarding overlay frame (borrowed from `TuiRenderer`): the open
+    /// flag, roster snapshot, selection, and elapsed-ms clock. Modal and TOP of the
+    /// precedence chain — painted last (topmost).
+    pub onboarding: &'a crate::tui::welcome::OnboardingFrame,
 }
 
 /// Clip a widget rect to fit inside `bounds`. Returns `None` if the rect
@@ -191,6 +195,7 @@ pub(crate) fn scene_rect(full: Rect) -> Rect {
 //   * `flush_to_terminal` -- ratatui half-block compression + label overlay
 //     + bulletin notice + footer. Terminal-specific, runs inside
 //     `term.draw`.
+
 pub fn draw_scene<B: Backend<Error: Send + Sync + 'static>>(
     term: &mut Terminal<B>,
     scene: &SceneState,
@@ -279,6 +284,20 @@ pub fn draw_scene<B: Backend<Error: Send + Sync + 'static>>(
             my,
         )
     });
+
+    // Modal backdrop: DIM the office by the loop-computed `onboarding.dim` (ramps
+    // in on open, back out on the close fade) — the room "lowers the lights" so the
+    // welcome card pops. The card (`onboarding.open`) is decoupled from the dim, so
+    // the office keeps fading back up for a beat AFTER the card is gone. The card
+    // itself paints opaque on top.
+    if ctx.onboarding.dim < 0.999 {
+        let factor = ctx.onboarding.dim;
+        for px in ctx.buf.as_mut_slice() {
+            px.r = (px.r as f32 * factor) as u8;
+            px.g = (px.g as f32 * factor) as u8;
+            px.b = (px.b as f32 * factor) as u8;
+        }
+    }
 
     let buf = &ctx.buf;
     let ticker = ctx.ticker;
@@ -395,6 +414,7 @@ pub fn draw_scene<B: Backend<Error: Send + Sync + 'static>>(
             ctx.connection_socket_line,
             ctx.popup_scale,
             ctx.help_open,
+            ctx.onboarding,
             now,
             actual_full,
             theme,
@@ -426,6 +446,7 @@ pub(super) fn paint_overlays(
     connection_socket_line: &str,
     popup_scale: f32,
     help_open: bool,
+    onboarding: &crate::tui::welcome::OnboardingFrame,
     now: SystemTime,
     bounds: Rect,
     theme: &pixtuoid_scene::theme::Theme,
@@ -475,6 +496,12 @@ pub(super) fn paint_overlays(
         // overlay sits at the same vertical center as the theme picker / version
         // popup, which both use the full area.
         paint_help_overlay(f, bounds, theme);
+    }
+    // Onboarding is the TOP of the precedence chain — painted last so it covers
+    // every other overlay (it's modal-exclusive by dispatch, so in practice no
+    // other overlay is open underneath, but topmost is the safe order).
+    if onboarding.open {
+        paint_welcome(f, onboarding, bounds, theme);
     }
 }
 

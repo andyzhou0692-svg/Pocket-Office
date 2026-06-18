@@ -7,6 +7,7 @@ mod help;
 mod hud;
 mod panel;
 mod tooltip;
+mod welcome;
 
 pub(super) use connection::paint_connection_panel;
 pub(super) use dashboard::paint_dashboard;
@@ -16,6 +17,7 @@ pub(super) use hud::{
     paint_wall_display, version_popup_url_rect, VERSION_POPUP_URL,
 };
 pub(crate) use panel::{borderless_panel, PANEL_PAD_X, PANEL_PAD_Y};
+pub(super) use welcome::paint_welcome;
 // `pub`: the snapshot example reuses the real formatter for its
 // --source-warning screenshots so the wording cannot drift from production
 // (the pixtuoid lib target is not a semver surface).
