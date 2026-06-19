@@ -54,12 +54,25 @@ impl ChangeOutcome {
 /// Deliberately a flat DTO, NOT the internal `ConnectionRow` (whose shape is a
 /// UI concern free to change).
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+// `deny_unknown_fields` stamps `additionalProperties: false` into the emitted
+// schema so the generated TS type has NO `[k: string]: unknown` index signature —
+// then a renamed/typo'd field in the consumer is a `tsc` error, not silently
+// `unknown`. Matches the wire reality: the CLI never emits extra keys.
+#[cfg_attr(test, derive(schemars::JsonSchema), schemars(deny_unknown_fields))]
 pub struct SourceStatus {
     pub id: String,
     pub display_name: String,
     pub connected: bool,
     pub cli_present: bool,
     /// A health/issue summary (install-broken / decode-drift), or `null` when n/a.
+    // Generates `health?: string | null`, kept OPTIONAL on purpose. The wire always
+    // emits `health` (no `skip_serializing_if`; pinned by `source_status_json_shape`),
+    // so the `?` is a harmless SUPERSET, and the consumer only does `if (s.health)`
+    // — identical for optional vs required. The one schemars knob to force `required`
+    // (`schemars(required)`) STRIPS the `| null` → the WRONG `health: string` (the
+    // wire CAN be null), the very "mis-specified nullability" pitfall
+    // PARALLEL-DELIVERY.md names. So nullable is preserved (it matters); optional is
+    // kept (it doesn't).
     pub health: Option<String>,
 }
 
@@ -600,6 +613,34 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&s).unwrap(),
             r#"{"id":"codex","display_name":"Codex","connected":true,"cli_present":true,"health":null}"#
+        );
+    }
+
+    #[test]
+    fn source_status_schema_matches_the_committed_contract() {
+        // The Raycast extension GENERATES its SourceStatus type from this committed
+        // JSON Schema (`integrations/raycast/contract/source-status.schema.json`),
+        // so the two can't hand-drift. This test fails if the struct changes
+        // without the schema being regenerated — regenerate with
+        // `just gen-contract` (UPDATE_CONTRACT_SCHEMA=1), then the raycast
+        // `gen:contract` + tsc catches any consumer break.
+        let schema = schemars::schema_for!(SourceStatus);
+        let generated = serde_json::to_string_pretty(&schema).unwrap() + "\n";
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../integrations/raycast/contract/source-status.schema.json"
+        );
+        if std::env::var_os("UPDATE_CONTRACT_SCHEMA").is_some() {
+            let p = std::path::Path::new(path);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, &generated).unwrap();
+        }
+        let committed = std::fs::read_to_string(path).unwrap_or_default();
+        assert_eq!(
+            generated, committed,
+            "SourceStatus schema drifted from the committed contract \
+             (integrations/raycast/contract/source-status.schema.json). \
+             Run `just gen-contract`, then regen + commit the raycast .d.ts."
         );
     }
 
