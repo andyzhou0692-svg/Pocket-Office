@@ -58,6 +58,10 @@ pub fn release_notes(version: &str) -> Option<&'static [&'static str]> {
         // anchoring on a marker is whitespace-independent — matching the `match`
         // brace would silently break if the indentation ever shifted.
         // [bump-inject-here]
+        "0.11.1" => Some(&[
+            "Maintenance release — the animated office is unchanged from 0.11.0; documentation polish across the site and READMEs, plus a supply-chain hardening of how pixtuoid ships",
+            "Releases now publish to crates.io and npm via OIDC trusted publishing — CI holds no long-lived registry tokens, shrinking the supply-chain attack surface",
+        ]),
         "0.11.0" => Some(&[
             "Pop the office out of the terminal — new `pixtuoid floating` opens a frameless, always-on-top desktop window of the same animated office",
             "First launch greets you with a cinematic move-in and helps you connect your installed agent CLIs; `pixtuoid setup` is the headless twin for scripting and CI",
@@ -208,7 +212,7 @@ mod tests {
     #[test]
     fn release_notes_present_for_every_shipped_version() {
         for v in [
-            "0.4.1", "0.5.0", "0.6.0", "0.6.1", "0.7.0", "0.8.0", "0.9.0", "0.10.0",
+            "0.4.1", "0.5.0", "0.6.0", "0.6.1", "0.7.0", "0.8.0", "0.9.0", "0.10.0", "0.11.0",
         ] {
             let notes =
                 release_notes(v).unwrap_or_else(|| panic!("missing release_notes arm for {v}"));
