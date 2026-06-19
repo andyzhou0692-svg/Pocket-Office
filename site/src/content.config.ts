@@ -19,6 +19,9 @@ export const collections = {
     loader: glob({ pattern: 'MIGRATION.md', base: '../docs' }),
   }),
   knowledgeBase: defineCollection({
-    loader: glob({ pattern: 'KNOWLEDGE-BASE.md', base: '../docs' }),
+    loader: glob({ pattern: 'KNOWLEDGE-ENGINEERING.md', base: '../docs' }),
+  }),
+  parallelDelivery: defineCollection({
+    loader: glob({ pattern: 'PARALLEL-DELIVERY.md', base: '../docs' }),
   }),
 };
