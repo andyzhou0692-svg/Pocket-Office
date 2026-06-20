@@ -63,7 +63,19 @@ scripts/             gen-media.py + media.json (the ONE manifest-driven driver f
                      the lobster AND its backend `cc·<workspace>` coding sprite coexist live; real
                      account/gateway footprint, NOT a CI test),
                      check_upstream_drift.py (weekly wire-format watch),
-                     review-metrics.py (review-economics collector)
+                     review-metrics.py (review-economics collector),
+                     census_reminder.py (weekly `census-reminder` Action: is a
+                     review-history census due vs the ~50-PR window? → auto-files a
+                     deduped `census` issue; `just census-reminder` local),
+                     check_review_disposition.py (per-PR `review-disposition` Action,
+                     ADVISORY — never fails a PR: surfaces any claude[bot] MEDIUM+
+                     finding lacking a `Bot-findings-adjudicated:` disposition marker —
+                     the #283 silent-drop class (channel built #335, adopted #384)),
+                     sharp_edge_inventory.py (CI-hygiene drift gate: keeps
+                     docs/review-metrics/sharp-edge-inventory.md in lockstep with the
+                     CLAUDE.md sharp-edge bullets + resolves ledger `[edge:<slug>]`
+                     citations → `just sharp-edge-inventory`; each governance script
+                     above has a `*_selftest.py` pinning its parsers, also CI-gated)
 site/                Astro landing page → GitHub Pages; self-contained Node project,
                      own CI; `just site-{setup,dev,check,fmt}` → see site/README.md
 integrations/raycast/  Raycast extension (TypeScript, self-contained Node project; NOT Rust):
