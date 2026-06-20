@@ -11,6 +11,31 @@ use tracing_subscriber::EnvFilter;
 fn main() -> Result<()> {
     install_crash_hook();
     let (log_level, cli_theme, cmd) = Cli::parse().cmd_or_default();
+
+    // Truecolor preflight: the terminal TUI renders 24-bit half-block pixels; a
+    // terminal that does not advertise COLORTERM=truecolor may render them
+    // approximated/garbled with no other hint. Warn ONCE on the pre-altscreen
+    // stderr channel — never gate on Unix (many truecolor terminals omit
+    // COLORTERM, so a gate would false-negative); Windows hard-gates VT separately
+    // in `tui::mod`. The `floating` window paints real RGB pixels via softbuffer,
+    // not terminal SGR, so it is exempt.
+    #[cfg(not(windows))]
+    if matches!(
+        &cmd,
+        Cmd::Run {
+            headless: false,
+            ..
+        }
+    ) && std::io::IsTerminal::is_terminal(&std::io::stderr())
+        && !pixtuoid::term::colorterm_is_truecolor(std::env::var("COLORTERM").ok().as_deref())
+    {
+        eprintln!(
+            "⚠ pixtuoid: your terminal does not advertise COLORTERM=truecolor — the \
+             pixel-art office renders in 24-bit color and may look wrong. Use a \
+             truecolor terminal (Windows Terminal, iTerm2, Ghostty, Alacritty, kitty, \
+             WezTerm), or run `pixtuoid doctor` to check."
+        );
+    }
     // The typed LogLevel's as_str is exactly the old free-string levels, so
     // every filter built below is unchanged — the enum only moved typo
     // rejection to the clap seam (a typo used to parse as a bogus EnvFilter
@@ -115,7 +140,7 @@ fn main() -> Result<()> {
         }
         Cmd::ValidatePack { pack_dir } => validate::validate_pack(&pack_dir),
         Cmd::InitPack { dest, force } => init_pack::init_pack(&dest, force),
-        Cmd::Doctor => doctor::run(&log_file_path()),
+        Cmd::Doctor => doctor::run(&log_file_path()).map(|report| print!("{report}")),
         Cmd::Sources { action: None, json } => run_sources_list(json),
         Cmd::Sources {
             action: Some(SourcesAction::Set { ids }),
@@ -137,6 +162,25 @@ fn main() -> Result<()> {
             })
         }
         Cmd::Setup { yes } => run_setup(yes),
+        // Packaging interfaces: emit ONLY the generated artifact to stdout (the
+        // tracing subscriber above writes to stderr, so stdout stays clean for the
+        // homebrew `generate_completions_from_executable` / `man` capture). Driven
+        // off the same derived clap tree as `--help`, so they can't drift.
+        Cmd::Completions { shell } => {
+            use clap::CommandFactory;
+            clap_complete::generate(
+                shell,
+                &mut Cli::command(),
+                "pixtuoid",
+                &mut std::io::stdout(),
+            );
+            Ok(())
+        }
+        Cmd::Man => {
+            use clap::CommandFactory;
+            clap_mangen::Man::new(Cli::command()).render(&mut std::io::stdout())?;
+            Ok(())
+        }
     }
 }
 

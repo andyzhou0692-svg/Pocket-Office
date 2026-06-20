@@ -544,7 +544,10 @@ fn probe_version(argv: &'static [&'static str]) -> Option<String> {
 /// Run the diagnosis: read config + install-state + the log, probe installed CLI
 /// versions, print a per-source health table. Read-only. `log_path` is injected
 /// by `main` (it owns the log-path resolution, which lives in the bin, not lib).
-pub fn run(log_path: &std::path::Path) -> anyhow::Result<()> {
+/// Build the read-only health report. Returns the rendered string (the caller —
+/// `main.rs`, an excluded presenter — prints it) so the WHOLE report builder is
+/// unit-testable, not just its pure row helpers.
+pub fn run(log_path: &std::path::Path) -> anyhow::Result<String> {
     let mut warnings = Vec::new();
     let cfg = crate::config::load(&crate::config::config_path(), &mut warnings);
     // `doctor` is a separate PROCESS from the running TUI, so it derives the
@@ -560,6 +563,21 @@ pub fn run(log_path: &std::path::Path) -> anyhow::Result<()> {
 
     let mut out = String::from("pixtuoid doctor — source health\n");
     out.push_str(&format!("log: {}\n", log_path.display()));
+    out.push_str(&format!(
+        "config: {}\n",
+        crate::config::config_path().display()
+    ));
+    // Terminal capability: the pixel-art office needs a 24-bit-color terminal, and
+    // the #1 silent failure is a non-truecolor terminal rendering approximated
+    // colors. Surface the detected $TERM/$COLORTERM so a "colors look wrong over
+    // ssh/tmux" report is self-diagnosable. The row is formatted by the PURE,
+    // unit-tested `term::terminal_diagnostic_row` (env values sanitized there);
+    // `.ok()` makes an unset var a genuine `None`, not `Some("")`.
+    out.push_str(&crate::term::terminal_diagnostic_row(
+        std::env::var("TERM").ok().as_deref(),
+        std::env::var("COLORTERM").ok().as_deref(),
+    ));
+    out.push('\n');
     // Surface config-load warnings IN the report — a malformed config makes every
     // source read disconnected, and a diagnostic tool must say WHY rather than
     // silently swallow it. Sanitized: a warning can interpolate config content.
@@ -627,8 +645,7 @@ pub fn run(log_path: &std::path::Path) -> anyhow::Result<()> {
     ) {
         out.push_str(&format!("\n{adv}\n"));
     }
-    print!("{out}");
-    Ok(())
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -637,6 +654,19 @@ mod tests {
     use std::io::Write;
     use std::sync::{Arc, Mutex};
     use tracing_subscriber::fmt::MakeWriter;
+
+    #[test]
+    fn run_renders_the_structural_report_headers() {
+        // run() reads the real config/log/env, but the structural headers are
+        // present regardless — so a whole-body `replace run with Ok(default)`
+        // survivor (an empty report) is caught, giving the report builder teeth
+        // beyond its pure row helpers. (A missing log path → empty log, fine.)
+        let out = run(std::path::Path::new("/nonexistent-pixtuoid-doctor-log")).unwrap();
+        assert!(out.contains("pixtuoid doctor — source health"), "{out}");
+        assert!(out.contains("config:"), "{out}");
+        assert!(out.contains("terminal: TERM="), "{out}");
+        assert!(out.contains("sources \u{b7}"), "{out}");
+    }
 
     #[derive(Clone, Default)]
     struct Buf(Arc<Mutex<Vec<u8>>>);
