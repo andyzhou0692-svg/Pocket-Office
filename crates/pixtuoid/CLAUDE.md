@@ -35,16 +35,43 @@ src/
 │                       capture them); main.rs dispatches both as plain arms (tracing → stderr, so stdout stays clean). The
 │                       five PathBuf args carry `value_hint` so completions path-complete. Presenters live in main.rs
 │                       (run_sources_list/run_sources_set/run_change/run_setup, codecov-excluded like doctor::run)
-├── term.rs             truecolor preflight (ALL fns PURE + unit-tested — main.rs is the untestable presenter,
-│                       so the policy lives here; `doctor::run` returns its report String so it's tested too):
-│                       `colorterm_is_truecolor($COLORTERM)` (the
-│                       S-Lang/terminfo `truecolor`/`24bit` convention) + `should_warn_truecolor(cmd_is_run_tui, is_tty,
-│                       colorterm)` (the warn-gate PREDICATE — its truth table is unit-tested) + `terminal_diagnostic_row(
-│                       term, colorterm)` (the `doctor` `terminal:` line; env values sanitized). main.rs WARN-ONLY (never
-│                       gates on Unix — many truecolor terminals omit COLORTERM; the `#[cfg(not(windows))]`, `IsTerminal`
-│                       probe, and the env read stay INLINED at the excluded main.rs call site — which just calls
-│                       `should_warn_truecolor`, no untestable policy wrapper to mutate) on a non-windows Run-TUI tty. Windows hard-gates VT separately
-│                       (tui/mod). `floating` is exempt (softbuffer = real RGB px). #397 = terminfo Tc/RGB follow-up
+├── term.rs             truecolor preflight — does NOT guess from a $TERM name allowlist; ASKS the terminal (#397).
+│                       `query_truecolor(timeout)` (the IO seam, cfg(unix), codecov-excluded): opens `/dev/tty`,
+│                       raw-modes it (RAII `TermiosRestore`), writes the DECRQSS probe (`ESC[48;2;1;2;3m ESC P$qm ESC\\
+│                       ESC[0m` — set unlikely 24-bit bg in the SEMICOLON form crossterm emits, query SGR back, reset),
+│                       reads the reply via `libc::select` (NOT poll — macOS `poll()` returns POLLNVAL on tty/pty fds,
+│                       found by PTY dogfood) until the `ESC\\`/BEL terminator or the budget, then `parse_decrqss_truecolor`
+│                       (PURE, unit-tested):
+│                       Some(true)=our RGB triple echoed back, Some(false)=valid-but-downsampled, None=`0$r`/empty/timeout.
+│                       The pure policy pieces: `warn_zone(cmd_is_run_tui, is_tty, colorterm, suppress_env)` (the cheap
+│                       pre-gate — only QUERY when this holds; truth-table tested) + `colorterm_is_truecolor` (an explicit
+│                       positive that SKIPS the round-trip — the terminal declaring itself, not a guess) +
+│                       `truecolor_warn_suppressed($PIXTUOID_NO_TRUECOLOR_WARN`, truthy `1`/`true`/`yes`/`on`) +
+│                       `terminal_diagnostic_row(term, colorterm, probe)` (the `doctor` `terminal:` line; names HOW it was
+│                       determined — COLORTERM / terminal query / downsamples / unknown). main.rs WARN-ONLY (never gates on
+│                       Unix): `warn_zone(..) && query_truecolor(..) != Some(true)`, env/tty reads INLINED at the excluded
+│                       call site. `doctor` runs the query ONLY when stdout is a tty (piped `doctor > file` neither emits
+│                       escape codes nor probes — also why the test harness, output captured, never probes). Windows
+│                       hard-gates VT separately (tui/mod); `query_truecolor` is a `None` stub there. `floating` is exempt
+│                       (softbuffer = real RGB px). **Sharp edges:** a truecolor terminal that doesn't answer DECRQSS (rare)
+│                       false-positives → the escape hatch covers it; a very-laggy reply past the 100ms budget could leak a
+│                       few bytes to the TUI's stdin (accepted, rare). The query is the authority — there is NO $TERM/
+│                       $TERM_PROGRAM allowlist to keep current (deleted on purpose; that was the "magic variable" smell).
+│                       SEPARATE axis (color ON/OFF, not depth): `color_preflight(no_color, clicolor_force, term)` →
+│                       `ColorPreflight` {Proceed / ForceColor / RefuseNoColor / RefuseDumbTerm}. The office is 24-bit with
+│                       NO legible monochrome fallback, so when color is disabled we REFUSE the canvas + explain (mirrors the
+│                       Windows VT hard-gate) instead of rendering block-soup. Precedence: `$TERM=dumb` first (can't render
+│                       escapes at all — a force can't fix it), then NON-EMPTY `$NO_COLOR` (crossterm strips our SGR to a bare
+│                       reset — VERIFIED empirically) UNLESS `$CLICOLOR_FORCE` (bixense `!= 0`) overrides it (precedence →
+│                       `ForceColor`; main.rs MUST call `crossterm::style::force_color_output(true)` itself — crossterm
+│                       honors `$NO_COLOR` but NOT `$CLICOLOR_FORCE`, also verified). Empty `$NO_COLOR` is ignored (matches
+│                       crossterm — the thing that strips); `$FORCE_COLOR`/`$CLICOLOR` are deliberately NOT read (crossterm
+│                       keys only on `$NO_COLOR`, so they'd no-op the render). Gated to the `run` TUI only (--headless/doctor/sources are plain
+│                       text; floating = softbuffer). `color_status_row(pf)` is the `doctor` color line (reuses the SAME
+│                       policy so the diagnostic matches `run`; doctor also SKIPS the DECRQSS probe under `$TERM=dumb`).
+│                       **Sharp edge:** tmux (#4034) doesn't implement DECRQSS, so a truecolor tmux can false-positive the
+│                       depth warn — `$PIXTUOID_NO_TRUECOLOR_WARN=1` covers it (tmux usually sets `$COLORTERM`, skipping the
+│                       query entirely anyway).
 ├── setup.rs            first-run detection for onboarding: the PURE `is_first_run(cfg, path) = !path.exists() ||
 │                       cfg.sources.is_empty()` (mirrors resolve_connected's migrate condition; unit-tested). `pub`
 │                       because main.rs (a separate crate) computes RunConfig.first_run from it. The cinematic overlay

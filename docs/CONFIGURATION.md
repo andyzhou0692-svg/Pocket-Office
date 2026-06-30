@@ -82,3 +82,39 @@ and the full error is in the log file.
 Crashes are reported separately to `~/.cache/pixtuoid/crash.log`.
 
 Non-TUI commands (`--headless`, `validate-pack`, …) log to stderr directly.
+
+### Truecolor preflight
+
+The pixel-art office renders in 24-bit color. On launch, `pixtuoid run`
+**asks your terminal** whether it supports truecolor — it sets an unlikely
+24-bit color and queries it back (a `DECRQSS` probe) — rather than guessing from
+the terminal's name. If the terminal doesn't confirm, it prints a one-line
+stderr warning. It's **warn-only** (never blocks) and scrolls away once the
+office takes over. (`$COLORTERM=truecolor` is taken as a yes and skips the query;
+the query runs only otherwise.) Run `pixtuoid doctor` for the detected
+`terminal:` verdict.
+
+A terminal that's genuinely truecolor but doesn't answer the query (rare) may
+still get warned. If you know your terminal is fine, silence the warning with
+`$PIXTUOID_NO_TRUECOLOR_WARN=1` (any of `1`/`true`/`yes`/`on`). Note: `tmux`
+doesn't implement the `DECRQSS` query, so a truecolor tmux session can trip this
+warning — set `$PIXTUOID_NO_TRUECOLOR_WARN=1` (tmux usually advertises
+`$COLORTERM`, which skips the query, so most setups never see it).
+
+### When color is disabled (`$NO_COLOR`, `$TERM=dumb`)
+
+The office has **no legible monochrome mode** — it's color end to end. So rather
+than render unreadable blocks, `pixtuoid run` refuses to launch the canvas and
+explains why when color is turned off:
+
+- **`$NO_COLOR`** (the [no-color.org](https://no-color.org) convention; any
+  non-empty value): color output is disabled, so the office can't render. Unset
+  `NO_COLOR`, or override per the standard precedence with **`$CLICOLOR_FORCE=1`**
+  (forces color on despite `$NO_COLOR`; a `0` value does not force). An *empty*
+  `$NO_COLOR` is ignored (it doesn't actually disable color).
+- **`$TERM=dumb`**: the terminal can't render escape sequences or color at all.
+
+In both cases use a graphical terminal, or `pixtuoid run --headless` for a plain
+text summary (which works fine without color). `pixtuoid doctor` reports the
+active color status. This gate applies only to the terminal `run` TUI —
+`--headless`, `doctor`, `sources`, and the `floating` window are unaffected.
