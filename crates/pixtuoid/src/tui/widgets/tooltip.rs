@@ -13,20 +13,15 @@ use pixtuoid_scene::layout::{Layout, DESK_W};
 use pixtuoid_scene::overlay::LabelTone;
 use pixtuoid_scene::pet::PetKind;
 use pixtuoid_scene::pose;
-use pixtuoid_scene::theme::Theme;
 
-/// Borderless tooltip frame shared by every hover/click tooltip. No outline
-/// (the whole UI dropped popup borders) — a solid `tooltip_bg` fill plus a
-/// 1-cell uniform padding stands in for the old rounded border, so the content
-/// keeps its readable inset and the existing `+2` width/height math is unchanged
-/// (padding consumes exactly the two cells the border used to). The caller still
-/// renders `Clear` under it. Reads as one visual family with the other
-/// borderless popups (`panel::borderless_panel`).
-pub(super) fn framed_tooltip<'a>(lines: Vec<Line<'a>>, theme: &Theme) -> Paragraph<'a> {
-    let block = Block::default()
-        .padding(Padding::uniform(1))
-        .style(Style::default().bg(to_color(theme.ui.tooltip_bg)));
-    Paragraph::new(lines).block(block)
+/// Borderless tooltip frame shared by every hover/click tooltip: just the padded
+/// text. The `Clear` + solid `tooltip_bg` fill + drop shadow come from the shared
+/// `super::paint_card_backing`, which the caller paints UNDER this — so every
+/// borderless card's backing (tooltip and modal `panel::borderless_panel` alike)
+/// has ONE definition and can't drift. The 1-cell uniform padding stands in for
+/// the old border, keeping the `+2` width/height math unchanged.
+pub(super) fn framed_tooltip<'a>(lines: Vec<Line<'a>>) -> Paragraph<'a> {
+    Paragraph::new(lines).block(Block::default().padding(Padding::uniform(1)))
 }
 
 /// Horizontal anchor for a tooltip of width `tip_w`: place it just right of the
@@ -200,8 +195,8 @@ pub(crate) fn paint_hover_tooltip(
         return;
     };
 
-    f.render_widget(ratatui::widgets::Clear, clipped);
-    f.render_widget(framed_tooltip(lines, theme), clipped);
+    super::paint_card_backing(f, clipped, theme);
+    f.render_widget(framed_tooltip(lines), clipped);
 }
 
 fn paint_simple_tooltip(
@@ -242,8 +237,8 @@ fn paint_simple_tooltip(
         },
         scene_rect,
     ) {
-        f.render_widget(ratatui::widgets::Clear, r);
-        f.render_widget(framed_tooltip(vec![line], theme), r);
+        super::paint_card_backing(f, r, theme);
+        f.render_widget(framed_tooltip(vec![line]), r);
     }
 }
 
@@ -504,9 +499,13 @@ mod tests {
     }
 
     #[test]
-    fn hover_tooltip_fresh_agent_shows_dashes_for_active_pct() {
+    fn hover_tooltip_shows_fresh_dashes_and_casts_a_drop_shadow() {
         // A <5s-old agent shows the literal `--%` active percentage instead of a
-        // computed N% (the fresh-agent branch, line 149).
+        // computed N% (the fresh-agent branch, line 149). This is also the ONLY
+        // coverage for `paint_hover_tooltip`'s backing: it routes through the
+        // shared `paint_card_backing`, so a pre-filled bright office must come
+        // back dimmed in the drop-shadow band (the other backing caller,
+        // `paint_simple_tooltip`, is pinned by the coffee test).
         use std::path::Path;
         use std::sync::Arc;
         use std::time::{Duration, SystemTime};
@@ -540,8 +539,20 @@ mod tests {
         scene.agents.insert(id, slot);
 
         let mut term = Terminal::new(TestBackend::new(60, 24)).unwrap();
+        let bright = ratatui::style::Color::Rgb(200, 200, 200);
         term.draw(|f| {
-            super::paint_hover_tooltip(f, &scene, id, 20, 10, f.area(), now, &theme::NORMAL)
+            // Stand in for the already-flushed office so the drop shadow has real
+            // cells to dim.
+            let full = f.area();
+            for y in 0..full.height {
+                for x in 0..full.width {
+                    let cell = &mut f.buffer_mut()[(x, y)];
+                    cell.set_symbol("\u{2580}");
+                    cell.fg = bright;
+                    cell.bg = bright;
+                }
+            }
+            super::paint_hover_tooltip(f, &scene, id, 20, 10, f.area(), now, &theme::NORMAL);
         })
         .unwrap();
         let text = buffer_text(&term);
@@ -552,6 +563,19 @@ mod tests {
         assert!(
             !text.contains("0%"),
             "fresh agent must not compute a numeric percentage, got: {text:?}"
+        );
+        // The hover path routes through the shared `paint_card_backing`: a bright
+        // equal-channel office cell can only turn into a dimmer equal-channel gray
+        // via the drop-shadow dim (the card's `tooltip_bg` is a distinct hue).
+        let buf = term.backend().buffer();
+        let shadowed = (0..buf.area.height).any(|y| {
+            (0..buf.area.width).any(|x| {
+                matches!(buf[(x, y)].bg, ratatui::style::Color::Rgb(r, g, b) if r == g && g == b && (120..200).contains(&r))
+            })
+        });
+        assert!(
+            shadowed,
+            "the agent hover tooltip must cast a drop shadow via the shared backing"
         );
     }
 
@@ -629,6 +653,44 @@ mod tests {
         assert_eq!(
             mascot_tooltip_text("OpenClaw", true, true, 3),
             " OpenClaw gateway · model error · 3 sessions "
+        );
+    }
+
+    /// The tooltip render path (`paint_coffee_tooltip` → `paint_simple_tooltip` →
+    /// the shared `super::paint_card_backing`) casts the drop shadow. Pins that a
+    /// future edit dropping the backing call would be caught — the modal path is
+    /// covered separately by `panel::borderless_panel_casts_a_drop_shadow_*`.
+    /// Pre-fills the buffer with a bright equal-channel gray; only a shadowed
+    /// office cell ends up an equal-channel gray darker than that (the card's
+    /// `tooltip_bg` is a distinct hue), so its presence proves the shadow ran.
+    #[test]
+    fn coffee_tooltip_casts_a_drop_shadow_via_the_shared_backing() {
+        use ratatui::style::Color;
+        let scene = Rect::new(0, 0, 48, 16);
+        let bright = Color::Rgb(200, 200, 200);
+        let mut term = Terminal::new(TestBackend::new(48, 16)).unwrap();
+        term.draw(|f| {
+            let full = f.area();
+            for y in 0..full.height {
+                for x in 0..full.width {
+                    let cell = &mut f.buffer_mut()[(x, y)];
+                    cell.set_symbol("\u{2580}");
+                    cell.fg = bright;
+                    cell.bg = bright;
+                }
+            }
+            super::paint_coffee_tooltip(f, 20, 8, scene, &theme::NORMAL);
+        })
+        .unwrap();
+        let buf = term.backend().buffer();
+        let shadowed = (0..buf.area.height).any(|y| {
+            (0..buf.area.width).any(|x| {
+                matches!(buf[(x, y)].bg, Color::Rgb(r, g, b) if r == g && g == b && (120..200).contains(&r))
+            })
+        });
+        assert!(
+            shadowed,
+            "the tooltip path must dim office cells into a drop shadow"
         );
     }
 }
