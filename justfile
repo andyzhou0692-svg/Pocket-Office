@@ -356,6 +356,52 @@ gen-readme-check:
 gen-media *args:
     .venv/bin/python3 scripts/gen-media.py {{ args }}
 
+# Build the live-office wasm module (pixtuoid-web) + its JS glue into
+# site/public/wasm/ — a COMMITTED artifact (like public/demos/), so the site CI
+# stays Node-only. Toolchain gotcha (load-bearing, cost 2 debug cycles): the
+# PATH cargo/rustc may be Homebrew's, which has NO wasm32 std — and even
+# `rustup run stable cargo` fails because cargo resolves `rustc` via PATH. So
+# the recipe prepends the RUSTUP toolchain bin (via `rustup which`) and invokes
+# that cargo explicitly. wasm-bindgen-cli must match the crate's pinned
+# wasm-bindgen (see crates/pixtuoid-web/Cargo.toml); wasm-opt (binaryen)
+# shrinks the blob ~10-20%.
+[group('gen')]
+[doc('Build pixtuoid-web (wasm) + JS glue into site/public/wasm/')]
+gen-wasm:
+    #!/usr/bin/env sh
+    set -eu
+    command -v rustup >/dev/null || { echo "needs rustup (Homebrew rust has no wasm std)"; exit 1; }
+    command -v wasm-bindgen >/dev/null || { echo "needs wasm-bindgen-cli: cargo install wasm-bindgen-cli --locked"; exit 1; }
+    command -v wasm-opt >/dev/null || { echo "needs wasm-opt: brew install binaryen"; exit 1; }
+    rustup target list --toolchain stable --installed | grep -q wasm32-unknown-unknown \
+        || { echo "needs the wasm target: rustup target add wasm32-unknown-unknown"; exit 1; }
+    TB="$(dirname "$(rustup which --toolchain stable rustc)")"
+    PATH="$TB:$PATH" "$TB/cargo" build -p pixtuoid-web --target wasm32-unknown-unknown --release
+    mkdir -p site/public/wasm
+    wasm-bindgen --target web --out-dir site/public/wasm \
+        target/wasm32-unknown-unknown/release/pixtuoid_web.wasm
+    wasm-opt -Oz -o site/public/wasm/pixtuoid_web_bg.wasm site/public/wasm/pixtuoid_web_bg.wasm
+    ls -la site/public/wasm/
+
+# Bloat gate for the committed wasm artifact: the hero must stay a lazy-load
+# behind the poster, so a silent size regression (a dep pulling in formatting
+# machinery, an accidental debug build) fails loudly. 1 MiB raw ≈ ~350-400 KB
+# gzipped over the wire; the artifact is ~700 KB today. Byte-exact
+# rebuild-match is deliberately NOT checked in CI — wasm output drifts across
+# rustc versions, and CI installs latest stable (local `just gen-wasm` +
+# review is the freshness authority, like the committed demo media).
+[group('gen')]
+[doc('Fail if the committed wasm artifact is missing or over the size cap')]
+gen-wasm-check:
+    #!/usr/bin/env sh
+    set -eu
+    W=site/public/wasm/pixtuoid_web_bg.wasm
+    test -f "$W" || { echo "missing $W — run 'just gen-wasm'"; exit 1; }
+    CAP=1048576
+    SIZE=$(wc -c < "$W" | tr -d ' ')
+    test "$SIZE" -le "$CAP" || { echo "$W is $SIZE bytes (> $CAP cap) — investigate the bloat"; exit 1; }
+    echo "gen-wasm-check OK: $W ($SIZE bytes <= $CAP)"
+
 # Drift gate: fail if any committed README section OR rendered still is stale.
 # Pixel-diffs every PNG (threshold 0); video clips + demo.gif are presence-only
 # (ffmpeg/gifsicle bytes aren't stable cross-version, but the renders feeding
@@ -366,7 +412,7 @@ gen-media *args:
 # + a release build of the snapshot example.
 [group('gen')]
 [doc('Fail if any committed README section or rendered image has drifted')]
-gen-check: gen-readme-check
+gen-check: gen-readme-check gen-wasm-check
     #!/usr/bin/env sh
     set -eu
     test -x .venv/bin/python3 || { echo "needs the venv: python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt"; exit 1; }

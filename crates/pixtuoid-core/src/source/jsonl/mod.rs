@@ -9,7 +9,7 @@ use tokio::sync::Mutex;
 use tracing::{debug, warn};
 
 use crate::source::exit_watch::ExitWatch;
-use crate::source::{AgentEvent, TaggedSender};
+use crate::source::TaggedSender;
 
 mod health;
 mod liveness;
@@ -20,7 +20,12 @@ mod walk;
 
 pub use liveness::{LivenessProbe, ProbeSnapshot};
 pub use unclaim::ChildEndUnclaims;
-pub(crate) use walk::is_subagent_path;
+// `is_subagent_path` + `LineDecoder` moved to the always-compiled `decoder`
+// module (a pure CC decoder + the registry name them in the wasm build). Only
+// this module's own tests still reach it by the `jsonl::` path, so the
+// re-export is test-scoped (prod callers use `decoder::is_subagent_path`).
+#[cfg(test)]
+pub(crate) use crate::source::decoder::is_subagent_path;
 
 use health::FailureLatch;
 use liveness::{
@@ -30,7 +35,11 @@ use liveness::{
 use unclaim::drain_child_end_unclaims;
 use walk::{scan_root, walk_jsonl};
 
-pub type LineDecoder = fn(&str, &str, serde_json::Value) -> Result<Vec<AgentEvent>>;
+// The ONE `LineDecoder` definition lives in the always-compiled `decoder`
+// module (the registry + a pure CC decoder name it in the wasm build);
+// re-exported so watcher-facing callers keep the `jsonl::LineDecoder` path —
+// a second local alias would be the two-copies drift bug.
+pub use crate::source::decoder::LineDecoder;
 pub type LabelDeriver = fn(&Path, &str, &Path) -> String;
 pub type SessionEndChecker = fn(&[u8]) -> bool;
 
