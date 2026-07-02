@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
-use pixtuoid_core::physics::{walk_arrived, walk_profile, WalkIntent, WalkProfile};
+use crate::physics::{walk_arrived, walk_profile, WalkIntent, WalkProfile};
 use pixtuoid_core::state::AgentSlot;
 use pixtuoid_core::walkable::OccupancyOverlay;
 use pixtuoid_core::AgentId;
@@ -74,7 +74,7 @@ pub struct WalkLeg {
 pub struct WanderState {
     /// Monotonically increasing wander cycle counter, incremented each time
     /// `WalkingBack` completes — selects the waypoint destination (mirrors
-    /// `core::pose`'s `cycle_n` derivation).
+    /// `pose::pure`'s `cycle_n` derivation).
     pub cycle_n: u64,
     /// Current phase of the wander cycle.
     pub phase: WanderPhase,
@@ -471,7 +471,7 @@ fn poll_walk_leg(
     };
     // Profile readable again: the missing episode (if any) is over — re-arm.
     ms.missing_profile_warned = false;
-    let t_x1000 = pixtuoid_core::physics::walk_progress(profile, elapsed_phase);
+    let t_x1000 = crate::physics::walk_progress(profile, elapsed_phase);
     if may_transition && walk_arrived(profile, elapsed_phase) {
         WalkLegStatus::Arrived {
             t_x1000,
@@ -495,11 +495,11 @@ fn advance_phase_clock(ms: &mut MotionState, walk_total: u64, now: SystemTime) {
 }
 
 /// Pick the wander destination for a given agent and cycle. Mirrors the same
-/// logic as `core::pose::idle_pose` so `cycle_n` produces identical
+/// logic as `pose::pure::idle_pose` so `cycle_n` produces identical
 /// destination choices in both the stateless core path and the stateful tui path.
 ///
 /// `origin` is the agent's home desk — the stand-side tiebreaker, kept
-/// identical to `core::pose::idle_pose`'s `desk` so the paths can't drift.
+/// identical to `pose::pure::idle_pose`'s `desk` so the paths can't drift.
 ///
 /// Returns `(dest_point, waypoint_kind, waypoint_index)`.
 fn pick_wander_dest(
@@ -509,7 +509,7 @@ fn pick_wander_dest(
     origin: Point,
 ) -> (Point, Option<WaypointKind>, Option<usize>, Option<Point>) {
     if is_aimless_cycle(id, cycle_n) {
-        // Shared seed helper so this can never drift from core::pose::idle_pose.
+        // Shared seed helper so this can never drift from pose::pure::idle_pose.
         let seed = aimless_wander_seed(id, cycle_n);
         let p = pick_aimless_dest(layout, seed, origin);
         (p, None, None, None)
@@ -518,9 +518,9 @@ fn pick_wander_dest(
         let wp = layout.waypoints[wp_idx];
         // Walk destination = the A*-reachable approach point on an allowed side
         // (NOT the raw blocked `wp.pos`, which made A* detour + the sprite pop).
-        // Same `&layout.reachable` + origin as core::pose::idle_pose so the
+        // Same `&layout.reachable` + origin as pose::pure::idle_pose so the
         // stateless overlay and this routed dest stay in lockstep.
-        let dest = pixtuoid_core::layout::approach_point(
+        let dest = crate::layout::approach_point(
             wp.kind.furniture(),
             wp.pos,
             wp.facing,
@@ -540,7 +540,7 @@ fn pick_wander_dest(
         }
         // Seat foot cell `S`: the walk SETTLES from `dest` onto it (the sprite
         // renders here). `None` for obstacles — the agent stands AT `dest`.
-        let seat = pixtuoid_core::layout::seated_foot_cell(wp.kind.furniture(), wp.pos);
+        let seat = crate::layout::seated_foot_cell(wp.kind.furniture(), wp.pos);
         (dest, Some(wp.kind), Some(wp_idx), seat)
     }
 }

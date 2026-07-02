@@ -11,14 +11,14 @@
 //! approached from the front — matching the real world.
 //!
 //! Pure geometry over [`WalkableMask`] — no A*, no terminal deps — so the
-//! stateless `core::pose::idle_pose` and the stateful `tui::motion` walk
+//! stateless `pose::pure::idle_pose` and the stateful `tui::motion` walk
 //! destinations stay in lockstep with the render anchor (all three call
 //! this with the same `origin = home desk`).
 
 use super::decor::{furniture_def, Facing, Furniture, WaypointKind};
 use super::reach::ReachSet;
 use super::{Point, Size};
-use crate::walkable::WalkableMask;
+use pixtuoid_core::walkable::WalkableMask;
 
 /// First clear pixel beyond a footprint half-extent. `mask.rs` stamps
 /// waypoint furniture with `pad = 1`, so `half + 2` is the first
