@@ -1,15 +1,15 @@
 ---
 import Base from '../layouts/Base.astro';
 import Nav from '../components/Nav.astro';
+import OfficeBackdrop from '../components/OfficeBackdrop.astro';
 import Hero from '../components/Hero.astro';
-import Ticker from '../components/Ticker.astro';
 import Showcase from '../components/Showcase.astro';
 import Features from '../components/Features.astro';
 import HowItWorks from '../components/HowItWorks.astro';
 import SupportedTools from '../components/SupportedTools.astro';
 import Install from '../components/Install.astro';
-import Elevator from '../components/Elevator.astro';
 import Footer from '../components/Footer.astro';
+import Statusline from '../components/Statusline.astro';
 import { asset, REPO, CRATES } from '../consts';
 
 // Homepage structured data: a free cross-platform developer tool. Search
@@ -36,20 +36,62 @@ const softwareJsonLd = {
 
 <Base preloadImage={asset('demos/hero-poster.png')} jsonLd={softwareJsonLd}>
   <span id="top"></span>
-  <Nav />
-  <Elevator />
+  <OfficeBackdrop />
+  <Nav floating />
   <main id="main" tabindex="-1">
     <Hero />
-    <Ticker />
+    {/* observation gap 1 — the dim releases to 0; the office IS the content */}
+    <div class="office-gap">
+      <p class="gap-caption" aria-hidden="true">
+        — you're watching the real thing: the same engine that runs in your terminal.
+      </p>
+    </div>
     <Showcase />
-    <hr class="px-rule" />
     <Features />
-    <hr class="px-rule" />
+    {
+      /* observation gap 2 — with the frameless-window beat: the real floating
+        window is an OPAQUE, chrome-less rect of office pixels (softbuffer
+        writes XRGB, no alpha), so the beat is an office still at window
+        scale floating over the page office — the pixel-scale contrast is
+        what reads as "a separate window". */
+    }
+    <div class="office-gap">
+      <div class="gap-frame" aria-hidden="true">
+        <img
+          class="gap-frame__body px"
+          src={asset('demos/night.png')}
+          data-gap-still
+          data-day={asset('demos/day.png')}
+          data-night={asset('demos/night.png')}
+          alt=""
+          loading="lazy"
+          decoding="async"
+        />
+      </div>
+      <p class="gap-caption" aria-hidden="true">
+        — the floating desktop window: the same office, popped out of the terminal. lighting follows
+        your clock; it's <span data-gap-daynight>night</span> where you are.
+      </p>
+    </div>
     <HowItWorks />
-    <hr class="px-rule" />
     <SupportedTools />
-    <hr class="px-rule" />
     <Install />
+    {/* observation gap 3 — the closing hold */}
+    <div class="office-gap">
+      <p class="gap-caption" aria-hidden="true">— your office is waiting.</p>
+    </div>
   </main>
+  <script is:inline>
+    // gap 2 follows the viewer's clock: the word AND the window still swap
+    // together off __pixNight (the one boundary, defined in Base's head boot).
+    (function () {
+      const night = window.__pixNight();
+      const el = document.querySelector('[data-gap-daynight]');
+      if (el) el.textContent = night ? 'night' : 'day';
+      const img = document.querySelector('[data-gap-still]');
+      if (img) img.src = night ? img.dataset.night : img.dataset.day;
+    })();
+  </script>
   <Footer />
+  <Statusline />
 </Base>

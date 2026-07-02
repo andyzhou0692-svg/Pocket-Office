@@ -8,18 +8,17 @@ import { REPO, CRATES } from '../consts';
 import tabs from '../install.json';
 ---
 
-<section id="install" class="install" data-floor="1">
+<section id="install" class="install" data-lit data-floor="1">
   <div class="container">
     <div class="section-head reveal">
       <p class="eyebrow">1F · front desk — get it</p>
-      <h2>Install pixtuoid.</h2>
+      <h2 class="statement statement--md">Move them in.</h2>
       <p class="lead">
-        macOS, Linux &amp; Windows. Then run <code>pixtuoid</code> and press
-        <code>s</code> to connect your CLI.
+        macOS, Linux &amp; Windows. Install, run <code>pixtuoid</code>, and the office opens.
       </p>
     </div>
 
-    <div class="install__box card reveal">
+    <div class="install__box reveal">
       <div class="install__tabs" role="group" aria-label="Install method">
         {
           tabs.map((t, i) => (
@@ -42,7 +41,7 @@ import tabs from '../install.json';
             class:list={['install__panel', { 'is-active': i === 0 }]}
             data-panel={t.id}
           >
-            <Code code={t.cmds.join('\n')} lang="bash" />
+            <Code code={t.cmds.join('\n')} lang="bash" theme="vesper" />
             <button class="install__copy" data-copy={t.cmds.join('\n')} aria-label="Copy command">
               Copy
             </button>
@@ -118,50 +117,48 @@ import tabs from '../install.json';
 
 <style>
   .install__box {
-    max-width: 680px;
-    padding: 0.6rem;
-    overflow: hidden;
+    max-width: 860px;
   }
+  /* tabs: bare mono text-links (same aria-pressed JS) */
   .install__tabs {
     display: flex;
-    gap: 0.3rem;
-    padding: 0.4rem 0.4rem 0;
+    flex-wrap: wrap;
+    gap: 0.2rem 1.6rem;
+    padding: 0 0 0.7rem;
+    font-family: var(--font-mono);
   }
   .install__tab {
-    flex: 1;
-    font-family: var(--font-mono);
+    font-family: inherit;
     font-weight: 700;
-    font-size: 0.86rem;
-    padding: 0.55rem 0.6rem;
+    font-size: 0.88rem;
+    padding: 0.25rem 0;
     border: 0;
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-    background: transparent;
+    background: none;
     color: var(--fg-muted);
     cursor: pointer;
   }
   .install__tab.is-active {
-    color: var(--fg);
-    background: var(--surface-2);
+    color: var(--led);
+    text-shadow: 0 0 6px var(--led-glow);
   }
+  /* the climax: the active command HUGE in a square --screen block */
   .install__panel {
     display: none;
     position: relative;
-    margin: 0.4rem;
-    border-radius: var(--radius-sm);
     overflow: hidden;
-    border: 1px solid var(--border);
+    border: 1px solid var(--chip-line);
+    background: var(--screen);
   }
   .install__panel.is-active {
     display: block;
   }
-  /* frame the Shiki <Code> output like the old code box (it brings its own
-     theme background + per-token colors) */
   .install__panel :global(pre) {
     margin: 0;
-    padding: 1rem 1.1rem;
+    padding: clamp(1.2rem, 3vw, 2.2rem) clamp(1.2rem, 3.4vw, 2.6rem);
     overflow-x: auto;
-    font-size: 0.92rem;
-    line-height: 1.6;
+    font-size: clamp(1.1rem, 2.6vw, 2rem);
+    line-height: 1.5;
+    background: transparent !important;
   }
   .install__panel :global(pre code) {
     font-family: var(--font-mono);
@@ -176,7 +173,8 @@ import tabs from '../install.json';
     padding: 0.35rem 0.7rem;
     border-radius: 999px;
     border: 1px solid rgba(255, 255, 255, 0.18);
-    background: rgba(255, 255, 255, 0.08);
+    /* opaque: the pill can sit over a long command's tail at narrow widths */
+    background: color-mix(in srgb, var(--screen) 88%, #fff);
     color: #f3ede3;
     cursor: pointer;
   }
@@ -189,5 +187,21 @@ import tabs from '../install.json';
     padding: 0.4rem 0.7rem 0.6rem;
     font-size: 0.9rem;
     color: var(--fg-muted);
+  }
+  /* phone widths: wrap the command instead of scrolling it under the pill —
+     pre-wrap breaks at the content box, so the reserved right padding keeps
+     every character clear of the Copy control */
+  @media (max-width: 560px) {
+    .install__panel :global(pre) {
+      padding-right: 4.6rem;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      font-size: 1rem;
+    }
+  }
+  @media (pointer: coarse) {
+    .install__tab {
+      padding-block: 0.55rem;
+    }
   }
 </style>

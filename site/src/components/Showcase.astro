@@ -1,7 +1,6 @@
 ---
 import { SHOWCASE, showcaseVariants } from '../consts';
 import ChannelStage from './ChannelStage.astro';
-import MonitorWall from './MonitorWall.astro';
 
 const channels = SHOWCASE.map((c, i) => ({
   ...c,
@@ -10,9 +9,29 @@ const channels = SHOWCASE.map((c, i) => ({
 }));
 const live = channels.filter((c) => c.status === 'live');
 const def = channels.find((c) => c.default) ?? live[0];
+// headline count derived from the dial itself — a hardcoded "Eight" desyncs
+// the moment a channel is added or dropped. Deliberately counts ALL channels
+// (the dial shows "soon" slots too) while the eyebrow counts live.length "on
+// air" — the two diverge by design the day a soon-channel lands.
+const COUNT_WORDS = [
+  'Zero',
+  'One',
+  'Two',
+  'Three',
+  'Four',
+  'Five',
+  'Six',
+  'Seven',
+  'Eight',
+  'Nine',
+  'Ten',
+  'Eleven',
+  'Twelve',
+];
+const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
 ---
 
-<section id="showcase" class="showcase" data-floor="5">
+<section id="showcase" class="showcase" data-lit data-floor="5">
   {
     /* legacy anchors — inbound #themes/#weather links land here; the controller
       also maps them to their channel */
@@ -22,9 +41,9 @@ const def = channels.find((c) => c.default) ?? live[0];
   <div class="container">
     <div class="section-head reveal">
       <p class="eyebrow">5F · studio — {live.length} channels on air</p>
-      <h2>Every feature, on air.</h2>
+      <h2 class="statement statement--md">{countWord} channels.<br />One office.</h2>
       <p class="lead">
-        The office, channel by channel — tune a monitor to switch the big screen. Themes and weather
+        The office, channel by channel — flip a channel to switch the big screen. Themes and weather
         expose their dials on-screen.
       </p>
     </div>
@@ -33,7 +52,25 @@ const def = channels.find((c) => c.default) ?? live[0];
       <div class="studio__stages">
         {live.map((c) => <ChannelStage channel={c} active={c.id === def.id} />)}
       </div>
-      <MonitorWall channels={channels} activeId={def.id} />
+      <div class="dial" role="group" aria-label="Demo channels">
+        {
+          channels.map((c) =>
+            c.status === 'live' ? (
+              <button
+                class="mon dial__ch"
+                data-ch={c.id}
+                aria-pressed={c.id === def.id ? 'true' : 'false'}
+              >
+                <span class="dial__num">{c.ch}</span> {c.label}
+              </button>
+            ) : (
+              <span class="dial__ch dial__ch--soon">
+                <span class="dial__num">{c.ch}</span> {c.label} <small>soon</small>
+              </span>
+            )
+          )
+        }
+      </div>
     </div>
   </div>
 </section>
@@ -206,6 +243,55 @@ const def = channels.find((c) => c.default) ?? live[0];
 </script>
 
 <style>
+  .dial {
+    /* aligned columns, not ragged inline flow — the numbered labels imply a grid */
+    display: grid;
+    grid-template-columns: repeat(3, max-content);
+    gap: 0.4rem 1.6rem;
+    margin-top: 1.2rem;
+    font-family: var(--font-mono);
+    font-size: 0.92rem;
+  }
+  .dial__ch {
+    text-align: left;
+  }
+  @media (pointer: coarse) {
+    .dial__ch {
+      padding-block: 0.55rem;
+    }
+  }
+  .dial__ch {
+    background: none;
+    border: 0;
+    padding: 0.3rem 0.2rem;
+    font: inherit;
+    color: var(--fg-muted);
+    cursor: pointer;
+  }
+  .dial__ch:hover,
+  .dial__ch:focus-visible {
+    color: var(--fg);
+  }
+  .dial__ch[aria-pressed='true'] {
+    color: var(--fg);
+  }
+  .dial__ch[aria-pressed='true'] .dial__num {
+    color: var(--led);
+    text-shadow: 0 0 6px var(--led-glow);
+  }
+  .dial__num {
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .dial__ch--soon {
+    color: color-mix(in srgb, var(--fg-muted) 55%, transparent);
+    cursor: default;
+  }
+  .dial__ch--soon small {
+    font-size: 0.72em;
+    letter-spacing: 0.08em;
+  }
+
   .showcase {
     position: relative;
     padding-block: clamp(2.5rem, 6vw, 5rem);

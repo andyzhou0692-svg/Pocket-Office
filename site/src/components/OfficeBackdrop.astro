@@ -1,0 +1,323 @@
+---
+import { asset } from '../consts';
+---
+
+{
+  /* THE BUILDING — the real pixtuoid engine (wasm) running fixed behind the
+     whole page: ONE continuous office (the hero's Dense variant — two
+     meeting rooms), one timeline that never resets while you scroll.
+     Content floats over it as glass bands. Poster-first: the still is the
+     instant layer; the canvas fades in after the first wasm frame.
+     Reduced-motion / no-JS / no-wasm / fetch-failure all simply stay on
+     the still. */
+}
+<div class="backdrop" aria-hidden="true">
+  <img
+    class="backdrop__poster px"
+    src={asset('demos/hero-poster.png')}
+    alt=""
+    width="1664"
+    height="1408"
+    decoding="async"
+    fetchpriority="high"
+  />
+  <canvas id="office-live" class="backdrop__live px"></canvas>
+</div>
+{
+  /* THE DIMMER — the design's signature. A fixed var(--bg) sheet whose
+     opacity is written per-frame by the scroll controller below: 0 in
+     observation gaps (the office fully bright IS the content), up to 0.86
+     when a statement owns the viewport center. Compositor-only (a single
+     style.opacity write), never pauses the canvas. */
+}
+<div id="dimmer" aria-hidden="true"></div>
+
+<style is:global>
+  /* The fixed canvas sits at z:-1; the body's opaque background would hide
+     it. The html root keeps --bg (no white flash); content paints its own
+     glass. Scoped to pages that render this component. */
+  body {
+    background: transparent;
+  }
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--bg);
+    pointer-events: none;
+  }
+  .backdrop__poster,
+  .backdrop__live {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .backdrop__live {
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+  .backdrop.is-live .backdrop__live {
+    opacity: 1;
+  }
+  .backdrop.is-live .backdrop__poster {
+    opacity: 0;
+    transition: opacity 1.2s ease;
+  }
+  #dimmer {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    background: var(--bg);
+    opacity: 0.55; /* pre-JS / reduced-motion resting level: constant AA */
+    pointer-events: none;
+  }
+  /* Reduced motion is a complete parallel design: the office is the still
+     poster, the dimmer holds a constant readable level, nothing scrolls-
+     animates. (The controller also early-returns.) */
+  @media (prefers-reduced-motion: reduce) {
+    #dimmer {
+      opacity: 0.55 !important;
+    }
+  }
+</style>
+
+<script is:inline define:vars={{ wasmJsUrl: asset('wasm/pixtuoid_web.js') }}>
+  (function () {
+    const wrap = document.querySelector('.backdrop');
+    const canvas = document.getElementById('office-live');
+    if (!wrap || !canvas || typeof WebAssembly === 'undefined') return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+
+    // Render SMALL and let CSS stretch (image-rendering: pixelated): ~180px
+    // tall is the app's own chunky-pixel scale (OFFICE_TARGET_H).
+    const BUF_H = 180;
+    const FRAME_MS = 33; // ~30fps cap
+    // ONE office for the whole page (user-pinned): the hero's Dense variant
+    // (seed 3 → two meeting rooms). One continuous world, one timeline that
+    // never resets while you scroll — no per-floor swapping.
+    const SEED = 3;
+
+    let office = null;
+    let wasm = null;
+    let ctx2d = null;
+    let img = null;
+    let bufW = 0;
+    let raf = 0;
+    let last = 0;
+    let live = false;
+
+    function sizeBuffer() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      if (w < 1 || h < 1) return;
+      bufW = Math.min(640, Math.max(64, Math.round((w / h) * BUF_H)));
+      canvas.width = bufW;
+      canvas.height = BUF_H;
+      img = new ImageData(bufW, BUF_H);
+    }
+
+    function frame(t) {
+      raf = 0;
+      if (document.hidden) return;
+      if (t - last >= FRAME_MS) {
+        last = t;
+        // Date.now(), NOT the rAF timestamp: the engine decodes now_ms as
+        // calendar time (browser-local day/night + wall clock).
+        office.step(Date.now(), bufW, BUF_H);
+        // Re-read ptr/len EVERY frame (resize reallocates; memory.grow
+        // invalidates views) and copy into the reusable ImageData.
+        const view = new Uint8ClampedArray(
+          wasm.memory.buffer,
+          office.frame_ptr(),
+          office.frame_len()
+        );
+        if (view.length === img.data.length) {
+          img.data.set(view);
+          ctx2d.putImageData(img, 0, 0);
+          if (!live) {
+            live = true;
+            wrap.classList.add('is-live');
+            document.dispatchEvent(new CustomEvent('pix:onair', { detail: { live: true } }));
+          }
+        }
+      }
+      raf = requestAnimationFrame(frame);
+    }
+    function start() {
+      if (!raf && office && !document.hidden && !mq.matches) {
+        raf = requestAnimationFrame(frame);
+      }
+    }
+    function stop() {
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+    }
+
+    // Reduced motion defers the wasm fetch entirely (still poster only) —
+    // but a LIVE un-reduce should still bring the office up, so the fetch
+    // lives behind a one-shot boot() the mq listener can trigger later.
+    let booted = false;
+    function boot() {
+      if (booted) return;
+      booted = true;
+      import(wasmJsUrl)
+        .then(function (mod) {
+          return mod.default().then(function (w) {
+            wasm = w;
+            office = new mod.Office(SEED);
+            ctx2d = canvas.getContext('2d');
+            sizeBuffer();
+            start();
+          });
+        })
+        .catch(function () {
+          /* the still poster stays — the building simply doesn't go live */
+        });
+    }
+    if (!mq.matches) boot();
+
+    let rraf = 0;
+    window.addEventListener('resize', function () {
+      if (rraf) return;
+      rraf = requestAnimationFrame(function () {
+        rraf = 0;
+        sizeBuffer();
+      });
+    });
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) stop();
+      else start();
+    });
+    if (mq.addEventListener) {
+      mq.addEventListener('change', function () {
+        if (mq.matches) {
+          stop();
+          wrap.classList.remove('is-live');
+          live = false;
+          document.dispatchEvent(new CustomEvent('pix:onair', { detail: { live: false } }));
+        } else {
+          boot(); // no-op if already booted; a reduced-motion first visit fetches here
+          start();
+        }
+      });
+    }
+  })();
+</script>
+
+<script is:inline>
+  // THE DIMMER CONTROLLER — scrolling is the light switch. One rAF loop,
+  // one style.opacity write per changed frame (compositor-only; no CSS-var
+  // recalc, no backdrop-filter). Every [data-lit] block pulls darkness in
+  // as it approaches the viewport center — text and dusk arrive as ONE
+  // gesture — and releases it in the observation gaps (dim → 0, the office
+  // alone is the content).
+  (function () {
+    const dimmer = document.getElementById('dimmer');
+    if (!dimmer) return;
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    const DIM_MAX = 0.86;
+
+    let blocks = []; // cached page-space rects; re-measured on resize only
+    let lastY = -1;
+    let lastOp = -1;
+    let raf = 0;
+    let active = null; // the currently-faded [data-lit] block
+
+    function measure() {
+      const y = window.scrollY;
+      blocks = Array.prototype.map.call(document.querySelectorAll('[data-lit]'), function (el) {
+        const r = el.getBoundingClientRect();
+        return { el, top: r.top + y, bottom: r.bottom + y };
+      });
+      lastY = -1; // force a recompute on the next frame
+    }
+
+    // smoothstep — darkness eases in/out with approach, no linear pop
+    function ease(t) {
+      return t * t * (3 - 2 * t);
+    }
+
+    function frame() {
+      raf = 0;
+      const y = window.scrollY;
+      if (y !== lastY) {
+        lastY = y;
+        const center = y + window.innerHeight / 2;
+        const reach = window.innerHeight * 0.55; // how far a block throws shade
+        let best = 0;
+        let bestEl = null;
+        for (let i = 0; i < blocks.length; i++) {
+          const b = blocks[i];
+          const d = center < b.top ? b.top - center : center > b.bottom ? center - b.bottom : 0;
+          const p = d >= reach ? 0 : 1 - d / reach;
+          if (p > best) {
+            best = p;
+            bestEl = b.el;
+          }
+        }
+        const op = DIM_MAX * ease(best);
+        if (Math.abs(op - lastOp) > 0.002) {
+          lastOp = op;
+          dimmer.style.opacity = op.toFixed(3);
+          // Polled global, deliberately NOT an event (contrast pix:onair): a
+          // continuous per-frame value is read at the consumer's own cadence
+          // (the statusline polls); a discrete flip gets an event + class seed.
+          window.__pixLights = op;
+        }
+        // The lit block itself rises with the darkness (opt-in via
+        // data-lit="fade"); only the active block + the one it replaces are
+        // ever written.
+        if (bestEl !== active) {
+          if (active && active.getAttribute('data-lit') === 'fade') {
+            active.style.opacity = '0.001';
+          }
+          active = bestEl;
+        }
+        if (active && active.getAttribute('data-lit') === 'fade') {
+          const t = ease(best);
+          active.style.opacity = (0.15 + 0.85 * t).toFixed(3);
+          active.style.transform = 'translateY(' + Math.round(24 * (1 - t)) + 'px)';
+        }
+      }
+      raf = requestAnimationFrame(frame);
+    }
+
+    function wire() {
+      if (mq.matches) return; // reduced motion: CSS holds the static 0.55
+      measure();
+      raf = requestAnimationFrame(frame);
+      let rraf = 0;
+      window.addEventListener('resize', function () {
+        if (rraf) return;
+        rraf = requestAnimationFrame(function () {
+          rraf = 0;
+          measure();
+        });
+      });
+      // content below (boot reveal, lazy media) can shift rects after load
+      window.addEventListener('load', measure);
+    }
+    // DEFERRED: this is:inline script renders BEFORE <main> — a parse-time
+    // querySelectorAll sees zero [data-lit] blocks (the documented
+    // parse-position trap).
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', wire, { once: true });
+    } else {
+      wire();
+    }
+    if (mq.addEventListener) {
+      mq.addEventListener('change', function () {
+        if (mq.matches && raf) {
+          cancelAnimationFrame(raf);
+          raf = 0;
+          dimmer.style.opacity = ''; // CSS reduced-motion rule takes over
+        } else if (!mq.matches && !raf) {
+          measure();
+          raf = requestAnimationFrame(frame);
+        }
+      });
+    }
+  })();
+</script>
