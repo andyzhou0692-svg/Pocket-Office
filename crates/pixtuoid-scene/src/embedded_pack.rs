@@ -21,7 +21,9 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use pixtuoid_core::sprite::format::{load_pack, load_pack_from_strings, Pack};
+use pixtuoid_core::sprite::format::{
+    load_pack, load_pack_from_strings, validate_pack_animations, Pack, ValidationReport,
+};
 
 /// Resolve the user's sprite-pack directory if XDG settings point at one.
 /// Returns the directory only when `pack.toml` exists inside it — otherwise
@@ -40,6 +42,37 @@ fn xdg_pack_dir() -> Option<PathBuf> {
     }
 }
 
+/// Log a custom pack's animation-validation gaps at load time. A pack missing
+/// a required character pose — or carrying an empty `frames = []` entry —
+/// LOADS fine and then renders those poses as NOTHING (`paint_character_at`
+/// early-returns on an absent/empty animation), so without this the only
+/// signal is agents silently vanishing whenever they sleep / sit on a couch.
+/// `pixtuoid validate-pack` reports the same facts, but nothing forces a pack
+/// author to run it. Warn, don't fail: a partially-authored pack still
+/// renders every pose it does carry. Runs AFTER `merge_from` so furniture
+/// inherited from the embedded default isn't misreported as missing.
+fn warn_pack_validation_gaps(pack: &Pack, origin: &str) -> ValidationReport {
+    let report = validate_pack_animations(pack);
+    for name in &report.missing_required {
+        tracing::warn!(
+            origin,
+            animation = %name,
+            "custom sprite pack is missing a REQUIRED character animation — \
+             agents will be invisible in that pose (run `pixtuoid validate-pack`)"
+        );
+    }
+    for (name, min, got) in &report.insufficient_frames {
+        tracing::warn!(
+            origin,
+            animation = %name,
+            min,
+            got,
+            "custom sprite pack animation has too few frames — it will render as nothing"
+        );
+    }
+    report
+}
+
 pub fn load_sprite_pack(pack_dir: Option<PathBuf>) -> Result<Pack> {
     let base = load_embedded_pack()?;
 
@@ -49,6 +82,7 @@ pub fn load_sprite_pack(pack_dir: Option<PathBuf>) -> Result<Pack> {
         })?;
         tracing::info!(path = %dir.display(), "loaded sprite pack from --pack-dir");
         custom.merge_from(&base);
+        warn_pack_validation_gaps(&custom, "--pack-dir");
         return Ok(custom);
     }
     if let Some(dir) = xdg_pack_dir() {
@@ -56,6 +90,7 @@ pub fn load_sprite_pack(pack_dir: Option<PathBuf>) -> Result<Pack> {
             Ok(mut p) => {
                 tracing::info!(path = %dir.display(), "loaded user sprite pack");
                 p.merge_from(&base);
+                warn_pack_validation_gaps(&p, "xdg");
                 return Ok(p);
             }
             Err(e) => {
@@ -68,6 +103,21 @@ pub fn load_sprite_pack(pack_dir: Option<PathBuf>) -> Result<Pack> {
         }
     }
     Ok(base)
+}
+
+/// Test-only default-pack loader: takes the crate's `TEST_ENV_LOCK` around the
+/// `XDG_CONFIG_HOME` read inside [`load_sprite_pack`], so an env-READING pack
+/// load can't race the env-MUTATING test
+/// (`load_sprite_pack_resolves_then_falls_back_via_xdg`) under plain
+/// `cargo test` — one test binary, many threads (nextest's per-process
+/// isolation masks the race). Every unit test resolving the default pack must
+/// come through here, never a bare `load_sprite_pack(None)`.
+#[cfg(test)]
+pub(crate) fn test_default_pack() -> Pack {
+    let _env = crate::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    load_sprite_pack(None).expect("default pack loads")
 }
 
 fn load_embedded_pack() -> Result<Pack> {
@@ -218,6 +268,66 @@ mod tests {
         );
     }
 
+    /// Counts WARN-level tracing events emitted inside `with_default`.
+    #[derive(Clone)]
+    struct WarnCounter(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+    impl tracing::Subscriber for WarnCounter {
+        fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+            metadata.level() == &tracing::Level::WARN
+        }
+        fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+            tracing::span::Id::from_u64(1)
+        }
+        fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+        fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+        fn event(&self, _: &tracing::Event<'_>) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        fn enter(&self, _: &tracing::span::Id) {}
+        fn exit(&self, _: &tracing::span::Id) {}
+    }
+
+    #[test]
+    fn custom_pack_missing_required_pose_loads_with_a_load_time_warning() {
+        // A --pack-dir pack missing a required character pose must (a) still
+        // LOAD — warn, not fail — and (b) be LOUD about the gap at load time:
+        // the pose renders as nothing (paint_character_at early-returns), so
+        // without the warning the only signal is agents silently vanishing.
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let pack_dir = tmp.path().join("gappy");
+        copy_skeleton_pack(&pack_dir);
+        // Strip the back_couch animation (the fixture's last section).
+        let toml_path = pack_dir.join("pack.toml");
+        let toml = fs::read_to_string(&toml_path).expect("read pack.toml");
+        let stripped = toml
+            .split("[animations.back_couch]")
+            .next()
+            .expect("split never yields zero pieces")
+            .to_string();
+        assert_ne!(stripped, toml, "fixture must carry back_couch to strip");
+        fs::write(&toml_path, stripped).expect("write stripped pack.toml");
+
+        let warns = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let pack = tracing::subscriber::with_default(WarnCounter(warns.clone()), || {
+            load_sprite_pack(Some(pack_dir))
+        })
+        .expect("a pack missing a required pose must still LOAD (warn, not fail)");
+        assert!(
+            pack.animation("back_couch").is_none(),
+            "the stripped pose is really absent (never inherited: character \
+             animations don't merge from the embedded default)"
+        );
+        assert!(
+            warns.load(std::sync::atomic::Ordering::SeqCst) >= 1,
+            "load_sprite_pack must warn about the missing required pose at load time"
+        );
+        // The gap report names exactly the stripped pose.
+        assert_eq!(
+            warn_pack_validation_gaps(&pack, "test").missing_required,
+            vec!["back_couch".to_string()]
+        );
+    }
+
     #[test]
     fn load_sprite_pack_from_missing_custom_dir_errors() {
         let tmp = tempfile::TempDir::new().expect("tempdir");
@@ -229,9 +339,13 @@ mod tests {
     }
 
     // The XDG path mutates a process-global env var. The TEST_ENV_LOCK
-    // serializes this against the crate's other env-mutating test
-    // (config::config_path_xdg_home_and_relative_branches, which also sets
-    // XDG_CONFIG_HOME) so the two can't race under plain `cargo test`.
+    // serializes this mutator against the crate's env-READING pack loads —
+    // every `test_default_pack()` caller (floor / pixel_painter / the
+    // embedded-pack tests below resolve the default pack through the same
+    // XDG_CONFIG_HOME read) — so a reader can't observe the temp dirs set
+    // here under plain `cargo test` (nextest's per-process isolation masks
+    // the race). This test calls `load_sprite_pack` DIRECTLY, not the locked
+    // helper: it already holds the (non-reentrant) lock.
     #[test]
     fn load_sprite_pack_resolves_then_falls_back_via_xdg() {
         let _env = crate::TEST_ENV_LOCK
@@ -279,7 +393,7 @@ mod tests {
     // the e/q = #1a1a1a dup that the B/H/S/P-only check below missed.
     #[test]
     fn embedded_pack_all_palette_keys_are_distinct_rgbs() {
-        let pack = load_sprite_pack(None).expect("embedded pack loads");
+        let pack = test_default_pack();
         let entries: Vec<(char, pixtuoid_core::sprite::Rgb)> = pack
             .palette
             .iter()
@@ -303,7 +417,7 @@ mod tests {
     // shipped embedded pack.
     #[test]
     fn embedded_pack_recolor_keys_are_distinct_rgbs() {
-        let pack = load_sprite_pack(None).expect("embedded pack loads");
+        let pack = test_default_pack();
         // The single source of truth — same set recolor_frame + the load guard use.
         let keys = pixtuoid_core::sprite::format::RECOLOR_KEYS;
         let rgbs: Vec<_> = keys

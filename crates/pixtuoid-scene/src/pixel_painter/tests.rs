@@ -534,7 +534,7 @@ fn pet_z_anchor_tracks_the_selected_anim_sprite_height() {
     // one row NORTH of the walk/sit sprites — a literal +2 painted a sleeping
     // pet OVER a character whose feet land on pos.y+1. Reads the REAL embedded
     // heights so a pet-sprite resize surfaces HERE, not as a z-order bug.
-    let pack = crate::embedded_pack::load_sprite_pack(None).expect("embedded pack");
+    let pack = crate::embedded_pack::test_default_pack();
     let pos = Point { x: 40, y: 30 };
     let anim_h = |name: &str| {
         pack.animation(name)
@@ -1335,7 +1335,7 @@ fn seat_view_of_obstacle_kinds_is_upright_unflipped() {
 
 #[test]
 fn paint_character_at_missing_anim_is_a_noop() {
-    let pack = crate::embedded_pack::load_sprite_pack(None).expect("embedded pack");
+    let pack = crate::embedded_pack::test_default_pack();
     let mut cache = FrameCache::new();
     let id = pixtuoid_core::AgentId::from_transcript_path("/c.jsonl");
     let slot = make_slot(id, ActivityState::Idle);
@@ -1661,6 +1661,73 @@ fn agent_palette_unknown_cwd_falls_back_to_id_outfit() {
         p_other.get('B'),
         p_empty.get('B'),
         "cwd-less agents keep distinct per-id outfits"
+    );
+}
+
+#[test]
+fn cwd_backfill_invalidates_cached_outfit_frames() {
+    // A slot first seen without a cwd caches frames in the agent_id-seeded
+    // fallback outfit; core's backfill_identity then heals (cwd, unknown_cwd)
+    // on the next identity-bearing event. Already-cached poses must repaint
+    // in the healed Team-Palette outfit — pinned by comparing the healed
+    // repaint (same cache) against a fresh-cache render.
+    let pack = crate::embedded_pack::test_default_pack();
+    let unknown = make_slot_cwd("/p/heal.jsonl", "", true);
+    // Pick a cwd whose Team-Palette outfit differs from the id-seeded
+    // fallback outfit, so the assertion has teeth.
+    let healed = (0..64)
+        .map(|i| make_slot_cwd("/p/heal.jsonl", &format!("/repo/team{i}"), false))
+        .find(|h| {
+            agent_palette(&pack.palette, h, None).get('B')
+                != agent_palette(&pack.palette, &unknown, None).get('B')
+        })
+        .expect("some cwd lands on a different outfit than the fallback");
+
+    let anchor = Point { x: 2, y: 2 };
+    let black = Rgb { r: 0, g: 0, b: 0 };
+    let mut cache = FrameCache::new();
+    let mut before = RgbBuffer::filled(24, 24, black);
+    paint_character_at(
+        &mut before,
+        "seated",
+        0,
+        anchor,
+        &unknown,
+        &pack,
+        false,
+        None,
+        &mut cache,
+    );
+
+    // Heal the cwd, repaint the SAME pose through the SAME cache.
+    let mut after = RgbBuffer::filled(24, 24, black);
+    paint_character_at(
+        &mut after, "seated", 0, anchor, &healed, &pack, false, None, &mut cache,
+    );
+
+    // Ground truth: the same repaint through a FRESH cache.
+    let mut fresh = RgbBuffer::filled(24, 24, black);
+    paint_character_at(
+        &mut fresh,
+        "seated",
+        0,
+        anchor,
+        &healed,
+        &pack,
+        false,
+        None,
+        &mut FrameCache::new(),
+    );
+
+    assert_ne!(
+        before.as_slice(),
+        after.as_slice(),
+        "the healed cwd must change the painted outfit"
+    );
+    assert_eq!(
+        after.as_slice(),
+        fresh.as_slice(),
+        "the healed repaint must match a fresh render, not the stale cached outfit"
     );
 }
 

@@ -117,9 +117,11 @@ fn main() -> Result<()> {
     let tui_active = matches!(&cmd, Cmd::Run { headless, .. } if !*headless)
         || matches!(&cmd, Cmd::Floating { .. });
     let wants_verbose = matches!(log_level, "debug" | "trace");
-    // The env var's VALUE is the log file path — an empty value would
-    // "enable" file mode with an unopenable path; treat it as unset.
-    let explicit_log_file = std::env::var("PIXTUOID_LOG").is_ok_and(|v| !v.is_empty());
+    // The env var's VALUE is the log file path — an empty (or whitespace-only)
+    // value would "enable" file mode with an unopenable path; treat it as unset
+    // via the ONE empty-as-unset env filter (io::nonempty), the same trim
+    // semantics XDG_STATE_HOME / XDG_CONFIG_HOME / PIXTUOID_HOOK already use.
+    let explicit_log_file = pixtuoid::install::io::nonempty_env("PIXTUOID_LOG").is_some();
 
     if tui_active {
         // Explicit verbosity keeps today's semantics (the full --log-level /
@@ -199,7 +201,7 @@ fn main() -> Result<()> {
             json,
         } => run_sources_set(&ids, json),
         Cmd::Connect { ids, json } => run_change(&ids, json, |c, i| {
-            sources::connect(c, i).map(|_| "connected".to_string())
+            sources::connect(c, i).map(|_| sources::ChangeOutcome::Connected.as_wire())
         }),
         // A folded hook-removal failure is a PARTIAL failure (the flag IS
         // disconnected, but hooks remain) — surface it AND signal it via a
@@ -210,7 +212,7 @@ fn main() -> Result<()> {
                 sources::DisconnectOutcome::HookRemovalFailed(e) => Err(anyhow::anyhow!(
                     "disconnected, but hook removal failed: {e}"
                 )),
-                _ => Ok("disconnected".to_string()),
+                _ => Ok(sources::ChangeOutcome::Disconnected.as_wire()),
             })
         }
         Cmd::Setup { yes } => run_setup(yes),
@@ -339,7 +341,10 @@ fn run_change(
                 Ok(t) => t,
                 Err(e) => {
                     any_failed = true;
-                    format!("failed: {e:#}")
+                    // The same `failed: <msg>` wire form `sources set` emits —
+                    // spelled through the ONE token authority so the two
+                    // command surfaces can't drift.
+                    sources::ChangeOutcome::Failed(format!("{e:#}")).as_wire()
                 }
             };
             (sid.to_string(), token)
@@ -355,17 +360,23 @@ fn run_change(
 /// Print a `[(id, outcome)]` batch as a table or a JSON array of `{id, outcome}`.
 fn emit_outcomes(out: &[(String, String)], json: bool) -> Result<()> {
     if json {
-        let rows: Vec<serde_json::Value> = out
-            .iter()
-            .map(|(id, outcome)| serde_json::json!({ "id": id, "outcome": outcome }))
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&rows)?);
+        println!("{}", serde_json::to_string_pretty(&outcome_rows_json(out))?);
     } else {
         for (id, outcome) in out {
             println!("{id}: {outcome}");
         }
     }
     Ok(())
+}
+
+/// The scriptable-surface `--json` batch envelope: one `{id, outcome}` object
+/// per source row — the shape the Raycast extension parses back from
+/// `connect`/`disconnect`/`sources set` (pinned by
+/// `outcome_envelope_is_the_id_outcome_raycast_contract`).
+fn outcome_rows_json(out: &[(String, String)]) -> Vec<serde_json::Value> {
+    out.iter()
+        .map(|(id, outcome)| serde_json::json!({ "id": id, "outcome": outcome }))
+        .collect()
 }
 
 /// Resolve the shared [`runtime::RunConfig`] from CLI args + the on-disk config —
@@ -389,7 +400,11 @@ fn build_run_config(
     let cfg = config::load(&cfg_path, &mut cfg_warnings);
     // First launch ever (no `[sources]` flags yet) → the TUI plays onboarding.
     // Computed from the same migrate condition `resolve_connected` uses below.
-    let first_run = setup::is_first_run(&cfg, &cfg_path);
+    // Right after load(), a non-empty warnings Vec means the file EXISTS but is
+    // malformed/unreadable — "previously configured", never a first run (the
+    // onboarding apply couldn't succeed anyway: update_config refuses to
+    // rewrite a malformed config). A missing file warns nothing ⇒ first run.
+    let first_run = setup::is_first_run(&cfg, &cfg_path, !cfg_warnings.is_empty());
     let theme = config::resolve_theme(&cfg, cli_theme, &mut cfg_warnings)?;
     // The config seam's twin of the clap range(1..) guard: a config max-desks = 0
     // is ignored with a collected warning (eager `.or` argument on purpose — the
@@ -630,12 +645,13 @@ fn filter_directives<'a>(rust_log: Option<&'a str>, log_level: &'a str) -> &'a s
 }
 
 fn log_file_path() -> PathBuf {
-    // Empty value = unset (the value is the PATH, not an on/off toggle; an
-    // empty path would silently fail to open and log nothing).
-    if let Ok(p) = std::env::var("PIXTUOID_LOG") {
-        if !p.is_empty() {
-            return PathBuf::from(p);
-        }
+    // Empty/whitespace-only value = unset (the value is the PATH, not an on/off
+    // toggle; an empty path would silently fail to open and log nothing) — the
+    // shared io::nonempty semantics, kept in lockstep with the
+    // `explicit_log_file` read in main() so "file mode enabled" and "which
+    // file" can't disagree on a whitespace value.
+    if let Some(p) = pixtuoid::install::io::nonempty_env("PIXTUOID_LOG") {
+        return PathBuf::from(p);
     }
     if let Some(state) = pixtuoid::install::io::nonempty_env("XDG_STATE_HOME") {
         return PathBuf::from(format!("{state}/pixtuoid/log"));
@@ -699,6 +715,32 @@ mod tests {
     use std::path::Path;
 
     use super::*;
+
+    #[test]
+    fn outcome_envelope_is_the_id_outcome_raycast_contract() {
+        // Pins the exact `{id, outcome}` JSON rows `connect`/`disconnect`/
+        // `sources set --json` emit — the batch envelope the Raycast extension
+        // parses. A key rename must break THIS test, not the consumer. The
+        // outcome TOKEN set itself ("connected"/"disconnected"/"no_op"/
+        // "failed: <msg>") is pinned by sources.rs's
+        // `change_outcome_wire_tokens_are_stable`, and every emission site
+        // routes through `ChangeOutcome::as_wire`, so the failed row below
+        // exercises the same form the CLI ships.
+        let rows = outcome_rows_json(&[
+            (
+                "codex".to_string(),
+                sources::ChangeOutcome::Connected.as_wire(),
+            ),
+            (
+                "cursor".to_string(),
+                sources::ChangeOutcome::Failed("boom".into()).as_wire(),
+            ),
+        ]);
+        assert_eq!(
+            serde_json::to_string(&rows).unwrap(),
+            r#"[{"id":"codex","outcome":"connected"},{"id":"cursor","outcome":"failed: boom"}]"#
+        );
+    }
 
     #[test]
     fn empty_rust_log_falls_back_to_requested_level() {
