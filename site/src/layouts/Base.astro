@@ -12,7 +12,11 @@ import '@fontsource/jetbrains-mono/400.css';
 import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
 import '@fontsource/lora/400.css';
-import '@fontsource/lora/500.css';
+// 600 (SemiBold), not 500: the run-in step titles / docs links / tools CLI-name
+// column declare `font-weight: 600` on Lora — with only 400/500 loaded the 600
+// silently painted as Medium (500 was the accidental fallback, referenced by
+// nothing else). Loading the real 600 gives those a genuine weight step.
+import '@fontsource/lora/600.css';
 import '../styles/global.css';
 import { asset, THEMES, THEME_BG, THEME_STORAGE_KEY, VALID_THEMES } from '../consts';
 
@@ -398,6 +402,9 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
         const root = document.documentElement;
         const boot = document.getElementById('boot');
         function reveal() {
+          // Flag mirrors the one-shot event so a late-attaching listener (the
+          // office backdrop, if its script ran after this) still sees the reveal.
+          window.__pixRevealed = true;
           document.dispatchEvent(new Event('pix:revealed'));
         }
         if (root.dataset.booting !== '1' || !boot) {
@@ -443,9 +450,33 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
             lines[i].classList.add('in');
             i++;
             setTimeout(step, 260);
+          } else if (document.getElementById('office-live')) {
+            // Level 2: the lines are typed — now HOLD ("▸ ready") until the office
+            // engine is actually ready (window.__pixEngineReady, set by
+            // OfficeBackdrop on the first live frame, or on wasm failure/absence so
+            // we never hang), so the splash lifts STRAIGHT into the office reveal
+            // instead of onto a bg gap. Capped well under the first-visit reveal
+            // budget for a slow or dead engine.
+            // GATED on the office being PRESENT: this splash lives in the shared
+            // Base layout, but OfficeBackdrop (#office-live) is index-only — it's the
+            // sole setter of __pixEngineReady. On docs/404 first visits nothing would
+            // ever set the flag, so without this guard the splash would hang the full
+            // cap with the page inert. No office → keep the flat pre-Level-2 delay.
+            waitForEngine(0);
           } else {
             setTimeout(finish, 520);
           }
+        }
+        const MAX_ENGINE_WAITS = 50; // 50 × 80ms ≈ 4s cap after the lines finish
+        function waitForEngine(n) {
+          if (done) return;
+          if (window.__pixEngineReady || n >= MAX_ENGINE_WAITS) {
+            setTimeout(finish, 180);
+            return;
+          }
+          setTimeout(function () {
+            waitForEngine(n + 1);
+          }, 80);
         }
         function skip() {
           for (let j = 0; j < lines.length; j++) lines[j].classList.add('in');

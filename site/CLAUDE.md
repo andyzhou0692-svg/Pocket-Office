@@ -55,7 +55,13 @@ Mermaid diagram becomes an inline SVG at build via `rehype-mermaid`, which is
   wasm-bindgen JS glue, size- and pair-gated — a sha256 manifest pins the
   wasm/glue ABI pair — by `gen-wasm-check` in the Rust CI).
   `components/OfficeBackdrop.astro` dynamically `import()`s it at runtime
-  (poster-first; any failure keeps the still). Never hand-edit
+  (cover-first on the boot path — the canvas covers the baked poster with its
+  OWN `var(--bg)` tone, then FLOOR-ROLLS the live office up out of that tone once
+  the boot splash clears (`pix:revealed`), so the reveal never cross-dissolves a
+  wrong-time still — the day/night flip is gone by construction; the splash in
+  turn HOLDS on `window.__pixEngineReady` (Level-2 gate) so it lifts straight into
+  the roll. Any failure / no-JS / no-wasm / reduced-motion keeps the still poster).
+  Never hand-edit
   (prettier/eslint/knip all ignore it); regenerate from the crate.
   The backdrop's pause switch (`#office-pause`, WCAG 2.2.2) lives in the same
   component: pause stops the rAF loop (frozen frame stays on the canvas) and
@@ -78,7 +84,18 @@ Mermaid diagram becomes an inline SVG at build via `rehype-mermaid`, which is
   standalone. Reduced-motion hides the button (nothing auto-animates there). The
   wasm fetch is **deferred** off the render-critical window (`load` →
   `requestIdleCallback`) so it doesn't compete with the above-fold poster/fonts;
-  a live un-reduce still boots promptly via the mq listener.
+  a live un-reduce still boots promptly via the mq listener. The dimmer
+  controller honours a per-block `data-lit-max`: the hero's `data-lit` block caps
+  its darkness at 0.74 (below the shared `DIM_MAX` 0.86) so the LIVE office reads
+  above the fold, while downpage statement holds keep `DIM_MAX` for copy
+  legibility (the `[data-lit]::before` radial wash still floors local contrast).
+- **Scoped `<style>` does NOT reach `set:html` content.** Astro scopes component
+  styles by stamping a `data-astro-*` hash on template elements AND selectors;
+  markup injected at runtime via `set:html` (e.g. the SupportedTools per-OS
+  pixel-check marks from `MARK()`) carries no hash, so scoped rules silently miss
+  it — target it with `:global(...)`. (The tools checks rendered black + mis-sized
+  until the `.tools__mark*` rules were `:global`; caught only by rendering, not by
+  the static gates.)
 - The **on-page nav + footer logo mark IS the favicon** — `public/favicon-32.png`
   / `favicon-32-night.png` (the head-and-collar bust squircle from #379), one
   brand asset in two roles so there's no second file to drift (the old separate

@@ -90,7 +90,8 @@ gates can't see. CI runs it in `site.yml` after the build step.
   fixed full-viewport canvas (poster-first; reduced-motion / no-JS / any
   failure stays on the still), and scrolling is the light switch — a `#dimmer`
   sheet darkens toward statements and releases to 0 in full-viewport
-  "office gaps". Each section is a floor (6F penthouse → 1F front desk);
+  "office gaps" (the hero caps its dim lower via `data-lit-max` so the live
+  office reads above the fold). Each section is a floor (6F penthouse → 1F front desk);
   `Statusline.astro` is the one piece of fixed chrome (floor readout +
   scrollspy, the build-time merged-PR feed with a canned-reel fallback,
   `lights %` / clock / `● LIVE` · `❚❚ PAUSED`), and the app's literal keys work
@@ -110,7 +111,12 @@ gates can't see. CI runs it in `site.yml` after the build step.
     for late-attach seeding), and `pix:paused` (the office pause switch — see FX)
     — every >5s auto-motion listens, so ONE control governs page motion. Plus
     `window.__pixHire()` (walk one extra sprite in; the install Copy buttons call
-    it). `window.__pixNight()` and `window.__pixTheme` / `window.__pixKeys`
+    it). The boot handshake: `Base.astro` publishes `window.__pixRevealed` (+ the
+    `pix:revealed` event) when the terminal boot splash lifts — that RELEASES the
+    office's floor-roll reveal; `OfficeBackdrop` publishes `window.__pixEngineReady`
+    when the engine resolves (live / failed / unsupported), which the splash's
+    Level-2 gate polls so it lifts STRAIGHT into the reveal instead of a bg gap.
+    `window.__pixNight()` and `window.__pixTheme` / `window.__pixKeys`
     (defined parse-first in `Base.astro`'s head) are the ONE day/night boundary /
     theme-constants source / key-shortcut helpers — never re-derive 19:00–07:00,
     the theme BG map, or the typing guard inline.
