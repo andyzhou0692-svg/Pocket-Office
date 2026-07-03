@@ -137,7 +137,7 @@ test('the hero pause switch freezes the office and resumes it seamlessly', async
   const errors = watchErrors(page);
   await gotoLive(page);
   const btn = page.locator('#office-pause');
-  await expect(btn).toBeVisible(); // unhidden by the first painted frame
+  await expect(btn).toBeVisible(); // shown at init for any non-reduced-motion visitor (syncPauseBtn), independent of the office going live
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
   const shot = () =>
     page.evaluate(() => (document.getElementById('office-live') as HTMLCanvasElement).toDataURL());
@@ -227,7 +227,9 @@ test('reduced motion stays on the still poster without errors', async ({ browser
   await page.waitForLoadState('networkidle');
   expect(wasmRequests).toEqual([]);
   await expect(page.locator('.backdrop.is-live')).not.toBeAttached();
-  // Poster-only path: nothing is animating, so the pause switch stays hidden.
+  // Reduced motion is the ONLY path that hides the pause switch: nothing
+  // auto-animates here (the wasm-fail poster keeps it visible — ticker/dust/clips
+  // still run there, see the wasm-failure test).
   await expect(page.locator('#office-pause')).toBeHidden();
   // Reduced motion also strips the showcase clip's autoplay: native controls
   // appear and the video stays paused (WCAG 2.2.2).
@@ -241,7 +243,9 @@ test('reduced motion stays on the still poster without errors', async ({ browser
 test('wasm fetch failure keeps the still poster without an uncaught error', async ({ browser }) => {
   // The third documented boot path (live / reduced-motion / FAILURE): abort every
   // wasm request so the dynamic import rejects — the empty .catch must keep the
-  // poster (graceful degradation), never throw or show a dead-canvas pause button.
+  // poster (graceful degradation) and never throw. The pause control stays present
+  // though: it governs the wasm-independent ambient motion (ticker/dust/clips), so
+  // a failed office must NOT strand that motion uncontrollable (#456).
   const context = await browser.newContext();
   const page = await context.newPage();
   const errors = watchErrors(page);
@@ -257,8 +261,24 @@ test('wasm fetch failure keeps the still poster without an uncaught error', asyn
   await page.waitForLoadState('networkidle');
   await expect(page.locator('.backdrop__poster')).toBeVisible();
   await expect(page.locator('.backdrop.is-live')).not.toBeAttached();
-  await expect(page.locator('#office-pause')).toBeHidden(); // nothing to pause
   await expect(page.locator('[data-sl-onair]')).toHaveText('○ STILL');
+  // #456: the office canvas never went live, but the statusline ticker / hero dust
+  // / showcase clips still auto-animate — so the pause control must be VISIBLE and
+  // actually govern them (WCAG 2.2.2), not hidden as if nothing were animating.
+  // Clicking it fires the page-wide pix:paused even with no live office.
+  const pauseBtn = page.locator('#office-pause');
+  await expect(pauseBtn).toBeVisible();
+  const paused = page.evaluate(
+    () =>
+      new Promise<boolean>((resolve) => {
+        document.addEventListener('pix:paused', (e) => resolve((e as CustomEvent).detail.paused), {
+          once: true,
+        });
+      })
+  );
+  await pauseBtn.click();
+  expect(await paused).toBe(true);
+  await expect(pauseBtn).toHaveAttribute('aria-pressed', 'true');
   // the aborted request logs a resource error; the import rejection must stay
   // handled — no uncaught pageerror / console.error beyond that one line.
   expect(errors().filter((e) => !e.includes('Failed to load resource'))).toEqual([]);
