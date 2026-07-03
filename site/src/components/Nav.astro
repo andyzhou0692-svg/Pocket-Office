@@ -13,12 +13,12 @@ const { floating = false } = Astro.props;
   <div class="container nav__inner">
     <a class="nav__logo" href={home}>
       <img
-        class="nav__mark"
-        src={asset('char-mark.png')}
+        class="nav__mark js-brand-mark"
+        src={asset('favicon-32.png')}
         alt=""
         aria-hidden="true"
-        width="17"
-        height="24"
+        width="32"
+        height="32"
       />
       pixtuoid
     </a>
@@ -219,10 +219,15 @@ const { floating = false } = Astro.props;
     color: var(--fg);
     text-decoration: none;
   }
-  /* a little pixtuoid coworker as the logo mark (matches the tab favicon) */
+  /* the logo mark IS the tab favicon (same asset, day/night swapped by the Base
+     theme sync) — one brand source, no drift. Shown at the favicon's native 32px
+     (1:1), so the pixel bust is device-exact on 1× and a clean 2× double on
+     retina (image-rendering:pixelated keeps that double hard-edged). Size only to
+     32 or an integer fraction of it (the footer uses 16) — an arbitrary fraction
+     like the old 24px resamples the bust softer. */
   .nav__mark {
-    height: 24px;
-    width: auto;
+    height: 32px;
+    width: 32px;
     image-rendering: pixelated;
   }
   /* mobile: a dropdown panel toggled by the burger; desktop: an inline row */
