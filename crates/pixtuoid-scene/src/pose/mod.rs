@@ -18,8 +18,8 @@ use pixtuoid_core::state::AgentSlot;
 use pixtuoid_core::AgentId;
 
 use crate::motion::{
-    advance_wander, octile_path_len, settle_len, walking_position, MotionState, WalkLeg,
-    WalkPathSnapshot, WanderPhase,
+    advance_wander, measured_leg_len, walking_position, MotionState, WalkLeg, WalkPathSnapshot,
+    WanderKind, WanderPhase,
 };
 use crate::physics::{walk_arrived, walk_profile, walk_progress, WalkIntent};
 use pixtuoid_core::walkable::{OccupancyOverlay, WalkableMask};
@@ -31,6 +31,9 @@ pub use pure::{
     STALE_RESUME_GAP_BASE_MS, STALE_RESUME_GAP_RANGE_MS, THINKING_WINDOW_SECS, TYPING_FRAMES,
     TYPING_FRAME_MS, WALKING_FRAMES, WALKING_FRAME_MS, WANDER_DWELL_EST_MS, WANDER_WALK_EST_MS,
 };
+// `resolve_wander_target` stays crate-internal (the motion authority delegates to
+// it); a `pub use` would try to widen its `pub(crate)` visibility.
+pub(crate) use pure::resolve_wander_target;
 
 use crate::layout::{desk_walk_anchor, Layout, Point, WaypointKind};
 use crate::pathfind::Router;
@@ -154,7 +157,7 @@ pub(crate) fn desk_approach_cell(desk: Point, layout: &Layout) -> Option<Point> 
 ///   * `chair_settle` — `Some(chair)` to prepend/append via [`Settle`] (the short
 ///     glide on/off the seat the router never plans), or `None` in the degenerate
 ///     boxed-in layout where every allowed side is walled off and the leg reverts
-///     to the direct chair target (resolved by `find_path`'s `snap_to_walkable`).
+///     to the direct chair target (resolved by `find_path`'s coarse-cell `snap`).
 ///
 /// NOTE: snap-back is now a caller too (the urgent Idle→Active return routes via
 /// the approach cell + settle like the rest, run by pure physics with a brisk
@@ -190,10 +193,10 @@ pub fn derive_with_routing(
     layout: &Layout,
     rctx: &mut RouteCtx<'_>,
 ) -> Option<Pose> {
-    let router = &mut *rctx.router;
-    let overlay = rctx.overlay;
-    let history = &mut *rctx.history;
-    let motion = &mut *rctx.motion;
+    // The four engine borrows stay behind `rctx`: direct `rctx.router` /
+    // `rctx.overlay` / `rctx.history` / `rctx.motion` accesses are disjoint
+    // field borrows, and `rctx` auto-reborrows (`&mut *rctx`) at each
+    // `route_walking_pose` call — no per-branch `RouteCtx { .. }` rebuild.
     let desk = layout.home_desk(slot.desk_index.single_floor_local())?;
 
     // ---- EXIT branch -------------------------------------------------------
@@ -208,24 +211,15 @@ pub fn derive_with_routing(
             // handled this gracefully too.
             let raw = derive_state_only(slot, now, layout)?;
             return match raw {
-                Pose::Walking { .. } => route_walking_pose(
-                    slot,
-                    now,
-                    layout,
-                    &mut RouteCtx {
-                        router,
-                        overlay,
-                        history,
-                        motion,
-                    },
-                    raw,
-                    Settle::None,
-                ),
+                Pose::Walking { .. } => {
+                    route_walking_pose(slot, now, layout, rctx, raw, Settle::None)
+                }
                 other => Some(other),
             };
         };
 
-        let mstate = motion
+        let mstate = rctx
+            .motion
             .entry(slot.agent_id)
             .or_insert_with(|| MotionState::new(slot.agent_id));
 
@@ -237,7 +231,8 @@ pub fn derive_with_routing(
             // Without this, an agent that's mid-coffee-run when its session
             // ends teleports back to the desk before walking to the door.
             let desk_anchor = desk_walk_anchor(desk);
-            let from = history
+            let from = rctx
+                .history
                 .recent(slot.agent_id, HISTORY_RECENT_MS, now)
                 .unwrap_or(desk_anchor);
             // Exit is a desk DEPARTURE: when leaving the seated chair, rise off it
@@ -256,15 +251,15 @@ pub fn derive_with_routing(
             // contract the wander legs use. A raw router.route(to_jittered) would
             // measure the ±jitter-perturbed polyline, a small duration/speed skew.
             let path = route_jittered(
-                router,
+                rctx.router,
                 &layout.walkable,
-                overlay,
+                rctx.overlay,
                 slot.agent_id,
                 route_from,
                 door_target,
             );
-            let glide = settle_len(route_from, chair_rise);
-            let path_len = (octile_path_len(&path) + glide).max(1);
+            // Rise off the chair (start settle); the door has no seat (end None).
+            let path_len = measured_leg_len(&path, chair_rise, None);
             let profile = walk_profile(path_len, WalkIntent::Exit, slot.agent_id);
             // Store the ORIGIN (chair when a desk exit) so the render can detect
             // the desk-departure and re-derive the approach+settle.
@@ -319,12 +314,7 @@ pub fn derive_with_routing(
             slot,
             now,
             layout,
-            &mut RouteCtx {
-                router,
-                overlay,
-                history,
-                motion,
-            },
+            rctx,
             Pose::Walking {
                 from,
                 to: door_target,
@@ -351,9 +341,9 @@ pub fn derive_with_routing(
         // direct target with no settle.
         let (approach, chair_settle) = desk_leg_endpoint(desk, layout);
         let settle = chair_settle.map_or(Settle::None, Settle::End);
-        let settle_px = settle_len(approach, chair_settle);
 
-        let mstate = motion
+        let mstate = rctx
+            .motion
             .entry(slot.agent_id)
             .or_insert_with(|| MotionState::new(slot.agent_id));
 
@@ -362,15 +352,16 @@ pub fn derive_with_routing(
             // route_jittered (endpoint restored) so the measured length matches
             // the rendered leg — same as the wander legs.
             let path = route_jittered(
-                router,
+                rctx.router,
                 &layout.walkable,
-                overlay,
+                rctx.overlay,
                 slot.agent_id,
                 door,
                 approach,
             );
-            // Profile covers door→approach PLUS the short settle glide onto the chair.
-            let path_len = (octile_path_len(&path) + settle_px).max(1);
+            // Profile covers door→approach PLUS the short settle glide onto the chair
+            // (end settle; the door start has no seat).
+            let path_len = measured_leg_len(&path, None, chair_settle);
             let profile = walk_profile(path_len, WalkIntent::Entry, slot.agent_id);
             mstate.entry = Some((slot.created_at, profile));
         }
@@ -385,12 +376,7 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    &mut RouteCtx {
-                        router,
-                        overlay,
-                        history,
-                        motion,
-                    },
+                    rctx,
                     Pose::Walking {
                         from: door,
                         to: approach,
@@ -431,14 +417,15 @@ pub fn derive_with_routing(
             return Some(Pose::SeatedThinking);
         }
 
-        let (wander_phase, t_phys) = advance_wander(slot, now, layout, router, overlay, motion);
+        let (wander_phase, t_phys) =
+            advance_wander(slot, now, layout, rctx.router, rctx.overlay, rctx.motion);
 
         match wander_phase {
             WanderPhase::WalkingOut => {
-                let ms = motion.get(&slot.agent_id)?;
+                let ms = rctx.motion.get(&slot.agent_id)?;
                 let desk_point = layout.home_desk(slot.desk_index.single_floor_local())?;
-                let dest = ms.wander.dest;
-                let seat = ms.wander.seat;
+                let dest = ms.wander.target.dest;
+                let seat = ms.wander.target.kind.seat();
                 // Leave the desk via the approach cell (a reachable N/E/W side),
                 // never straight through the south front: `from` is the approach
                 // cell and the chair is PREPENDED via Settle so the sprite first
@@ -454,12 +441,7 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    &mut RouteCtx {
-                        router,
-                        overlay,
-                        history,
-                        motion,
-                    },
+                    rctx,
                     Pose::Walking {
                         from,
                         to: dest,
@@ -471,15 +453,12 @@ pub fn derive_with_routing(
                 );
             }
             WanderPhase::AtWaypoint => {
-                let ms = motion.get(&slot.agent_id)?;
-                let pose = if let (Some(wp_idx), Some(kind)) =
-                    (ms.wander.dest_wp_idx, ms.wander.dest_kind)
-                {
-                    Pose::AtWaypoint { wp: wp_idx, kind }
-                } else {
-                    Pose::AimlessAt {
-                        dest: ms.wander.dest,
-                    }
+                let ms = rctx.motion.get(&slot.agent_id)?;
+                let pose = match ms.wander.target.kind {
+                    WanderKind::Named { wp_idx, kind, .. } => Pose::AtWaypoint { wp: wp_idx, kind },
+                    WanderKind::Aimless => Pose::AimlessAt {
+                        dest: ms.wander.target.dest,
+                    },
                 };
                 // Record the RENDERED position so snap-back/exit (which read
                 // history.recent as their walk origin) start where the sprite
@@ -489,19 +468,30 @@ pub fn derive_with_routing(
                 // `dest` for a seat popped the sprite ~10px to the off-side
                 // approach cell on the first snap-back/exit frame — the one seated
                 // departure the WalkingBack Settle machinery didn't cover.
-                let pt = ms.wander.seat.unwrap_or(ms.wander.dest);
-                history.record(slot.agent_id, pt, now);
+                let pt = ms
+                    .wander
+                    .target
+                    .kind
+                    .seat()
+                    .unwrap_or(ms.wander.target.dest);
+                rctx.history.record(slot.agent_id, pt, now);
                 return Some(pose);
             }
             WanderPhase::WalkingBack => {
-                let ms = motion.get(&slot.agent_id)?;
+                let ms = rctx.motion.get(&slot.agent_id)?;
                 let desk_point = layout.home_desk(slot.desk_index.single_floor_local())?;
                 // Copy the fields off `ms` so the immutable `motion` borrow ends
                 // before `route_walking_pose` takes `&mut motion`.
-                let wander_dest = ms.wander.dest;
+                let wander_dest = ms.wander.target.dest;
                 let wander_phase_started_at = ms.wander.phase_started_at;
-                let carrying_coffee = ms.wander.dest_kind == Some(WaypointKind::Pantry);
-                let seat = ms.wander.seat;
+                let carrying_coffee = matches!(
+                    ms.wander.target.kind,
+                    WanderKind::Named {
+                        kind: WaypointKind::Pantry,
+                        ..
+                    }
+                );
+                let seat = ms.wander.target.kind.seat();
                 // Arrive at the desk via the approach cell (a reachable N/E/W
                 // side), never up through the south front: `to` is the approach
                 // cell and the chair is APPENDED via Settle so the sprite glides
@@ -517,12 +507,7 @@ pub fn derive_with_routing(
                     slot,
                     now,
                     layout,
-                    &mut RouteCtx {
-                        router,
-                        overlay,
-                        history,
-                        motion,
-                    },
+                    rctx,
                     Pose::Walking {
                         from: wander_dest,
                         to: snap_target,
@@ -564,7 +549,8 @@ pub fn derive_with_routing(
     let since_state = crate::anim::elapsed_ms(now, slot.state_started_at);
     let mut final_settle = Settle::None;
     let pose = if desk_pose {
-        let ms_entry = motion
+        let ms_entry = rctx
+            .motion
             .entry(slot.agent_id)
             .or_insert_with(|| MotionState::new(slot.agent_id));
         // ARM ONCE per state transition. The distance gate is checked ONLY when not
@@ -585,7 +571,7 @@ pub fn derive_with_routing(
             // a fresh leg, but only for a recent flip (the arm window).
             ms_entry.snap_back = None;
             if since_state < SNAP_BACK_MS {
-                if let Some(prev) = history.recent(slot.agent_id, HISTORY_RECENT_MS, now) {
+                if let Some(prev) = rctx.history.recent(slot.agent_id, HISTORY_RECENT_MS, now) {
                     // Distance to the CHAIR (where the agent actually sits), NOT the
                     // desk origin: the chair is offset (+6,+4) from the origin, so a
                     // desk-origin gate would re-fire forever once the agent settles ON
@@ -613,15 +599,15 @@ pub fn derive_with_routing(
                         // route_jittered (endpoint restored) so the measured length
                         // matches the rendered leg — same as the wander legs.
                         let path = route_jittered(
-                            router,
+                            rctx.router,
                             &layout.walkable,
-                            overlay,
+                            rctx.overlay,
                             slot.agent_id,
                             prev,
                             snap_target,
                         );
-                        let len =
-                            (octile_path_len(&path) + settle_len(snap_target, chair_settle)).max(1);
+                        // Glide onto the chair (end settle); `prev` start has no seat.
+                        let len = measured_leg_len(&path, None, chair_settle);
                         let p = walk_profile(len, WalkIntent::SnapBack, slot.agent_id);
                         ms_entry.snap_back = Some(WalkLeg {
                             started_at: slot.state_started_at,
@@ -681,7 +667,7 @@ pub fn derive_with_routing(
     } else {
         // Hard wall: clear any stale snap-back profile so the next state transition
         // gets a fresh snapshot rather than replaying a previous one.
-        if let Some(ms) = motion.get_mut(&slot.agent_id) {
+        if let Some(ms) = rctx.motion.get_mut(&slot.agent_id) {
             if ms.snap_back.is_some() {
                 ms.snap_back = None;
             }
@@ -689,19 +675,7 @@ pub fn derive_with_routing(
         raw
     };
 
-    route_walking_pose(
-        slot,
-        now,
-        layout,
-        &mut RouteCtx {
-            router,
-            overlay,
-            history,
-            motion,
-        },
-        pose,
-        final_settle,
-    )
+    route_walking_pose(slot, now, layout, rctx, pose, final_settle)
 }
 
 /// Apply A*-based polyline routing to a `Pose::Walking`, recording

@@ -25,9 +25,10 @@ use ratatui::layout::Rect;
 
 use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset, DrawCtx, PetState};
 use pixtuoid_scene::floor::{
-    num_floors, project_floor_scene, render_floor, FloorMeta, FloorTransition, PerFloor, PerOffice,
+    num_floors, project_floor_scene, render_floor, FloorMeta, FloorTransition, FrameInputs,
+    PerFloor, PerOffice,
 };
-use pixtuoid_scene::layout::Layout;
+use pixtuoid_scene::layout::{Layout, Size};
 use pixtuoid_scene::pathfind::Router;
 use pixtuoid_scene::pet::PetFrame;
 
@@ -493,6 +494,11 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         let buf_h = scene_rect.height.saturating_mul(2);
         // Compute popup scale before the split_at_mut borrows.
         let popup_scale = self.version_popup_scale(now);
+        // The onboarding modal-backdrop dim (same field draw_scene reads) — captured
+        // before the split_at_mut borrows `self.floors`, applied to BOTH sliding
+        // buffers below so a floor change mid-open lowers the lights on the whole
+        // office, matching the single-buffer path (#R0d82-item4).
+        let onboarding_dim = self.onboarding.dim;
 
         // Render both floors into their respective buffers.
         // Use split_at_mut to get mutable access to two different indices.
@@ -551,33 +557,44 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
             from_buf,
             &mut self.office.coffee,
             &mut transition_chitchat,
-            &from_scene,
-            pack,
-            self.theme,
-            now,
-            buf_w,
-            buf_h,
-            from_meta,
-            from_active_pet,
-            from_pet,
-            self.debug_walkable,
+            FrameInputs {
+                scene: &from_scene,
+                pack,
+                theme: self.theme,
+                now,
+                size: Size { w: buf_w, h: buf_h },
+                floor_meta: from_meta,
+                active_pet: from_active_pet,
+                floor_pet: from_pet,
+                debug_walkable: self.debug_walkable,
+            },
         );
         render_floor(
             to_ctx,
             to_buf,
             &mut self.office.coffee,
             &mut transition_chitchat,
-            &to_scene,
-            pack,
-            self.theme,
-            now,
-            buf_w,
-            buf_h,
-            to_meta,
-            to_active_pet,
-            to_pet,
-            self.debug_walkable,
+            FrameInputs {
+                scene: &to_scene,
+                pack,
+                theme: self.theme,
+                now,
+                size: Size { w: buf_w, h: buf_h },
+                floor_meta: to_meta,
+                active_pet: to_active_pet,
+                floor_pet: to_pet,
+                debug_walkable: self.debug_walkable,
+            },
         );
+
+        // Modal backdrop: dim BOTH sliding buffers by the onboarding factor, the
+        // same multiply draw_scene applies to its single buffer (the transition
+        // path previously threaded the OnboardingFrame but silently dropped its
+        // dim, so a floor change mid-open flashed the office to full brightness).
+        if onboarding_dim < 0.999 {
+            crate::tui::renderer::apply_dim(from_buf, onboarding_dim);
+            crate::tui::renderer::apply_dim(to_buf, onboarding_dim);
+        }
 
         // Compute y-offsets for vertical slide with divider gap.
         // t applies to total travel = screen_height + divider_height
@@ -713,17 +730,10 @@ impl<B: Backend<Error: Send + Sync + 'static>> Renderer for TuiRenderer<B> {
         // Compute popup scale before the mutable borrows below.
         let popup_scale = self.version_popup_scale(now);
         let pf = &mut self.floors[self.current_floor];
-        let fctx = &mut pf.ctx;
-        let door_anim_max_ms = fctx.door_anim_max_ms;
         let mut draw_ctx = DrawCtx {
+            // buf + the FloorCtx store are disjoint fields of the PerFloor.
             buf: &mut pf.buf,
-            cache: &mut fctx.cache,
-            router: &mut fctx.router,
-            overlay: &mut fctx.overlay,
-            history: &mut fctx.history,
-            motion: &mut fctx.motion,
-            door_anim_max_ms,
-            light: &mut fctx.light,
+            store: &mut pf.ctx,
             mouse_pos: self.mouse_pos,
             pinned_agent: self.pinned_agent,
             debug_walkable: self.debug_walkable,

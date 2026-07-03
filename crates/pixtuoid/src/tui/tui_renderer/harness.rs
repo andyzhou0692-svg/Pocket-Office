@@ -1581,6 +1581,57 @@ fn onboarding_dims_the_office_buffer() {
     );
 }
 
+#[test]
+fn onboarding_dims_both_sliding_buffers_on_the_transition_path() {
+    // The floor-slide path (render_transition) threads the OnboardingFrame but
+    // used to drop its `dim`, so a floor change while the overlay is open flashed
+    // the office to full brightness for the ~400ms slide. Both sliding per-floor
+    // buffers must now dim by the same factor draw_scene applies. We observe the
+    // from-floor buffer (floor_buf(0)) mid-slide with vs without the dim.
+    use crate::tui::welcome::{OnboardingFrame, WelcomeRow};
+    let p = pack();
+    let scene = two_floor_scene();
+    let now = t0();
+    let mid = now + Duration::from_millis(200);
+
+    // Baseline: a mid-slide frame with onboarding CLOSED (default dim = 1.0) →
+    // the from-floor buffer stays full brightness.
+    let mut bright_r = build(100, 40, vec![]);
+    bright_r.render(&scene, &p, now).unwrap();
+    bright_r.navigate_floor(1, now);
+    bright_r.render(&scene, &p, mid).unwrap();
+    assert!(bright_r.transition().is_some(), "baseline still mid-slide");
+    let bb = bright_r.floor_buf(0).expect("from-floor buffer exists");
+    let bright = avg_lum(bb, 0, 0, bb.width(), bb.height());
+
+    // Same mid-slide frame, onboarding OPEN + fully ramped (dim = 0.4) → the
+    // transition path must dim the sliding buffer.
+    let mut dim_r = build(100, 40, vec![]);
+    dim_r.render(&scene, &p, now).unwrap();
+    dim_r.navigate_floor(1, now);
+    dim_r.set_onboarding_frame(OnboardingFrame {
+        open: true,
+        rows: vec![WelcomeRow {
+            source_id: "codex",
+            label_prefix: "cx",
+            display_name: "Codex".into(),
+            checked: true,
+        }],
+        selected: 0,
+        elapsed_ms: 100_000,
+        dim: 0.4,
+    });
+    dim_r.render(&scene, &p, mid).unwrap();
+    assert!(dim_r.transition().is_some(), "dimmed still mid-slide");
+    let db = dim_r.floor_buf(0).expect("from-floor buffer exists");
+    let dim = avg_lum(db, 0, 0, db.width(), db.height());
+
+    assert!(
+        dim < bright * 0.6,
+        "the transition path must dim the sliding buffers: dim={dim} vs bright={bright}"
+    );
+}
+
 // ===================================================================
 // Footer / HUD (rendered text)
 // ===================================================================
@@ -2732,7 +2783,6 @@ fn connection_panel_renders_both_facets_borderless() {
             label_prefix: "cc",
             display_name: "Claude Code",
             state: ConnState::Connected,
-            connected: true,
             config_path: Some(std::path::PathBuf::from("~/.claude/settings.json")),
             target: None,
             health: None,
@@ -2742,7 +2792,6 @@ fn connection_panel_renders_both_facets_borderless() {
             label_prefix: "ag",
             display_name: "Antigravity",
             state: ConnState::Disconnected,
-            connected: false,
             config_path: None,
             target: None,
             health: None,
@@ -2809,7 +2858,6 @@ fn connection_panel_health_flag_and_detail_preempt_the_install_path() {
         label_prefix: "rx",
         display_name: "Reasonix",
         state: ConnState::Connected,
-        connected: true,
         config_path: Some(std::path::PathBuf::from("~/.reasonix/settings.json")),
         target: None,
         health: Some("install broken: shim binary missing".into()), // NO ⚠ prefix
@@ -2849,7 +2897,6 @@ fn connection_panel_armed_shows_confirm_prompt() {
         label_prefix: "cx",
         display_name: "Codex",
         state: ConnState::Connected,
-        connected: true,
         config_path: Some(std::path::PathBuf::from("~/.codex/config.toml")),
         target: None,
         health: None,
@@ -2884,7 +2931,6 @@ fn connection_panel_disconnected_selected_shows_connect_hint() {
         label_prefix: "ag",
         display_name: "Antigravity",
         state: ConnState::Disconnected,
-        connected: false,
         config_path: None,
         target: None,
         health: None,
@@ -2921,8 +2967,7 @@ fn connection_panel_no_cli_selected_shows_not_detected_hint() {
         source_id: "codex",
         label_prefix: "cx",
         display_name: "Codex",
-        state: ConnState::NoCli,
-        connected: false,
+        state: ConnState::NoCli { connected: false },
         config_path: None,
         target: None,
         health: None,
@@ -2961,7 +3006,6 @@ fn connection_panel_connected_without_config_path_shows_connected() {
         label_prefix: "cc",
         display_name: "Claude Code",
         state: ConnState::Connected,
-        connected: true,
         config_path: None,
         target: None,
         health: None,
@@ -3000,7 +3044,6 @@ fn connection_panel_last_result_overrides_per_state_detail() {
         label_prefix: "cc",
         display_name: "Claude Code",
         state: ConnState::Connected,
-        connected: true,
         config_path: Some(std::path::PathBuf::from("~/.claude/settings.json")),
         target: None,
         health: None,
