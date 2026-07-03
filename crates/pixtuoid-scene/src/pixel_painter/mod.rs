@@ -99,6 +99,16 @@ pub use anchors::character_anchor;
 pub(crate) use sim::{sim_step, SimStores};
 pub use sim::{CharacterGlow, CharacterPlacement, SimFrame};
 
+/// The coffee-machine sub-region within the pantry counter sprite, as sprite-local
+/// column ranges `[start, end)` per pantry size (the 32-wide `pantry` sprite vs the
+/// 20-wide `pantry_small`). THE single source of truth shared by the steam-anchor
+/// painter (`drawable`'s `WaypointPantry` arm) and the binary's
+/// `hit_test_coffee_machine`, so the clickable machine box can't silently drift
+/// from the painted art / steam anchor when the sprite is re-tuned. Pinned to the
+/// steam anchor by `steam_anchor_sits_within_the_coffee_machine_columns`.
+pub const PANTRY_COFFEE_COLS_LARGE: (u16, u16) = (11, 18);
+pub const PANTRY_COFFEE_COLS_SMALL: (u16, u16) = (9, 12);
+
 use anchors::compute_door_frame_idx;
 use background::{
     daylight_floor_overlay, dim_floor_overlay, paint_ceiling_pool, paint_clock,
@@ -332,7 +342,11 @@ fn paint_frame(
     let boost_ceiling = LightingState::EMPTY_FLOOR_DIM_BOOST;
     let empty_floor_boost = 1.0 + (1.0 - indoor_scale) * (boost_ceiling - 1.0) / (1.0 - min_level);
 
-    let dim_strength = (0.45 - ctx.floor.sunlight_boost).max(0.1);
+    // The night floor-dim dial (symmetric with `DAYLIGHT_FLOOR_LIFT` below); the
+    // per-floor lighting offset it replaced was always 0 (indoor lighting is
+    // uniform across floors), so this is now a flat constant.
+    const NIGHT_FLOOR_DIM_STRENGTH: f32 = 0.45;
+    let dim_strength = NIGHT_FLOOR_DIM_STRENGTH;
     dim_floor_overlay(
         ctx.buf,
         top_wall_h,
@@ -1021,7 +1035,7 @@ fn enqueue_lounge_pantry_appliances<'a>(layout: &'a Layout, drawables: &mut Vec<
                     anchor_y: z_sort_row(Anchor::Center, wp.pos, ch),
                     kind: DrawableKind::WaypointPantry {
                         pos: wp.pos,
-                        use_large: cw >= 32,
+                        use_large: cw >= crate::layout::PANTRY_COUNTER_LARGE_W,
                     },
                 });
             }

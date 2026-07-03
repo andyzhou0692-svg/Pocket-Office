@@ -2595,7 +2595,7 @@ fn layout_compute_none_bails_to_footer_only() {
 // ===================================================================
 
 #[test]
-fn transition_on_too_small_terminal_clears_interaction_state() {
+fn transition_on_too_small_terminal_clears_state_and_lands() {
     // Two-floor scene on a sub-20×12 terminal: starting a transition hits the
     // render_transition too-small bail → cached layout / pet / popup cleared.
     let scene = two_floor_scene();
@@ -2608,6 +2608,17 @@ fn transition_on_too_small_terminal_clears_interaction_state() {
     assert!(r.cached_layout().is_none());
     assert!(r.cached_pet_pos().is_none());
     assert_eq!(r.last_popup_scale(), 0.0);
+    // The gate now LANDS the transition instead of leaving it live: render_transition
+    // returns before render_floor/ensure_size, so the floor buffer's size signature
+    // never changes and the event loop's resize detector can't fire cancel_transition
+    // — the slide would otherwise stay live hitting the no-draw path for its whole
+    // ~400 ms timer, freezing a stale frame. Landing it drops back to draw_scene's
+    // footer-only path, which shares the same threshold behavior.
+    assert!(
+        r.transition().is_none(),
+        "the too-small gate should land (cancel) the stuck transition"
+    );
+    assert_eq!(r.current_floor(), 1, "landed on the destination floor");
 }
 
 #[test]
@@ -2721,6 +2732,7 @@ fn connection_panel_renders_both_facets_borderless() {
             label_prefix: "cc",
             display_name: "Claude Code",
             state: ConnState::Connected,
+            connected: true,
             config_path: Some(std::path::PathBuf::from("~/.claude/settings.json")),
             target: None,
             health: None,
@@ -2730,6 +2742,7 @@ fn connection_panel_renders_both_facets_borderless() {
             label_prefix: "ag",
             display_name: "Antigravity",
             state: ConnState::Disconnected,
+            connected: false,
             config_path: None,
             target: None,
             health: None,
@@ -2796,6 +2809,7 @@ fn connection_panel_health_flag_and_detail_preempt_the_install_path() {
         label_prefix: "rx",
         display_name: "Reasonix",
         state: ConnState::Connected,
+        connected: true,
         config_path: Some(std::path::PathBuf::from("~/.reasonix/settings.json")),
         target: None,
         health: Some("install broken: shim binary missing".into()), // NO ⚠ prefix
@@ -2835,6 +2849,7 @@ fn connection_panel_armed_shows_confirm_prompt() {
         label_prefix: "cx",
         display_name: "Codex",
         state: ConnState::Connected,
+        connected: true,
         config_path: Some(std::path::PathBuf::from("~/.codex/config.toml")),
         target: None,
         health: None,
@@ -2869,6 +2884,7 @@ fn connection_panel_disconnected_selected_shows_connect_hint() {
         label_prefix: "ag",
         display_name: "Antigravity",
         state: ConnState::Disconnected,
+        connected: false,
         config_path: None,
         target: None,
         health: None,
@@ -2906,6 +2922,7 @@ fn connection_panel_no_cli_selected_shows_not_detected_hint() {
         label_prefix: "cx",
         display_name: "Codex",
         state: ConnState::NoCli,
+        connected: false,
         config_path: None,
         target: None,
         health: None,
@@ -2944,6 +2961,7 @@ fn connection_panel_connected_without_config_path_shows_connected() {
         label_prefix: "cc",
         display_name: "Claude Code",
         state: ConnState::Connected,
+        connected: true,
         config_path: None,
         target: None,
         health: None,
@@ -2982,6 +3000,7 @@ fn connection_panel_last_result_overrides_per_state_detail() {
         label_prefix: "cc",
         display_name: "Claude Code",
         state: ConnState::Connected,
+        connected: true,
         config_path: Some(std::path::PathBuf::from("~/.claude/settings.json")),
         target: None,
         health: None,

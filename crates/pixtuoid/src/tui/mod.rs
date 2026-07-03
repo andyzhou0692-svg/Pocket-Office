@@ -257,6 +257,32 @@ fn should_dispatch_key(kind: KeyEventKind) -> bool {
     kind == KeyEventKind::Press
 }
 
+/// What pressing `t` on a Sources-panel row does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToggleIntent {
+    /// Bound, OR connected-but-CLI-absent → arm the disconnect confirm.
+    ArmConfirm,
+    /// Unbound present CLI → connect immediately.
+    Connect,
+    /// Absent CLI that was never connected → inert "not detected" hint.
+    Hint,
+}
+
+/// The Sources-panel toggle decision, factored OUT of the `run_tui` event loop
+/// (which is codecov-excluded and undriveable headlessly) so it is unit-testable —
+/// mirroring how `dispatch_key` factors key→action. The load-bearing arm is
+/// `NoCli` + still-connected → `ArmConfirm`: a source whose CLI vanished is still
+/// disconnectable (its hooks live in the config, not the missing binary), while a
+/// never-connected absent CLI stays inert.
+fn toggle_intent(state: connection::ConnState, is_connected: bool) -> ToggleIntent {
+    match state {
+        connection::ConnState::Connected => ToggleIntent::ArmConfirm,
+        connection::ConnState::Disconnected => ToggleIntent::Connect,
+        connection::ConnState::NoCli if is_connected => ToggleIntent::ArmConfirm,
+        connection::ConnState::NoCli => ToggleIntent::Hint,
+    }
+}
+
 /// Pure key-dispatch: resolve a key press to a `KeyAction` given the current
 /// modal + floor state. Modal precedence (highest first): help overlay,
 /// version popup, theme picker, then the normal scene.
@@ -694,23 +720,25 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                                             r.state,
                                             r.source_id,
                                             r.display_name,
+                                            r.connected,
                                             connection::no_action_hint(r),
                                         )
                                     });
-                                if let Some((state, source_id, name, hint)) = action {
-                                    match state {
-                                        // Bound → arm the disconnect confirm (it
-                                        // removes hooks + walks characters out).
-                                        connection::ConnState::Connected => {
+                                if let Some((state, source_id, name, is_connected, hint)) = action {
+                                    match toggle_intent(state, is_connected) {
+                                        // Bound, or connected-but-CLI-absent → arm the
+                                        // disconnect confirm (it removes hooks + walks
+                                        // characters out). A connected NoCli row is still
+                                        // disconnectable: its hooks live in the config,
+                                        // not the missing binary.
+                                        ToggleIntent::ArmConfirm => {
                                             ui.connection.confirm = Some(ui.connection.selected);
                                         }
-                                        // Unbound → connect immediately (additive,
-                                        // reversible): flip the flag, open the live
-                                        // gate, and install hooks for richer signal.
-                                        connection::ConnState::Disconnected => {
-                                            // block_in_place: connect_source takes a
-                                            // flock + fsync + FS reads (see the open
-                                            // site) — keep it off the executor.
+                                        // Unbound present CLI → connect immediately
+                                        // (additive, reversible): flip the flag, open the
+                                        // live gate, install hooks. block_in_place:
+                                        // connect_source takes a flock + fsync + FS reads.
+                                        ToggleIntent::Connect => {
                                             ui.connection.last_result =
                                                 Some(tokio::task::block_in_place(|| {
                                                     connect_source(
@@ -728,7 +756,9 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                                                     )
                                                 });
                                         }
-                                        connection::ConnState::NoCli => {
+                                        // Absent CLI, never connected → inert hint (the
+                                        // "panel refuses an absent CLI" rule is CONNECT-side).
+                                        ToggleIntent::Hint => {
                                             ui.connection.last_result = Some(hint);
                                         }
                                     }
@@ -786,17 +816,26 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                             }
                             KeyAction::OnboardingSkip => {
                                 // Skip = mark onboarding done WITHOUT changing any
-                                // connection: persist each detected source's CURRENT
-                                // state (freeze), so `[sources]` becomes non-empty
-                                // (onboarding won't re-trigger) yet no hooks are
-                                // added/removed (a pre-existing install survives).
+                                // hooks. Freeze each detected source to its REAL
+                                // current state — connected in the live gate OR
+                                // already carrying installed hooks (a pre-0.12
+                                // upgrader: hooks present, no `[sources]` flag — the
+                                // population onboarding replays to re-connect). Apply
+                                // then re-installs the hooked/connected ones
+                                // idempotently (a SEMANTIC no-op → hooks survive) and
+                                // leaves the rest disconnected (uninstall of an absent
+                                // hook is a no-op), so `[sources]` becomes non-empty
+                                // (onboarding won't re-trigger) yet NO hooks are
+                                // added/removed. `skip_freeze` reads each target's
+                                // config (has_hooks) → block_in_place, like apply_choices;
+                                // it funnels the install-layer probe through the sources
+                                // facade so the event loop doesn't reach into install.
                                 let snap = connected.snapshot();
-                                let freeze: Vec<(&'static str, bool)> = ui
-                                    .onboarding_ui
-                                    .rows
-                                    .iter()
-                                    .map(|r| (r.source_id, snap.contains(r.source_id)))
-                                    .collect();
+                                let ids: Vec<&'static str> =
+                                    ui.onboarding_ui.rows.iter().map(|r| r.source_id).collect();
+                                let freeze = tokio::task::block_in_place(|| {
+                                    crate::sources::skip_freeze(ids, &snap)
+                                });
                                 let outcomes = tokio::task::block_in_place(|| {
                                     crate::sources::apply_choices(&config_path, &freeze)
                                 });
@@ -982,6 +1021,27 @@ mod dispatch_tests {
             current_floor: 1,
             in_transition: false,
         }
+    }
+
+    #[test]
+    fn toggle_intent_covers_the_four_arms() {
+        use super::connection::ConnState;
+        use super::{toggle_intent, ToggleIntent};
+        assert_eq!(
+            toggle_intent(ConnState::Connected, true),
+            ToggleIntent::ArmConfirm
+        );
+        assert_eq!(
+            toggle_intent(ConnState::Disconnected, false),
+            ToggleIntent::Connect
+        );
+        // The arc fix (#3): a connected-but-CLI-absent NoCli row stays disconnectable.
+        assert_eq!(
+            toggle_intent(ConnState::NoCli, true),
+            ToggleIntent::ArmConfirm
+        );
+        // A never-connected absent CLI is inert — the connect-side refusal only.
+        assert_eq!(toggle_intent(ConnState::NoCli, false), ToggleIntent::Hint);
     }
 
     #[test]

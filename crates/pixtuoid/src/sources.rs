@@ -394,6 +394,41 @@ pub fn apply_choices(cfg: &Path, choices: &[(&'static str, bool)]) -> Vec<(Strin
         .collect()
 }
 
+/// The onboarding SKIP freeze (pure core): map each detected source to its REAL
+/// current connection state — connected in the live gate OR already carrying
+/// installed hooks (`is_hooked`). Feeding THIS to [`apply_choices`] (rather than
+/// the live gate alone, which is EMPTY on a first run) is what makes a skip
+/// preserve an existing install: a pre-0.12 upgrader — hooks present but no
+/// `[sources]` flag, exactly the population onboarding replays to re-connect —
+/// freezes to `true`, so apply re-installs idempotently (a semantic no-op) instead
+/// of disconnecting + UNINSTALLING its working hooks. `is_hooked` is injected so
+/// this stays pure and unit-testable; production callers go through [`skip_freeze`].
+pub(crate) fn freeze_for_skip(
+    detected: impl IntoIterator<Item = &'static str>,
+    connected: &HashSet<String>,
+    is_hooked: impl Fn(&'static str) -> bool,
+) -> Vec<(&'static str, bool)> {
+    detected
+        .into_iter()
+        .map(|id| (id, connected.contains(id) || is_hooked(id)))
+        .collect()
+}
+
+/// The production onboarding-SKIP freeze: [`freeze_for_skip`] with the real
+/// install-state probe assembled HERE, so the install-layer access
+/// (`has_hooks`/`by_source`) stays funneled through this `sources` facade — the
+/// same layer that owns connect/disconnect's install calls — rather than reaching
+/// out of the TUI event loop. Does per-target config reads (`has_hooks`), so the
+/// caller wraps it in `block_in_place` like the rest of the skip I/O.
+pub(crate) fn skip_freeze(
+    detected: impl IntoIterator<Item = &'static str>,
+    connected: &HashSet<String>,
+) -> Vec<(&'static str, bool)> {
+    freeze_for_skip(detected, connected, |id| {
+        by_source(id).is_some_and(install::has_hooks)
+    })
+}
+
 // ---- Source status MODEL (moved here from `tui::connection`, which re-exports
 //      it so the panel/harness are unchanged). Pure: no ratatui, no SceneState. ----
 
@@ -418,6 +453,12 @@ pub struct ConnectionRow {
     pub label_prefix: &'static str,
     pub display_name: &'static str,
     pub state: ConnState,
+    /// Whether this source is in the live connected-set (the persisted `[sources]`
+    /// intent). Carried SEPARATELY from `state` because `NoCli` overrides
+    /// `Connected` in the display (an absent CLI is worth surfacing), yet a
+    /// connected-but-absent source is still disconnectable — its hooks live in the
+    /// config, not the missing binary — so the toggle needs the bit `state` hides.
+    pub connected: bool,
     /// The config the hooks live in; `None` for no-target (JSONL-only) rows.
     pub config_path: Option<PathBuf>,
     /// The install target backing this row; `None` ⇒ connect/disconnect is a
@@ -483,6 +524,7 @@ pub fn build_rows_from(inputs: Vec<RowInput>) -> Vec<ConnectionRow> {
                     .target
                     .map_or_else(|| display_name_for(input.source_id), |t| t.display_name),
                 state,
+                connected: input.connected,
                 config_path: input.facts.and_then(|f| f.config_path),
                 target: input.target,
                 health: input.health,
@@ -522,6 +564,13 @@ pub fn build_rows(connected: &HashSet<String>, log: &str) -> Vec<ConnectionRow> 
 }
 
 /// Map a status row to the serializable `SourceStatus` DTO (the CLI/Raycast wire shape).
+///
+/// NOTE: the wire `connected` here is deliberately PRESENT-AND-BOUND
+/// (`state == Connected`), NOT `ConnectionRow.connected` (the persisted `[sources]`
+/// intent bit — which stays `true` for a connected-but-absent `NoCli` source). The
+/// two share a name but answer different questions; the wire keeps the
+/// present-and-bound meaning it always had (changing it is a `--json` contract
+/// change needing `gen-contract`).
 fn status_from_row(r: &ConnectionRow) -> SourceStatus {
     SourceStatus {
         id: r.source_id.to_string(),
@@ -570,6 +619,32 @@ mod tests {
         let err = registered_id("not-a-source").unwrap_err().to_string();
         assert!(err.contains("unknown source 'not-a-source'"), "{err}");
         assert!(err.contains("antigravity"), "lists known sources: {err}");
+    }
+
+    #[test]
+    fn freeze_for_skip_keeps_a_hooked_but_unflagged_source_connected() {
+        // A pre-0.12 upgrader: config has NO [sources] table (empty connected set),
+        // but claude-code's hooks ARE installed. Skip must freeze it to `true` so
+        // apply re-installs idempotently (hooks survive), NOT `false` — which would
+        // disconnect → uninstall its working hooks (the bug). A fresh, un-hooked
+        // source (codex) freezes to `false`. Teeth: reading only the connected gate
+        // (the old behavior) would freeze claude-code false here.
+        let connected = HashSet::new();
+        let freeze = freeze_for_skip(
+            ["claude-code", "codex"],
+            &connected,
+            |id| id == "claude-code", // only claude-code has installed hooks
+        );
+        assert_eq!(freeze, vec![("claude-code", true), ("codex", false)]);
+    }
+
+    #[test]
+    fn freeze_for_skip_honors_the_live_connected_gate() {
+        // A source already connected in the live gate freezes to `true` even with
+        // no installed hooks (e.g. antigravity, a no-target source).
+        let connected = set(&["antigravity"]);
+        let freeze = freeze_for_skip(["antigravity", "codex"], &connected, |_| false);
+        assert_eq!(freeze, vec![("antigravity", true), ("codex", false)]);
     }
 
     #[test]
