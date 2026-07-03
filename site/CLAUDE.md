@@ -57,10 +57,67 @@ Mermaid diagram becomes an inline SVG at build via `rehype-mermaid`, which is
   `components/OfficeBackdrop.astro` dynamically `import()`s it at runtime
   (poster-first; any failure keeps the still). Never hand-edit
   (prettier/eslint/knip all ignore it); regenerate from the crate.
+  The backdrop's pause switch (`#office-pause`, WCAG 2.2.2) lives in the same
+  component: pause stops the rAF loop (frozen frame stays on the canvas) and
+  resume subtracts the paused span from the sim clock (`pauseOffset`) so the
+  timeline doesn't lurch-jump; the button stays `hidden` on every poster-only
+  path (reduced motion / no wasm / fetch failure) and is unhidden by the
+  first painted frame. Pause is **page-scoped**: `setPaused` dispatches
+  `pix:paused` and every other >5s auto-motion listens (the statusline feed
+  ticker, the hero dust) — one control governs the page's *ambient* motion,
+  and the statusline reads `❚❚ PAUSED`. (The Showcase demo clips are the one
+  motion NOT wired to `pix:paused`: they're in-view-gated and carry native
+  `<video>` controls, so 2.2.2 is satisfied there independently — don't add
+  them to the `pix:paused` set.) The wasm fetch is **deferred** off the render-critical
+  window (`load` → `requestIdleCallback`) so it doesn't compete with the
+  above-fold poster/fonts; a live un-reduce still boots promptly via the mq
+  listener.
+
+## CSP (hash-based, two coordinated halves — both in astro.config.mjs)
+
+The `<meta>` CSP is Astro 7's built-in `security.csp` PLUS the
+`cspInlineHashes()` `astro:build:done` hook. The **policy** (`security.csp`
+directives) and the **hook registration** stay together in `astro.config.mjs`
+(the anti-drift co-location); the pure per-page transform — `rewriteCspMeta(html)`
+— lives in [`config/csp-hashes.mjs`](config/csp-hashes.mjs), unit-tested by
+`config/csp-hashes.test.mjs` (`npm run test:unit`, in `verify`) so its
+quote-aware script-tag scan can't diverge from the HTML tokenizer. Astro emits
+the meta into every page's head (404 included) and owns the RESOURCE lists; the
+hook then re-derives the hash sets from the **built html**, because (verified
+vs 7.0.5) Astro does not hash template-level `is:inline` scripts — the only
+script kind this site has — and it appends style hashes unconditionally, which
+would make browsers *ignore* `'unsafe-inline'`. Consequences to not "fix":
+
+- **`script-src` carries no `'unsafe-inline'`** — every inline script is
+  whitelisted by content hash, recomputed on each build. Adding/editing an
+  `is:inline` script needs NO manual CSP step.
+- **`style-src` keeps `'unsafe-inline'` and must stay hash-free**: Shiki
+  spans, the build-time mermaid SVG, and the few `style={}` attributes are
+  inline style ATTRIBUTES, which hashes cannot express (one present hash
+  disables `unsafe-inline` for the whole directive).
+- **`astro dev` serves NO CSP** (upstream: the feature is build/preview-only).
+  CSP regressions surface in `just site-e2e`'s console watchdog against the
+  production build, not in dev.
+
+## Dev-server lifecycle (agent-driving)
+
+Foreground `astro dev` quits on stdin EOF — under a PTY an AI agent could not
+keep it alive across commands. Astro 7's `--background` mode is the fix:
+**`just site-dev-bg`** daemonizes the server (no stdin/TTY tie) and polls the
+dev-only `/_astro/status` health endpoint (`{"ok":true}`) until ready;
+**`just site-dev-stop`** (= `astro dev stop`) shuts it down and frees the port.
+`astro dev status` / `astro dev logs --follow` inspect the daemon; non-TTY runs
+auto-emit JSON log lines. Two sharp edges: `/_astro/status` and the
+background/stop/status subcommands are **dev-server only** — `astro preview`
+404s the endpoint and has no daemon mode (verified vs 7.0.5), so the e2e
+webServer keeps its URL-poll readiness; and dev/preview share port 4321, so
+**stop the daemon before `just site-e2e`** (its webServer fails loud on a
+squatted port, by design). `just site-dev` stays foreground for humans who
+want HMR logs.
 
 ## Gates
 
-`just site-{setup, dev, check, fmt, e2e}` (see `README.md`). The full-stack gate
+`just site-{setup, dev, dev-bg, dev-stop, check, fmt, e2e}` (see `README.md`). The full-stack gate
 is `just verify` = `preflight` + `site-check` + `gen-check`. For a site-only
 change, `just site-check` is the relevant one; `just site-e2e` (Playwright vs
 the PRODUCTION build via `astro preview` — the official Astro posture) pins the

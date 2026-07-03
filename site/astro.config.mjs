@@ -1,11 +1,12 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, writeFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { posix } from 'node:path';
+import { posix, join } from 'node:path';
 import sitemap from '@astrojs/sitemap';
 import rehypeMermaid from 'rehype-mermaid';
 import { unified } from '@astrojs/markdown-remark';
+import { rewriteCspMeta } from './config/csp-hashes.mjs';
 
 // Single-source the displayed version from the workspace Cargo.toml so the boot
 // intro never goes stale on a release bump. Scope the match to the
@@ -156,6 +157,46 @@ function rehypeRepoLinks() {
   return transform;
 }
 
+// CSP, part 2 of 2 (part 1 is `security.csp` below): Astro 7's built-in CSP
+// emits the <meta> on every page and owns the RESOURCE lists, but (verified vs
+// 7.0.5) it does NOT hash template-level `is:inline` scripts — the only kind
+// this site has — and it unconditionally appends style hashes, which would make
+// browsers IGNORE the 'unsafe-inline' that Shiki/mermaid style attributes need.
+// This build:done hook closes both gaps from the BUILT html itself, so the
+// hashes are mechanically derived and can never drift from the content
+// (script-src re-hashed per page, style-src stripped of hashes). The delicate
+// per-page HTML→hashes→rewrite transform lives in ./config/csp-hashes.mjs so it
+// is unit-testable (config/csp-hashes.test.mjs) and its script-tag scan can't
+// diverge from the HTML tokenizer; this hook only walks dist/ and applies it.
+function cspInlineHashes() {
+  return {
+    name: 'csp-inline-hashes',
+    hooks: {
+      /** @param {{ dir: URL }} opts */
+      'astro:build:done': ({ dir }) => {
+        /** @type {string[]} */
+        const htmlFiles = [];
+        (function walk(/** @type {string} */ d) {
+          for (const e of readdirSync(d, { withFileTypes: true })) {
+            const p = join(d, e.name);
+            if (e.isDirectory()) walk(p);
+            else if (e.name.endsWith('.html')) htmlFiles.push(p);
+          }
+        })(fileURLToPath(dir));
+        for (const file of htmlFiles) {
+          const updated = rewriteCspMeta(readFileSync(file, 'utf8'));
+          if (updated === null) {
+            throw new Error(
+              `csp-inline-hashes: no CSP <meta> found in ${file} — did security.csp get disabled?`
+            );
+          }
+          writeFileSync(file, updated);
+        }
+      },
+    },
+  };
+}
+
 // Project page → https://ivanwng97.github.io/pixtuoid/
 // If a custom domain is later added, set base back to '/' (and update CNAME).
 export default defineConfig({
@@ -192,10 +233,54 @@ export default defineConfig({
     }),
   },
   // Sitemap respects `site` + `base`, so emitted URLs carry the /pixtuoid
-  // prefix → submit /pixtuoid/sitemap-index.xml to Search Console (this is a
-  // project page, so a repo-local robots.txt would serve under /pixtuoid/ and
-  // crawlers only read robots.txt from the origin root — see the PR notes).
-  integrations: [sitemap()],
+  // prefix → submit /pixtuoid/sitemap-index.xml to Search Console. A
+  // robots.txt pointing at it is prerendered by src/pages/robots.txt.ts —
+  // note it serves under /pixtuoid/ while crawlers only read robots.txt from
+  // the origin root, so it becomes authoritative only on a custom domain.
+  integrations: [sitemap(), cspInlineHashes()],
+  // Prefetch same-site links on hover — the docs pages are tiny static HTML,
+  // so hover-to-tap latency covers the fetch. The injected prefetch client is
+  // a BUNDLED external script (script-src 'self' covers it under the CSP).
+  // CSP, part 1 of 2: Astro's built-in CSP emits the <meta> into EVERY page's
+  // head (404 included) and owns the resource lists — the one thing it can't
+  // compute for this site is the is:inline script hashes, which the
+  // cspInlineHashes() integration above derives from the built html.
+  // script-src carries NO 'unsafe-inline' (hashes instead — the point of the
+  // exercise); 'wasm-unsafe-eval' permits WebAssembly.instantiate for the
+  // live-office hero (wasm compilation ONLY, not JS eval). style-src KEEPS
+  // 'unsafe-inline': Shiki spans, the mermaid inline SVG, and a few style={}
+  // attributes are inline STYLE ATTRIBUTES, which hashes cannot express (and
+  // any present hash would make browsers ignore 'unsafe-inline').
+  // frame-ancestors and SRI need HTTP headers GitHub Pages can't set. NOTE:
+  // security.csp is build/preview-only by design — `astro dev` serves no CSP.
+  security: {
+    csp: {
+      directives: [
+        "default-src 'self'",
+        "base-uri 'self'",
+        "object-src 'none'",
+        "img-src 'self' data:",
+        "media-src 'self'",
+        "font-src 'self'",
+        "connect-src 'self'",
+        "form-action 'self'",
+      ],
+      scriptDirective: { resources: ["'self'", "'wasm-unsafe-eval'"] },
+      styleDirective: { resources: ["'self'", "'unsafe-inline'"] },
+    },
+  },
+  prefetch: { prefetchAll: true, defaultStrategy: 'hover' },
+  build: {
+    // ALWAYS inline the page stylesheets. Astro's default 'auto' inlines only
+    // sheets smaller than vite's assetsInlineLimit — pinned to 0 below for the
+    // CSP-font posture — so 'auto' would inline NOTHING and every page would
+    // render-block on two external CSS requests (~592ms RTT on simulated
+    // mobile, on the FCP/LCP critical path). 'always' bypasses assetsInlineLimit
+    // entirely; woff2 fonts are not stylesheets so they stay hashed files under
+    // font-src 'self', and inline <style> is allowed (style-src keeps
+    // 'unsafe-inline', kept hash-free by the cspInlineHashes hook).
+    inlineStylesheets: 'always',
+  },
   vite: {
     define: { __PIXTUOID_VERSION__: JSON.stringify(version) },
     // Never inline assets as data: URLs. Vite's default 4KiB inlining turned
