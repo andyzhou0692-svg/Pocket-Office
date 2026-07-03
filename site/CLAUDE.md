@@ -65,10 +65,19 @@ Mermaid diagram becomes an inline SVG at build via `rehype-mermaid`, which is
   first painted frame. Pause is **page-scoped**: `setPaused` dispatches
   `pix:paused` and every other >5s auto-motion listens (the statusline feed
   ticker, the hero dust) — one control governs the page's *ambient* motion,
-  and the statusline reads `❚❚ PAUSED`. (The Showcase demo clips are the one
-  motion NOT wired to `pix:paused`: they're in-view-gated and carry native
-  `<video>` controls, so 2.2.2 is satisfied there independently — don't add
-  them to the `pix:paused` set.) The wasm fetch is **deferred** off the render-critical
+  and the statusline reads `❚❚ PAUSED`. The Showcase demo clips ARE in the
+  `pix:paused` set (`Showcase.astro` `syncVideos` gates play on `userPaused`):
+  in normal motion they auto-loop with NO visible controls, so in-view-gating
+  alone did not satisfy 2.2.2 — the page pause button is their pause affordance.
+  (Under reduced-motion the clips instead pause and show native `<video>`
+  controls, a separate path.) One caveat: on a **wasm-failure / no-wasm load**
+  `#office-pause` stays `hidden` (the poster-only path unhides it only on the
+  first painted frame), so a NON-reduced-motion visitor whose wasm never loads
+  has no visible pause button for the clips (nor the statusline ticker / hero
+  dust — the same shared, pre-existing dependency). Reduced-motion users are
+  unaffected (native `<video>` controls, wasm-independent). Unhiding the button
+  whenever any >5s auto-motion runs — independent of wasm — is the real fix,
+  tracked as a follow-up. The wasm fetch is **deferred** off the render-critical
   window (`load` → `requestIdleCallback`) so it doesn't compete with the
   above-fold poster/fonts; a live un-reduce still boots promptly via the mq
   listener.
