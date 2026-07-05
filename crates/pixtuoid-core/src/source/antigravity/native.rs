@@ -68,6 +68,14 @@ fn ag_session_ended(_tail: &[u8]) -> bool {
 /// to trip the >1 MiB oversized-skip); the decoder ignores content length, so
 /// dropping the untruncated copy loses nothing. Narrow by construction — it
 /// skips ONLY the known duplicate, never an unrelated `.jsonl`.
+///
+/// Accepted residual: a dir with ONLY `transcript_full.jsonl` (a brief
+/// write-order race before `transcript.jsonl` lands, or a future AG that drops
+/// the truncated file) renders nothing and — unlike a step-type rename, which
+/// trips `drift::unknown_event` — emits NO drift breadcrumb, because the
+/// `fn(&Path) -> bool` filter can't see the sibling to fall back on. It
+/// self-heals once `transcript.jsonl` appears, and is strictly better than the
+/// every-conversation double-render it replaces.
 fn skip_transcript_full(path: &Path) -> bool {
     path.file_name().and_then(|s| s.to_str()) != Some("transcript_full.jsonl")
 }

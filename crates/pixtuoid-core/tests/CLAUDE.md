@@ -16,6 +16,8 @@ tests/
 │   │   └── fixtures/hook-payloads.jsonl   CC's OWN data (single-owner; NOT scanned)
 │   ├── codex/mod.rs          codex subagent lifecycle
 │   │   └── fixtures/hook-payloads.jsonl   codex's OWN data (single-owner; NOT scanned)
+│   ├── codewhale/mod.rs      codewhale subagent lifecycle (spawn/complete → child sprite)
+│   │   └── fixtures/hook-payloads.jsonl   codewhale's OWN data (single-owner; NOT scanned)
 │   ├── snapshots/            insta snaps  (sources__conformance__<source>__<scenario>)
 │   └── fixtures/<source>/    ══ conformance scenarios ONLY — dir name MUST be a registered source ══
 ├── reducer/main.rs           state-machine behavior (1 binary; shared builders `start`/`delegating_pair` live in main.rs)
@@ -44,7 +46,7 @@ tests/
 ## Governing principle
 
 - **Code groups by capability/layer**, not by CLI. Only the subagent-lifecycle
-  tests are single-CLI (`sources/{claude,codex}`); decode/conformance are cross-CLI.
+  tests are single-CLI (`sources/{claude,codex,codewhale}`); decode/conformance are cross-CLI.
 - **Data scopes to the binary that reads it, sub-grouped by CLI.** A fixture read
   by one test module lives *with that module* at `sources/<module>/fixtures/`;
   fixtures the conformance harness iterates live in `sources/fixtures/<source>/`.
