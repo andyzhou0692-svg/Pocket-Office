@@ -12,6 +12,12 @@ and compares against the live upstream:
 
   * Codex hook events  -> `CODEX_EVENTS` in crates/pixtuoid/src/install/codex.rs
                           vs the `HookEventName` enum in openai/codex protocol.rs
+  * Codex rollout types-> the `("event_msg"|"response_item", …)` decode arms in
+                          crates/pixtuoid-core/src/source/codex.rs vs the `EventMsg`
+                          enum (protocol.rs) + the `ResponseItem` enum (models.rs).
+                          The transcript decoder drops an unknown type SILENTLY
+                          (`_ => vec![]`, no breadcrumb), so this positive check —
+                          each depended type still exists upstream — is its ONLY backstop
   * CC hook events     -> `EVENTS` in crates/pixtuoid/src/install/claude.rs
                           vs the hook-event summary table in code.claude.com
                           hooks.md (CC is a closed binary; the docs markdown is
@@ -92,6 +98,13 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 CODEX_PROTOCOL_URL = (
     "https://raw.githubusercontent.com/openai/codex/main/"
     "codex-rs/protocol/src/protocol.rs"
+)
+# The ROLLOUT `response_item` types (function_call, …) live in the sibling
+# models.rs (`crate::models::ResponseItem`), NOT protocol.rs; the `event_msg`
+# types are the `EventMsg` enum in protocol.rs (reused above).
+CODEX_MODELS_URL = (
+    "https://raw.githubusercontent.com/openai/codex/main/"
+    "codex-rs/protocol/src/models.rs"
 )
 CC_TOOLS_URL = "https://code.claude.com/docs/en/tools-reference.md"
 CC_HOOKS_URL = "https://code.claude.com/docs/en/hooks.md"
@@ -316,6 +329,25 @@ def read_codex_events() -> set[str]:
     return set(re.findall(r'"(\w+)"', m.group(1)))
 
 
+def read_codex_rollout_types() -> tuple[set[str], set[str]]:
+    """The (event_msg, response_item) inner `type` strings the codex TRANSCRIPT
+    decoder matches on (`source/codex.rs` `match (outer, inner)`). Unlike the hook
+    events these are registered NOWHERE, and the decoder's `_ => vec![]` drops an
+    unrecognized one SILENTLY (no `unknown_event` breadcrumb, unlike the hook
+    decoders) — so a positive "each depended type still exists upstream" check is
+    the only backstop against an upstream rename going dark."""
+    src = (REPO / "crates/pixtuoid-core/src/source/codex.rs").read_text()
+    event_msg = set(re.findall(r'\(\s*"event_msg"\s*,\s*"(\w+)"\s*\)', src))
+    response_item = set(re.findall(r'\(\s*"response_item"\s*,\s*"(\w+)"\s*\)', src))
+    if not event_msg or not response_item:
+        raise RuntimeError(
+            "could not locate codex ('event_msg'|'response_item', …) decode arms "
+            "in source/codex.rs — the transcript decoder was refactored; update "
+            "the parser."
+        )
+    return event_msg, response_item
+
+
 def read_cc_events() -> set[str]:
     src = (REPO / "crates/pixtuoid/src/install/claude.rs").read_text()
     m = re.search(r"const EVENTS[^=]*=\s*&\[(.*?)\];", src, re.S)
@@ -338,6 +370,59 @@ def upstream_codex_hooks(text: str) -> set[str] | None:
         return None
     # variant identifiers (drop comments/attrs by keeping CamelCase words)
     return set(re.findall(r"\b([A-Z][A-Za-z]+)\b", m.group(1)))
+
+
+def _snake_case(camel: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", camel).lower()
+
+
+def _enum_body(text: str, enum_name: str) -> str | None:
+    """The brace-balanced body of `enum <enum_name> { … }` (the `?` non-greedy
+    regexes elsewhere stop at the FIRST `}`, which a struct-variant body would
+    truncate — so balance explicitly)."""
+    m = re.search(rf"enum\s+{enum_name}\s*\{{", text)
+    if not m:
+        return None
+    start = m.end() - 1  # index of the opening `{`
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start + 1 : i]
+    return None
+
+
+def _strip_nested(s: str) -> str:
+    """Remove line/doc comments then iteratively strip innermost `(…)`/`{…}`
+    (tuple params, struct-variant bodies, AND attr parens) so only top-level
+    variant idents survive — else a CamelCase field/param TYPE reads as a variant."""
+    s = re.sub(r"//[^\n]*", "", s)
+    prev = None
+    while prev != s:
+        prev = s
+        s = re.sub(r"\([^()]*\)", "", s)
+        s = re.sub(r"\{[^{}]*\}", "", s)
+    return s
+
+
+def upstream_codex_enum_types(text: str, enum_name: str) -> set[str] | None:
+    """Serialized `type` tags of a codex `#[serde(tag="type", rename_all="snake_case")]`
+    enum (`EventMsg` in protocol.rs, `ResponseItem` in models.rs). Each variant
+    contributes snake_case(name), plus every explicit `#[serde(rename="…")]` /
+    `alias="…"` literal. This over-includes (a renamed variant keeps its
+    snake_case form too), which is HARMLESS: the check is one-directional — it
+    only confirms a DEPENDED type is still present, never that a name is absent.
+    Returns None if the enum can't be located (→ a loud "upstream moved it")."""
+    body = _enum_body(text, enum_name)
+    if body is None:
+        return None
+    # rename/alias literals must be read BEFORE `_strip_nested` eats the attr parens.
+    names = set(re.findall(r'(?:rename|alias)\s*=\s*"([^"]+)"', re.sub(r"//[^\n]*", "", body)))
+    names.update(_snake_case(v) for v in re.findall(r"\b([A-Z][A-Za-z0-9]*)\b", _strip_nested(body)))
+    return names or None
 
 
 def upstream_cc_hook_events(text: str) -> set[str] | None:
@@ -475,6 +560,7 @@ def upstream_codewhale_hooks(text: str) -> set[str] | None:
 
 def run_checks(
     codex_ours: set[str] | None,
+    codex_rollout: tuple[set[str], set[str]] | None,
     cc_ours: set[str] | None,
     dispatch_names: set[str] | None,
     reasonix_ours: set[str] | None,
@@ -494,10 +580,13 @@ def run_checks(
     the interpreter exits 1 and the workflow files a junk "confirmed drift"
     issue from an empty report. The deliberate read-our-own-source LOUD path
     stays inside main(), before this is called, and still exits 1."""
-    # --- Codex hook events (only the FETCH is transient) -------------------
-    if codex_ours is not None:
+    # --- Codex hook events + rollout decode vocabulary (only the FETCH is
+    #     transient). protocol.rs holds BOTH the HookEventName enum (hooks) and
+    #     the EventMsg enum (rollout `event_msg` types); the `response_item` types
+    #     live in the sibling models.rs (ResponseItem). ------------------------
+    if codex_ours is not None or codex_rollout is not None:
         text = try_fetch(CODEX_PROTOCOL_URL, "Codex source", breaking, errors)
-        if text is not None:
+        if text is not None and codex_ours is not None:
             upstream = upstream_codex_hooks(text)
             if upstream is None:
                 breaking.append(
@@ -519,6 +608,48 @@ def run_checks(
                         f"intentionally omit it (add a decoder arm + CODEX_EVENTS, "
                         f"or add it to CODEX_KNOWN_OMITTED)."
                     )
+        # Rollout `event_msg` types → the EventMsg enum in the SAME protocol.rs.
+        # ONE-DIRECTIONAL: codex emits many EventMsg/ResponseItem types we ignore,
+        # so only a VANISHED depended type alarms (a new one is not a ping). This
+        # is the ONLY backstop — the transcript decoder's `_ => vec![]` drops an
+        # unknown type silently, with no `unknown_event` breadcrumb.
+        if text is not None and codex_rollout is not None:
+            event_msg_ours, _ = codex_rollout
+            up_ev = upstream_codex_enum_types(text, "EventMsg")
+            if up_ev is None:
+                breaking.append(
+                    "Codex `EventMsg` enum not found in protocol.rs — upstream "
+                    "moved it; update the parser."
+                )
+            else:
+                for t in sorted(event_msg_ours):
+                    if t not in up_ev:
+                        breaking.append(
+                            f"Codex rollout event_msg `{t}` (decoded in "
+                            f"source/codex.rs) is GONE from upstream `EventMsg` — "
+                            f"renamed; the transcript decoder drops it SILENTLY "
+                            f"(`_ => vec![]`, no drift breadcrumb)."
+                        )
+        # Rollout `response_item` types → the ResponseItem enum in models.rs.
+        if codex_rollout is not None:
+            _, response_item_ours = codex_rollout
+            models = try_fetch(CODEX_MODELS_URL, "Codex models", breaking, errors)
+            if models is not None:
+                up_ri = upstream_codex_enum_types(models, "ResponseItem")
+                if up_ri is None:
+                    breaking.append(
+                        "Codex `ResponseItem` enum not found in models.rs — "
+                        "upstream moved it; update CODEX_MODELS_URL / the parser."
+                    )
+                else:
+                    for t in sorted(response_item_ours):
+                        if t not in up_ri:
+                            breaking.append(
+                                f"Codex rollout response_item `{t}` (decoded in "
+                                f"source/codex.rs) is GONE from upstream "
+                                f"`ResponseItem` — renamed; the transcript decoder "
+                                f"drops it SILENTLY."
+                            )
 
     # --- Reasonix hook events + payload fields (only the FETCH is transient)
     if reasonix_ours is not None:
@@ -739,6 +870,7 @@ def main() -> int:
     # what the parsers expect) — that is a LOUD breaking signal, never a transient
     # one, or drift monitoring would silently stop with zero alarm.
     codex_ours = None
+    codex_rollout = None
     cc_ours = None
     dispatch_names = None
     reasonix_ours = None
@@ -750,6 +882,7 @@ def main() -> int:
     hermes_ours = None
     try:
         codex_ours = read_codex_events()
+        codex_rollout = read_codex_rollout_types()
         cc_ours = read_cc_events()
         dispatch_names = read_dispatch_names()
         reasonix_ours = read_reasonix_events()
@@ -769,6 +902,7 @@ def main() -> int:
     try:
         run_checks(
             codex_ours,
+            codex_rollout,
             cc_ours,
             dispatch_names,
             reasonix_ours,
