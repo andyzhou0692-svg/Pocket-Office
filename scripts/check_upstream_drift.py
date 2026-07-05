@@ -54,6 +54,16 @@ and compares against the live upstream:
                           (one-directional: Hermes fires ~15 shell-hook events and
                           we register 4 by design, so only a VANISHED depended event alarms)
 
+Beyond the event/TYPE lists above, FIELD-NAME drift is watched wherever the
+upstream field owner is fetchable (a rename → the decoder reads None and the
+sprite silently breaks — the same class as a vanished type): Reasonix payload
+json tags; Codex EventMsg/ResponseItem rollout types + FunctionCall name/arguments;
+CodeWhale DEEPSEEK_* env vars (HookContext::to_env_vars); opencode Struct fields;
+Copilot schema `properties`; OpenClaw hook-types fields; Hermes _serialize_payload
+keys (agent/shell_hooks.py). Cursor + CC (closed binaries, docs-prose only) and
+Antigravity (no fetchable schema) CANNOT be field-watched — the in-code drift
+breadcrumbs (defense #2: drift::missing_field/unknown_event) are the limit there.
+
 Exit codes:
   0  no drift
   1  actionable drift (a name we depend on vanished, or a new upstream Codex
@@ -211,6 +221,19 @@ CODEWHALE_KNOWN_OMITTED = {
     "shell_env",
 }
 
+# CodeWhale ENV-MODE identity: the shim (pixtuoid-hook) folds these DEEPSEEK_*
+# env vars into the cwd-keyed `{cwd, tool, tool_args}` envelope the decoder reads
+# (source/codewhale.rs). The envelope FIELD names are our own shim contract (they
+# can't drift), but the DEEPSEEK_* names are CodeWhale's — set by
+# `HookContext::to_env_vars` in the SAME hooks.rs the event check fetches. WORKSPACE
+# is load-bearing: it becomes the envelope `cwd` = the AgentId KEY, so a rename →
+# the shim reads None → empty cwd → the decoder drops EVERY session (no sprite).
+# (DEEPSEEK_SESSION_ID is deliberately NOT read — proven inconsistent — so it's
+# not a dependency.) The RAW subagent-JSON fields (agent_id/workspace) are NOT
+# watched here: their owner is a fuzzy ui.rs `json!` macro, and the decoder's own
+# `ok_or_else`/parentless-degrade (defense #2) covers them.
+CODEWHALE_ENV_FIELDS = {"DEEPSEEK_WORKSPACE", "DEEPSEEK_TOOL_NAME", "DEEPSEEK_TOOL_ARGS"}
+
 # opencode is open TS: the EventV2 `type` strings the plugin forwards + the
 # decoder maps live in these files. The check is ONE-DIRECTIONAL — opencode emits
 # ~50 event types and we intentionally map only a handful, so "new upstream event"
@@ -235,6 +258,17 @@ OPENCODE_EVENT_URLS = (
 # don't alarm if the bare form isn't found as a `type:` literal.
 OPENCODE_TOLERATED = {"permission.asked"}
 
+# opencode payload FIELD names decode_oc_hook_payload reads (beyond the `type`
+# discriminator): `info.{id,parentID,directory}` (id = the ses_* identity KEY;
+# parentID = subagent link) and `part.{type,callID,tool,state.{status,input}}`.
+# A rename → the decoder reads None → wrong-register / no-link / no-activity. They
+# appear as `field: …` property lines in the Schema.Struct defs (session.ts).
+# Checked ONE-DIRECTIONAL against the SAME concatenated schema `text`.
+OPENCODE_PAYLOAD_FIELDS = {
+    "info", "id", "parentID", "directory",
+    "part", "sessionID", "callID", "tool", "state", "status", "input",
+}
+
 # Copilot CLI publishes a session-events JSON schema; unpkg serves the file
 # directly (the bare path 302-redirects to the latest published version, which
 # urllib follows — intentionally UNPINNED: a drift watch wants the latest shape,
@@ -250,6 +284,19 @@ OPENCODE_TOLERATED = {"permission.asked"}
 # the linux-x64 one (matches the CI host — every platform package carries the
 # identical schema, and unpkg serves the single file without the 100MB tarball).
 COPILOT_SCHEMA_URL = "https://unpkg.com/@github/copilot-linux-x64/schemas/session-events.schema.json"
+
+# Copilot payload FIELD names decode_copilot_line / extract_copilot_cwd read
+# (beyond the `type` discriminator): identity/link (`agentId`, `sessionId`,
+# `parentId`, `context`, `cwd`), tool (`toolCallId`, `toolName`, `arguments`),
+# display (`agentDisplayName`) and permission (`permissionRequest`, `result`,
+# `kind`). Curated (NOT scraped — a scrape would drag in opaque tool-arg keys +
+# fixture JSON). Checked against the union of every `definitions[*].properties`
+# key in the SAME schema `text` (a depended field GONE upstream = breaking).
+COPILOT_PAYLOAD_FIELDS = {
+    "agentId", "sessionId", "parentId", "context", "cwd",
+    "toolCallId", "toolName", "arguments", "agentDisplayName",
+    "permissionRequest", "result", "kind",
+}
 
 # Cursor CLI (`cursor-agent`) is HOOK-ONLY; the events we register/decode are
 # camelCase `hook_event_name`s (`source/cursor.rs`). Cursor is a closed binary,
@@ -274,6 +321,13 @@ OPENCLAW_HOOK_TYPES_URL = (
     "https://raw.githubusercontent.com/openclaw/openclaw/main/src/plugins/hook-types.ts"
 )
 
+# OpenClaw payload FIELD names decode_openclaw_presence reads (beyond `type`):
+# `runId` (the in-flight run key), `sessionId` (fallback key + label) and
+# `success` (agent_end → Degraded gate). `_pid` is plugin-stamped process.pid (no
+# upstream coupling); sessionKey/reason/messageCount are forwarded-but-unread.
+# Checked ONE-DIRECTIONAL against the SAME hook-types.ts `text`.
+OPENCLAW_PAYLOAD_FIELDS = {"runId", "sessionId", "success"}
+
 # Hermes Agent is a hook-only source: we install SHELL hooks into config.yaml and
 # register 4 of its lifecycle events (`HERMES_EVENTS` in install/hermes.rs). Hermes
 # is open Python: the canonical shell-hook event set is the KEYS of `_DEFAULT_PAYLOADS`
@@ -284,6 +338,19 @@ OPENCLAW_HOOK_TYPES_URL = (
 HERMES_HOOK_URL = (
     "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/hermes_cli/hooks.py"
 )
+# The Hermes shell-hook PAYLOAD (field names, not the event list) is assembled by
+# `_serialize_payload()` in agent/shell_hooks.py — a DIFFERENT file from the
+# event-list source (hooks.py). The decoder reads `session_id`/`cwd`/`tool_name`/
+# `tool_input`; a rename → the shell-hook JSON omits it → the decoder reads None
+# (no key → no coalesce, no tool label). Two orthogonal checks, two files.
+HERMES_SHELL_HOOK_URL = (
+    "https://raw.githubusercontent.com/NousResearch/hermes-agent/main/agent/shell_hooks.py"
+)
+# Hermes payload FIELD names decode_hermes_hook_payload reads (the `session_id`
+# coalesce key + `cwd` label + `tool_name`/`tool_input` for the tool detail).
+# `hook_event_name` is the discriminator (event check covers it). Checked as
+# dict-key literals in _serialize_payload; ONE-DIRECTIONAL (a depended field gone).
+HERMES_PAYLOAD_FIELDS = {"session_id", "cwd", "tool_name", "tool_input"}
 
 
 def fetch(url: str) -> str:
@@ -544,6 +611,33 @@ def upstream_copilot_events(text: str) -> set[str] | None:
     return consts or None
 
 
+def upstream_copilot_field_names(text: str) -> set[str] | None:
+    """The union of every `properties` key at ANY depth in the @github/copilot
+    session-events schema — the envelope fields (agentId/parentId/sessionId) AND
+    the nested `data.properties` fields (toolCallId/toolName/arguments/…). Used
+    one-directional: a field the decoder READS that is absent from the whole
+    schema is a rename. Returns None if the JSON won't parse (→ loud breaking)."""
+    try:
+        root = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    names: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, dict):
+            props = node.get("properties")
+            if isinstance(props, dict):
+                names.update(k for k in props if isinstance(k, str))
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(root)
+    return names or None
+
+
 def upstream_codewhale_hooks(text: str) -> set[str] | None:
     # The TUI shell-command hook enum `pub enum HookEvent { SessionStart, ... }`
     # in crates/tui/src/hooks.rs (NOT the app-server `codewhale-hooks` sink enum
@@ -650,6 +744,20 @@ def run_checks(
                                 f"`ResponseItem` — renamed; the transcript decoder "
                                 f"drops it SILENTLY."
                             )
+                    # FunctionCall FIELD survival: codex_tool_start reads `name`
+                    # + `arguments` off a function_call item; a rename → silent
+                    # mislabel / the approval gate never fires. Rides `models`.
+                    fc = re.search(r"FunctionCall\s*\{([^}]*)\}", models)
+                    if fc:
+                        fc_fields = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", fc.group(1)))
+                        for f in ("name", "arguments"):
+                            if f not in fc_fields:
+                                breaking.append(
+                                    f"Codex function_call field `{f}` is GONE from "
+                                    f"ResponseItem::FunctionCall in models.rs — renamed; "
+                                    f"the decoder reads None (mislabels the tool / never "
+                                    f"gates on approval)."
+                                )
 
     # --- Reasonix hook events + payload fields (only the FETCH is transient)
     if reasonix_ours is not None:
@@ -709,6 +817,17 @@ def run_checks(
                         f"intentionally omit it (add a decoder arm + CODEWHALE_EVENTS, "
                         f"or add it to CODEWHALE_KNOWN_OMITTED)."
                     )
+            # Env-mode identity fields: the DEEPSEEK_* names CodeWhale sets in
+            # `HookContext::to_env_vars` (same hooks.rs). ONE-DIRECTIONAL.
+            for field in sorted(CODEWHALE_ENV_FIELDS):
+                if f'"{field}"' not in text:
+                    breaking.append(
+                        f"CodeWhale env var `{field}` (folded by the shim's env-mode "
+                        f"into the {{cwd,tool,tool_args}} envelope) is GONE from "
+                        f"hooks.rs `to_env_vars` — renamed; the shim reads None, the "
+                        f"envelope omits its field, and the cwd-keyed decoder drops "
+                        f"the event (empty cwd = no sprite / no activity)."
+                    )
 
     # --- opencode EventV2 types (only the FETCH is transient) --------------
     if opencode_ours is not None:
@@ -730,6 +849,16 @@ def run_checks(
                         f"from upstream — likely renamed; the plugin still forwards it but "
                         f"the decoder maps it to nothing (no sprite / no activity)."
                     )
+            # Payload FIELD names — each a `field:` property line in the schema
+            # Struct defs. ONE-DIRECTIONAL (a depended field vanishing alarms).
+            for field in sorted(OPENCODE_PAYLOAD_FIELDS):
+                if not re.search(rf"(?m)^\s*{re.escape(field)}:", text):
+                    breaking.append(
+                        f"opencode field `{field}` (read by source/opencode.rs) is GONE "
+                        f"from the schema Struct defs — likely renamed; the plugin still "
+                        f"forwards the event but the decoder reads None (wrong-register / "
+                        f"no-link / no-activity)."
+                    )
 
     # --- Copilot event types (only the FETCH is transient) -----------------
     if copilot_ours is not None:
@@ -750,6 +879,23 @@ def run_checks(
                             f"from the @github/copilot schema — likely renamed; the "
                             f"transcript still carries it but the decoder maps it to "
                             f"nothing (no sprite / no activity)."
+                        )
+            # Payload FIELD names — the union of every `properties` key (envelope
+            # + nested data.*). ONE-DIRECTIONAL (a depended field vanishing alarms).
+            fields_up = upstream_copilot_field_names(text)
+            if fields_up is None:
+                breaking.append(
+                    "Copilot schema won't parse for field names — upstream "
+                    "restructured it; update upstream_copilot_field_names."
+                )
+            else:
+                for field in sorted(COPILOT_PAYLOAD_FIELDS):
+                    if field not in fields_up:
+                        breaking.append(
+                            f"Copilot field `{field}` (read by decode_copilot_line / "
+                            f"extract_copilot_cwd) is GONE from the schema properties — "
+                            f"renamed; the decoder reads None (wrong-register / no-link / "
+                            f"no tool label / permission never gates)."
                         )
 
     # --- Cursor hook events (only the FETCH is transient) ------------------
@@ -784,8 +930,16 @@ def run_checks(
                         f"the plugin registers a hook OpenClaw never fires, so the lobster "
                         f"mascot silently stops reacting (no presence)."
                     )
+            # Payload FIELD names read by decode_openclaw_presence. ONE-DIRECTIONAL.
+            for field in sorted(OPENCLAW_PAYLOAD_FIELDS):
+                if not re.search(rf"\b{re.escape(field)}\b", text):
+                    breaking.append(
+                        f"OpenClaw field `{field}` (read by decode_openclaw_presence) is "
+                        f"GONE from src/plugins/hook-types.ts — renamed; the decoder reads "
+                        f"None (wrong run-key / no Degraded gate / no presence)."
+                    )
 
-    # --- Hermes shell-hook events (only the FETCH is transient) ------------
+    # --- Hermes shell-hook events + payload fields (only the FETCH is transient)
     if hermes_ours is not None:
         text = try_fetch(HERMES_HOOK_URL, "Hermes hooks", breaking, errors)
         if text is not None:
@@ -800,6 +954,18 @@ def run_checks(
                         f"hermes_cli/hooks.py _DEFAULT_PAYLOADS — likely renamed; Hermes still "
                         f"runs but the shell hook we install into config.yaml fires nothing "
                         f"(no sprite / no activity)."
+                    )
+        # Payload FIELD names — assembled by _serialize_payload in the SEPARATE
+        # agent/shell_hooks.py (a second fetch). ONE-DIRECTIONAL.
+        shell = try_fetch(HERMES_SHELL_HOOK_URL, "Hermes shell_hooks", breaking, errors)
+        if shell is not None:
+            for field in sorted(HERMES_PAYLOAD_FIELDS):
+                if f'"{field}"' not in shell:
+                    breaking.append(
+                        f"Hermes payload field `{field}` (read by "
+                        f"decode_hermes_hook_payload) is GONE from agent/shell_hooks.py "
+                        f"_serialize_payload — renamed; the shell-hook JSON omits it and the "
+                        f"decoder reads None (no coalesce key / no tool label)."
                     )
 
     # --- CC subagent-dispatch tool (only the FETCH is transient) -----------

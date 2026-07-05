@@ -127,6 +127,13 @@ def test_upstream_parsers_extract_from_a_snippet() -> None:
     # A malformed schema → None (signals "restructured", handled as breaking upstream).
     check(d.upstream_copilot_events("not json") is None, "copilot bad json -> None")
 
+    # Copilot FIELD-NAME union — every `properties` key at ANY depth (envelope
+    # `agentId` AND the nested `data.properties` `toolCallId`).
+    copilot_fields = '{"definitions":{"A":{"properties":{"agentId":{},"data":{"properties":{"toolCallId":{}}}}}}}'
+    up = d.upstream_copilot_field_names(copilot_fields)
+    check(up is not None and {"agentId", "toolCallId"} <= up, f"copilot field union (recursive): {up}")
+    check(d.upstream_copilot_field_names("not json") is None, "copilot fields bad json -> None")
+
     # CC hook-event summary table — the MOST complex parser (anchors to the
     # "| Event |" header + separator, extracts the backtick-quoted first cell).
     # A wrong-but-non-None match here would silently miss a renamed event, so pin
