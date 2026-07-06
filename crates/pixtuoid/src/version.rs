@@ -61,6 +61,10 @@ pub fn release_notes(version: &str) -> Option<&'static [&'static str]> {
         "0.13.0" => Some(&[
             "New agent supported — Hermes Agent (Nous Research) sessions now show up as animated pixel-art coworkers in the office, wired in like every other CLI",
             "A living sky — a sun and moon now arc past the office windows over the city skyline as the day turns, and weather became the atmosphere between them and your desk: a clear noon blazes, a storm dusk goes gloomy, fog swallows the sun, and a crescent moon rises at night, all tinted per theme",
+            "See the office at a glance — a new on-screen HUD ties together a status footer, a wall board, and hover tooltips, so who's working, on what, and how busy the floor is are all readable without opening a panel",
+            "Safer on a shared machine — agents now reach pixtuoid through a private per-user socket directory (macOS/Linux) and a peer-identity check on the Windows named pipe, so another user on the same host can't read or spoof your agents' activity",
+            "Steadier across every CLI — an Antigravity session no longer shows up twice and a Cursor sprite no longer lingers \"working\" after a tool fails, and the upstream-wire-drift watch now covers each CLI's payload fields too, so a silent format change upstream is caught before it drops your agents from the office",
+            "Under the hood — a whole-codebase review pass (correctness, security, performance) and a daemon-state refactor that makes illegal states unrepresentable; the office looks the same, just sturdier",
         ]),
         "0.12.0" => Some(&[
             "A sustained whole-codebase cleanup across several review passes — sturdier session tracking (a delegating agent no longer hides its own pending permission; live sessions survive log-content lookalikes), fresher sprites after a project rename, and pathfinding that recovers when a blocked route reopens",
