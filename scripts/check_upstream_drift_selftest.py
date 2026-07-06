@@ -181,6 +181,16 @@ def test_upstream_parsers_extract_from_a_snippet() -> None:
     check(up is not None and "model_info" not in up and "path_buf" not in up, f"codex struct-field type leaked: {up}")
     check(d.upstream_codex_enum_types("no enum here", "EventMsg") is None, "codex enum none -> None")
 
+    # Codex ResponseItem::FunctionCall inline-struct FIELD extraction.
+    fc_struct = "FunctionCall {\n    name: String,\n    arguments: String,\n    call_id: String,\n}"
+    up = d.codex_function_call_fields(fc_struct)
+    check(up is not None and {"name", "arguments"} <= up, f"codex FunctionCall fields: {up}")
+    # A tuple variant (external struct) → None = GRACEFUL SKIP, not a false alarm.
+    check(
+        d.codex_function_call_fields("FunctionCall(FunctionCallItem),") is None,
+        "codex FunctionCall tuple variant -> None (graceful skip, not an alarm)",
+    )
+
 
 def main() -> int:
     for t in (

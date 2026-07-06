@@ -286,14 +286,17 @@ OPENCODE_PAYLOAD_FIELDS = {
 COPILOT_SCHEMA_URL = "https://unpkg.com/@github/copilot-linux-x64/schemas/session-events.schema.json"
 
 # Copilot payload FIELD names decode_copilot_line / extract_copilot_cwd read
-# (beyond the `type` discriminator): identity/link (`agentId`, `sessionId`,
-# `parentId`, `context`, `cwd`), tool (`toolCallId`, `toolName`, `arguments`),
-# display (`agentDisplayName`) and permission (`permissionRequest`, `result`,
-# `kind`). Curated (NOT scraped — a scrape would drag in opaque tool-arg keys +
-# fixture JSON). Checked against the union of every `definitions[*].properties`
-# key in the SAME schema `text` (a depended field GONE upstream = breaking).
+# (beyond the `type` discriminator): identity/link (`agentId` — the child key,
+# == data.toolCallId; `sessionId`, `context`, `cwd`), tool (`toolCallId`,
+# `toolName`, `arguments`), display (`agentDisplayName`) and permission
+# (`permissionRequest`, `result`, `kind`). The wire `parentId` is deliberately
+# NOT here — sub-agents link via the envelope `agentId`, not a parent field, so
+# watching `parentId` would false-alarm on a field we don't depend on. Curated
+# (NOT scraped — a scrape drags in opaque tool-arg keys + fixture JSON). Checked
+# against the union of every `properties` key at ANY depth (envelope + nested
+# `data.properties`) in the SAME schema `text` (a depended field GONE = breaking).
 COPILOT_PAYLOAD_FIELDS = {
-    "agentId", "sessionId", "parentId", "context", "cwd",
+    "agentId", "sessionId", "context", "cwd",
     "toolCallId", "toolName", "arguments", "agentDisplayName",
     "permissionRequest", "result", "kind",
 }
@@ -325,7 +328,10 @@ OPENCLAW_HOOK_TYPES_URL = (
 # `runId` (the in-flight run key), `sessionId` (fallback key + label) and
 # `success` (agent_end → Degraded gate). `_pid` is plugin-stamped process.pid (no
 # upstream coupling); sessionKey/reason/messageCount are forwarded-but-unread.
-# Checked ONE-DIRECTIONAL against the SAME hook-types.ts `text`.
+# Checked ONE-DIRECTIONAL (bare `\b` word-boundary) against the SAME hook-types.ts
+# `text`. NB `success` is a common word — like the cursor `stop` caveat, a rename
+# of THE depended field could be masked by an unrelated occurrence (low-confidence
+# false-negative); the distinctive `runId`/`sessionId` carry the check.
 OPENCLAW_PAYLOAD_FIELDS = {"runId", "sessionId", "success"}
 
 # Hermes Agent is a hook-only source: we install SHELL hooks into config.yaml and
@@ -492,6 +498,19 @@ def upstream_codex_enum_types(text: str, enum_name: str) -> set[str] | None:
     return names or None
 
 
+def codex_function_call_fields(text: str) -> set[str] | None:
+    """The field idents of the INLINE `ResponseItem::FunctionCall { … }` variant
+    (models.rs). Returns None if it isn't an inline struct — a GRACEFUL SKIP, not
+    an alarm: a tuple-variant refactor (`FunctionCall(FunctionCallItem)`)
+    serializes the SAME JSON, so the decoder's `.get("name"/"arguments")` still
+    works; only this bonus field check goes quiet (the type-existence check above
+    still covers `function_call`). Selftested so OUR regex breaking is caught."""
+    m = re.search(r"FunctionCall\s*\{([^}]*)\}", text)
+    if not m:
+        return None
+    return set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", m.group(1)))
+
+
 def upstream_cc_hook_events(text: str) -> set[str] | None:
     """The hook-event summary table near the top of hooks.md ("| Event | When
     it fires |") is the canonical event list — parse only its rows (other
@@ -613,8 +632,8 @@ def upstream_copilot_events(text: str) -> set[str] | None:
 
 def upstream_copilot_field_names(text: str) -> set[str] | None:
     """The union of every `properties` key at ANY depth in the @github/copilot
-    session-events schema — the envelope fields (agentId/parentId/sessionId) AND
-    the nested `data.properties` fields (toolCallId/toolName/arguments/…). Used
+    session-events schema — the envelope fields (agentId/sessionId) AND the
+    nested `data.properties` fields (toolCallId/toolName/arguments/…). Used
     one-directional: a field the decoder READS that is absent from the whole
     schema is a rename. Returns None if the JSON won't parse (→ loud breaking)."""
     try:
@@ -747,9 +766,9 @@ def run_checks(
                     # FunctionCall FIELD survival: codex_tool_start reads `name`
                     # + `arguments` off a function_call item; a rename → silent
                     # mislabel / the approval gate never fires. Rides `models`.
-                    fc = re.search(r"FunctionCall\s*\{([^}]*)\}", models)
-                    if fc:
-                        fc_fields = set(re.findall(r"\b([a-z_][a-z0-9_]*)\s*:", fc.group(1)))
+                    # None = not an inline struct → graceful skip (see the helper).
+                    fc_fields = codex_function_call_fields(models)
+                    if fc_fields is not None:
                         for f in ("name", "arguments"):
                             if f not in fc_fields:
                                 breaking.append(
