@@ -5,7 +5,7 @@
 //! same `(Transport, AgentEvent)` stream a live CLI would produce.
 //!
 //! Beat structure (one `LOOP_MS` cycle):
-//! - staggered `SessionStart`s walk the cast in over the first ~20s;
+//! - staggered `SessionStart`s walk the cast in over the first ~2.5s (morning rush);
 //! - each agent runs chained tool bursts (`ActivityStart`→`ActivityEnd` with
 //!   gaps < the reducer's 1.5s Active debounce, so work reads continuous)
 //!   interleaved with idle stretches (wander/coffee/meetings emerge from the
@@ -20,7 +20,9 @@
 use std::path::PathBuf;
 
 use pixtuoid_core::source::daemon::DaemonPresenceUpdate;
-use pixtuoid_core::source::{claude_code, codex, cursor, opencode};
+use pixtuoid_core::source::{
+    antigravity, claude_code, codewhale, codex, copilot, cursor, hermes, opencode,
+};
 use pixtuoid_core::{AgentEvent, AgentId, ToolDetail, Transport};
 
 /// One scripted beat: fires `at_ms` into the current loop.
@@ -39,16 +41,22 @@ pub(crate) const LOOP_MS: u64 = 120_000;
 /// `SOURCE_NAME` consts — a hand-typed string here silently misses the
 /// registry and the label falls back to the RAW string (`claude_code·api`
 /// instead of `cc·api` — a review-caught, test-invisible defect class).
+/// Every slot carries a DISTINCT CLI (8 of the registry's 9 non-daemon
+/// sources — Reasonix is the one omitted; OpenClaw is the 10th, rendered
+/// separately as the lobster mascot via `lobster_beats`, never a cast
+/// member): the hero's ten CLI-name chips and the badged sprites below are
+/// meant to ECHO each other ("we support these agents"), so the cast should
+/// span the roster instead of repeating one CLI across most of the slots.
 const CAST: &[(&str, &str, &str)] = &[
     // (source, session key, cwd)
     (claude_code::SOURCE_NAME, "hero-cc-api", "/work/api"),
-    (claude_code::SOURCE_NAME, "hero-cc-web", "/work/webapp"),
-    (codex::SOURCE_NAME, "hero-cx-infra", "/work/infra"),
-    (claude_code::SOURCE_NAME, "hero-cc-data", "/work/data"),
-    (opencode::SOURCE_NAME, "hero-oc-cli", "/work/cli"),
     (codex::SOURCE_NAME, "hero-cx-web", "/work/webapp"),
-    (cursor::SOURCE_NAME, "hero-cu-docs", "/work/docs"),
-    (claude_code::SOURCE_NAME, "hero-cc-infra", "/work/infra"),
+    (antigravity::SOURCE_NAME, "hero-ag-infra", "/work/infra"),
+    (codewhale::SOURCE_NAME, "hero-cw-data", "/work/data"),
+    (opencode::SOURCE_NAME, "hero-oc-cli", "/work/cli"),
+    (copilot::SOURCE_NAME, "hero-cp-docs", "/work/docs"),
+    (cursor::SOURCE_NAME, "hero-cu-etl", "/work/etl"),
+    (hermes::SOURCE_NAME, "hero-hm-tests", "/work/tests"),
 ];
 
 pub(crate) fn cast_id(i: usize) -> AgentId {
@@ -226,8 +234,11 @@ pub(crate) fn lobster_beats() -> Vec<PresenceBeat> {
 pub(crate) fn hero_script() -> Vec<Beat> {
     let mut b: Vec<Beat> = Vec::new();
 
-    // Walk-ins: staggered so the door + corridor animate one by one.
-    for (i, delay) in [0u64, 2_500, 5_500, 9_000, 12_000, 15_500, 19_000]
+    // Walk-ins — the MORNING RUSH (spec §1, audit top12 #3): the cast is
+    // through the door within ~2.5s of reveal, so scroll-0 never reads as an
+    // empty looping video. Loop-wrap replay is unchanged: a SessionStart for a
+    // live slot is a no-op.
+    for (i, delay) in [0u64, 350, 750, 1_150, 1_600, 2_050, 2_500]
         .iter()
         .enumerate()
     {
@@ -238,26 +249,37 @@ pub(crate) fn hero_script() -> Vec<Beat> {
         });
     }
 
-    // Work spells per agent — offsets chosen so at any instant roughly half
-    // the office types while the rest wander/idle (meetings + coffee emerge).
+    // Opening spells: each agent starts working shortly after walking in —
+    // ≥4 monitors on by ~3s (pinned by morning_rush_populates_within_three_
+    // seconds). Offsets still interleave so wander/coffee/meetings emerge.
     spell(
         &mut b,
         0,
-        6_000,
+        1_000,
         8,
         &["Bash: cargo test", "Edit main.rs", "Read lib.rs"],
     );
-    spell(&mut b, 1, 10_000, 6, &["Edit App.tsx", "Bash: pnpm build"]);
+    spell(&mut b, 1, 1_600, 6, &["Edit App.tsx", "Bash: pnpm build"]);
     spell(
         &mut b,
         2,
-        14_000,
+        2_200,
         10,
         &["Bash: terraform plan", "Read modules.tf"],
     );
-    spell(&mut b, 3, 20_000, 6, &["Bash: dbt run", "Edit models.sql"]);
-    spell(&mut b, 4, 24_000, 8, &["Edit cmd.rs", "Bash: cargo clippy"]);
-    spell(&mut b, 5, 30_000, 6, &["Read index.ts", "Edit routes.ts"]);
+    spell(&mut b, 3, 2_800, 6, &["Bash: dbt run", "Edit models.sql"]);
+    spell(&mut b, 4, 3_400, 8, &["Edit cmd.rs", "Bash: cargo clippy"]);
+    spell(&mut b, 5, 4_000, 6, &["Read index.ts", "Edit routes.ts"]);
+    // Fill spells: the openers now END early (~11s), so re-cover the 15–40s
+    // stretch the old 6–30s starts used to occupy.
+    spell(
+        &mut b,
+        1,
+        16_000,
+        6,
+        &["Bash: pnpm test", "Edit styles.css"],
+    );
+    spell(&mut b, 3, 24_000, 6, &["Read schema.sql", "Edit etl.py"]);
     spell(
         &mut b,
         0,
@@ -426,7 +448,7 @@ mod tests {
         for a in scene.agents.values() {
             let prefix = a.label.split('·').next().unwrap();
             assert!(
-                ["cc", "cx", "oc", "cu"].contains(&prefix),
+                ["cc", "cx", "ag", "cw", "oc", "cp", "cu", "hm"].contains(&prefix),
                 "label {:?} must carry a registered source prefix",
                 a.label
             );
@@ -442,6 +464,42 @@ mod tests {
             (6..=8).contains(&scene.agents.len()),
             "cast must stay bounded across loops, got {}",
             scene.agents.len()
+        );
+    }
+
+    #[test]
+    fn morning_rush_populates_within_three_seconds() {
+        // Spec §1 (audit top12 #3): within ~3s of reveal the office must read
+        // as a working morning — most of the cast through the door and ≥4
+        // monitors on (the morning rush spec).
+        let mut scene = SceneState::uniform(16);
+        let mut reducer = Reducer::new();
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_millis(1_000_000);
+        const RUSH_MS: u64 = 3_000;
+        for beat in hero_script().iter().filter(|b| b.at_ms <= RUSH_MS) {
+            let now = t0 + Duration::from_millis(beat.at_ms);
+            reducer.apply(&mut scene, beat.event.clone(), now, beat.transport);
+        }
+        reducer.tick(&mut scene, t0 + Duration::from_millis(RUSH_MS));
+        assert!(
+            scene.agents.len() >= 6,
+            "morning rush: expected >=6 walk-ins by 3s, got {}",
+            scene.agents.len()
+        );
+        let active = scene
+            .agents
+            .values()
+            .filter(|a| matches!(a.state, pixtuoid_core::state::ActivityState::Active { .. }))
+            .count();
+        // WHY the exact-4 hairline is expected, not a regression: the current
+        // schedule lands `active` at exactly the >=4 floor with zero headroom
+        // — a spell-offset tweak that shifts one burst's start a beat later
+        // can drop this to 3 without the morning-rush SPEC actually regressing.
+        // This asserts the floor, not a margin; if it flips red, re-check the
+        // rendered office before assuming a real regression.
+        assert!(
+            active >= 4,
+            "morning rush: expected >=4 monitors on by 3s, got {active}"
         );
     }
 }

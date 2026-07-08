@@ -42,12 +42,6 @@ function parseRgb(css: string): [number, number, number, number] {
   const [r, g, b, a] = m[1].split(',').map((s) => parseFloat(s));
   return [r, g, b, a ?? 1];
 }
-function parseHex(hex: string): [number, number, number] {
-  const m = hex.trim().match(/^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i);
-  if (!m) throw new Error(`unparseable hex color: ${hex}`);
-  return [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)];
-}
-
 /**
  * Fail the calling test if the page logs an uncaught error or console.error.
  * Attached once per DISTINCT code path (index live boot, copy/hire, docs
@@ -143,6 +137,22 @@ test('digit keys ride between floors (scrollspy round-trip)', async ({ page }) =
   await expect(page.locator('[data-lift-digit]')).toHaveText('1F', { timeout: 10_000 });
 });
 
+test('scrolled to the true page bottom, the statusline clamps to the last floor', async ({
+  page,
+}) => {
+  // 1F (install) + the footer rarely fill the observer's -45%/-45% middle
+  // band, so without a bottom clamp the readout can freeze one floor short
+  // while the visitor reads the very end of the page. Force actual max scroll
+  // (not a fixed pixel guess — page height varies by content/viewport); retry
+  // a few times since late layout settling can still grow the page after the
+  // first scrollTo lands.
+  await gotoLive(page);
+  await expect(async () => {
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+    await expect(page.locator('[data-lift-digit]')).toHaveText('1F', { timeout: 500 });
+  }).toPass({ timeout: 10_000 });
+});
+
 test('the dimmer darkens statements and releases in office gaps', async ({ page }) => {
   await gotoLive(page);
   const dim = () =>
@@ -170,6 +180,101 @@ test('the dimmer darkens statements and releases in office gaps', async ({ page 
   await expect.poll(heroOp).toBeLessThan(0.01);
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
   await expect.poll(heroOp).toBeGreaterThan(0.5);
+});
+
+// Regression pin for a real (if brief) dimmer glitch found while investigating
+// a reported "dimmer jumps/strobes near the floating-window gap" bug: a
+// Showcase channel swap changes content height ABOVE the viewport (every live
+// channel renders a different height — measured ~8224px to ~8306px across the
+// 7 channels), and the browser's OWN scroll anchoring adjusts window.scrollY
+// to compensate *in the same task* as the swap — before OfficeBackdrop's
+// ResizeObserver-triggered re-measure ever runs. The gap-2 image itself turned
+// out NOT to be the cause (its box is pinned by `aspect-ratio: 16/10`
+// regardless of load state — see the sibling test below); the real mechanism
+// is this content-reflow-above-the-viewport race, and gap-2 sits directly
+// downstream of Showcase so it's exactly where a visitor would see it.
+// OfficeBackdrop.astro's recompute() now runs synchronously from the
+// ResizeObserver callback (no extra rAF hop) so the corrected opacity lands
+// in the same task as the reflow, before paint.
+test('the dimmer tracks live geometry across a Showcase channel swap', async ({ page }) => {
+  await gotoLive(page);
+  // Straddle the gap-2 observation hold (between Features and HowItWorks) —
+  // the reported bug's location.
+  await page.evaluate(() => window.scrollTo({ top: 3763, behavior: 'instant' }));
+
+  // Ground truth: replicate the dimmer's own ease()/cap/best-block formula
+  // against LIVE getBoundingClientRect() rects and the LIVE (possibly
+  // scroll-anchor-adjusted) scrollY — independent of whatever the controller
+  // has cached.
+  const liveTruth = () =>
+    page.evaluate(() => {
+      const y = window.scrollY;
+      const innerH = window.innerHeight;
+      const center = y + innerH / 2;
+      const reach = innerH * 0.55;
+      let best = 0;
+      let bestCap = 0.86;
+      document.querySelectorAll<HTMLElement>('[data-lit]').forEach((el) => {
+        const r = el.getBoundingClientRect();
+        const top = r.top + y;
+        const bottom = r.bottom + y;
+        const d = center < top ? top - center : center > bottom ? center - bottom : 0;
+        const p = d >= reach ? 0 : 1 - d / reach;
+        if (p > best) {
+          best = p;
+          bestCap = el.dataset.litMax ? parseFloat(el.dataset.litMax) : 0.86;
+        }
+      });
+      const ease = (t: number) => t * t * (3 - 2 * t);
+      return bestCap * ease(best);
+    });
+  const pageOp = () =>
+    page.evaluate(() => parseFloat(document.getElementById('dimmer')!.style.opacity || '0'));
+
+  // Cycle through every live channel (each a genuine reflow above the
+  // viewport) and confirm the dimmer converges to the live ground truth —
+  // not a value cached from before the swap.
+  const channels = ['agents', 'openclaw', 'dashboard', 'meetings', 'pets', 'spaces', 'vibing'];
+  for (const ch of channels) {
+    await page.evaluate(
+      (id) => (document.querySelector(`.dial__ch[data-ch="${id}"]`) as HTMLElement | null)?.click(),
+      ch
+    );
+    await expect
+      .poll(async () => Math.abs((await pageOp()) - (await liveTruth())), {
+        message: `dimmer opacity vs live ground truth after switching to "${ch}"`,
+      })
+      .toBeLessThan(0.01);
+  }
+});
+
+// The gap-2 floating-window still was the ORIGINAL suspect for the dimmer
+// glitch above (a lazy image with no width/height reserving no space). It
+// isn't: `.gap-frame__body`'s CSS `aspect-ratio: 16/10` pins the box before
+// the PNG ever arrives. Pin the EXPECTED box, not before/after equality: a
+// stray height presentational attribute overrides aspect-ratio (it only
+// applies to auto dimensions) and blew the frame to natural height — a
+// same-before-and-after assertion stayed green through that regression.
+// Do NOT re-add width/height attributes to this <img> (the 1600×1440
+// natural size is 10:9, not the frame's 16/10 crop).
+test('the gap-2 still holds its 16/10 crop before and after the image loads', async ({ page }) => {
+  await gotoLive(page);
+  const frameBox = () =>
+    page.evaluate(() => {
+      const r = document.querySelector('.gap-frame__body')!.getBoundingClientRect();
+      return { w: r.width, h: r.height };
+    });
+  const expectSixteenTen = (box: { w: number; h: number }) =>
+    expect(Math.abs(box.h - (box.w * 10) / 16)).toBeLessThan(1);
+  expectSixteenTen(await frameBox());
+  await page.evaluate(() =>
+    document.querySelector('.gap-frame')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+  );
+  await page.waitForFunction(() => {
+    const img = document.querySelector<HTMLImageElement>('[data-gap-still]');
+    return !!img && img.complete && img.naturalWidth > 0;
+  });
+  expectSixteenTen(await frameBox());
 });
 
 test('the hero pause switch freezes the office and resumes it seamlessly', async ({ page }) => {
@@ -232,42 +337,25 @@ test('the install Copy click hires without breaking the page', async ({ page, co
   expect(errors()).toEqual([]);
 });
 
-test('an install copy hires a coworker: pix:install-copy → pix:hired', async ({
-  page,
-  context,
-}) => {
-  await context.grantPermissions(['clipboard-write']);
-  const errors = watchErrors(page);
-  await gotoLive(page); // hire needs the LIVE office (__pixHire exists)
-  await page.evaluate(() => {
-    (window as unknown as { __hired: string[] }).__hired = [];
-    document.addEventListener('pix:hired', (e) =>
-      (window as unknown as { __hired: string[] }).__hired.push(
-        (e as CustomEvent<{ name: string }>).detail.name
-      )
-    );
-  });
-  expect(await page.evaluate(() => window.__pixInstall!.copy('closer'))).toBe(true);
-  await expect
-    .poll(() => page.evaluate(() => (window as unknown as { __hired: string[] }).__hired))
-    .toEqual(['cc·yours']);
-  expect(errors()).toEqual([]);
-});
-
 test('the hire cap stops the receipt at 3 but keeps hiring every time', async ({
   page,
   context,
 }) => {
-  // Cross-boundary pin (review finding on Task 6): HIRE_RECEIPT_CAP in
-  // OfficeBackdrop.astro mirrors VisitorHires::MAX_LIVE in
-  // crates/pixtuoid-web/src/lib.rs across the wasm boundary — a comment
-  // pairing alone can drift silently. This test pins BOTH halves: the cap
-  // VALUE (3) and the keep-attempting BEHAVIOR (the clipboard/copy path must
-  // never look broken even once the engine has quietly refused a hire past
-  // its cap). A change to either constant without the other now fails here.
+  // The engine's own bool return is now the ONE admission signal (see
+  // `Office::hire`'s contract, pixtuoid-web/src/lib.rs) — no JS-side mirror of
+  // `VisitorHires::MAX_LIVE` to drift out of lockstep. This test pins BOTH
+  // halves: the cap VALUE (3, via the receipts) and the keep-attempting
+  // BEHAVIOR (the clipboard/copy path must never look broken even once the
+  // engine has quietly refused a hire past its cap — the 4th call still runs,
+  // it just returns false). Drives the REAL Install-section copy control
+  // (wb-2: the statusline chip that used to drive this is now a plain jump
+  // link — Install.astro's own tabs are the surviving install-copy surface).
   await context.grantPermissions(['clipboard-write']);
   const errors = watchErrors(page);
   await gotoLive(page); // hire needs the LIVE office (__pixHire exists)
+  await page.evaluate(() =>
+    document.getElementById('install')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+  );
   await page.evaluate(() => {
     (window as unknown as { __hired: string[] }).__hired = [];
     document.addEventListener('pix:hired', (e) =>
@@ -275,23 +363,36 @@ test('the hire cap stops the receipt at 3 but keeps hiring every time', async ({
         (e as CustomEvent<{ name: string }>).detail.name
       )
     );
-    // Instrument the REAL Office.hire() call BEFORE firing any copies.
+    // Instrument the REAL Office.hire() call BEFORE firing any copies — must
+    // forward its bool return, or the admission signal the listener gates
+    // pix:hired on goes missing.
     const real = window.__pixHire!;
-    (window as unknown as { __hireCalls: number }).__hireCalls = 0;
+    (window as unknown as { __hireResults: boolean[] }).__hireResults = [];
     window.__pixHire = function () {
-      (window as unknown as { __hireCalls: number }).__hireCalls++;
-      real();
+      const admitted = real();
+      (window as unknown as { __hireResults: boolean[] }).__hireResults.push(admitted);
+      return admitted;
     };
   });
+  const copy = page.locator('.install__panel.is-active .install__copy');
   for (let i = 0; i < 4; i++) {
-    expect(await page.evaluate(() => window.__pixInstall!.copy('statusline'))).toBe(true);
+    await copy.click();
+    // wait for THIS click's hire() result to land before firing the next —
+    // each click's clipboard-write → pix:install-copy → hire() chain is async.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => (window as unknown as { __hireResults: boolean[] }).__hireResults.length
+        )
+      )
+      .toBe(i + 1);
   }
   await expect
     .poll(() => page.evaluate(() => (window as unknown as { __hired: string[] }).__hired))
     .toEqual(['cc·yours', 'cc·yours', 'cc·yours']); // receipt caps at MAX_LIVE (3), not 4
   expect(
-    await page.evaluate(() => (window as unknown as { __hireCalls: number }).__hireCalls)
-  ).toBe(4); // Office.hire() is still called every time — only the receipt stops
+    await page.evaluate(() => (window as unknown as { __hireResults: boolean[] }).__hireResults)
+  ).toEqual([true, true, true, false]); // hire() runs every time; only the 4th is refused
   expect(errors()).toEqual([]);
 });
 
@@ -299,10 +400,12 @@ test('reduced motion: an install copy writes the clipboard but hires nobody', as
   browser,
 }) => {
   // The no-wasm strand of the same finding: under reduced motion the wasm
-  // fetch never runs, so window.__pixHire is never published. copy() must
-  // still succeed (the clipboard write is independent of the office) and
-  // OfficeBackdrop's `if (!window.__pixHire) return;` guard must make the
-  // hire side a true no-op — no throw, no pix:hired receipt.
+  // fetch never runs, so window.__pixHire is never published. Install.astro's
+  // own copy button (the surviving install-copy control — the statusline
+  // chip is a plain jump link) must still succeed writing the clipboard (that
+  // path is independent of the office) and OfficeBackdrop's
+  // `if (!window.__pixHire) return;` guard must make the hire side a true
+  // no-op — no throw, no pix:hired receipt.
   const context = await browser.newContext({
     reducedMotion: 'reduce',
     permissions: ['clipboard-read', 'clipboard-write'],
@@ -320,7 +423,12 @@ test('reduced motion: an install copy writes the clipboard but hires nobody', as
       )
     );
   });
-  expect(await page.evaluate(() => window.__pixInstall!.copy('statusline'))).toBe(true);
+  await page.evaluate(() =>
+    document.getElementById('install')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+  );
+  const copy = page.locator('.install__panel.is-active .install__copy');
+  await copy.click();
+  await expect(copy).toHaveText(/Copied|Select & copy/);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     'brew install IvanWng97/pixtuoid/pixtuoid'
   );
@@ -457,52 +565,109 @@ test('key vocabulary: digits ride globally, typing surfaces stay guarded, t keep
   ).toBe('');
 });
 
-test('statusline install chip: copy flashes ✓, clipboard gets the one-liner, then the hire receipt', async ({
+test('statusline install chip is a link that jumps to Install (href, scroll, keyboard)', async ({
   page,
-  context,
 }) => {
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   const errors = watchErrors(page);
-  await gotoLive(page); // live office → the copy also hires → the receipt
-  const label = page.locator('#sl-install .sl__copy-label');
-  await expect(label).toHaveText('brew install');
-  await page.locator('#sl-install [data-sl-copy]').click();
-  await expect(label).toHaveText('copied ✓');
-  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    'brew install IvanWng97/pixtuoid/pixtuoid'
+  await gotoLive(page);
+  const link = page.locator('#sl-install [data-sl-install-link]');
+  expect(await link.evaluate((el) => el.tagName)).toBe('A');
+  await expect(link).toHaveAttribute('href', '#install');
+  await expect(link).toHaveAttribute('aria-label', 'Jump to the install section');
+  await expect(page.locator('#sl-install .sl__copy-label')).toHaveText('install');
+  // the ★ star count is unaffected by wb-2 (still the chip's sibling)
+  await expect(page.locator('#sl-install .sl__stars')).toBeVisible();
+
+  await link.click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.getElementById('install')!.getBoundingClientRect().top)
+    )
+    .toBeLessThan(50);
+  expect(await page.evaluate(() => document.activeElement && document.activeElement.id)).toBe(
+    'install'
   );
-  // the receipt queues BEHIND the 2s copied-✓ window, then flashes
-  await expect(label).toHaveText('you · hired · just now', { timeout: 6_000 });
-  // …and the chip returns to rest
-  await expect(label).toHaveText('brew install', { timeout: 6_000 });
+
+  // keyboard activation: a real <a> answers Enter without any extra wiring
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
+  await link.focus();
+  await page.keyboard.press('Enter');
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.getElementById('install')!.getBoundingClientRect().top)
+    )
+    .toBeLessThan(50);
   expect(errors()).toEqual([]);
 });
 
-test('statusline install chip: the icon-only mobile collapse still shows the copied/hired flash (review round, #504)', async ({
+test('statusline install chip: reduced motion jumps instantly (no smooth scroll)', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  const page = await context.newPage();
+  const errors = watchErrors(page);
+  await page.addInitScript(() => sessionStorage.setItem('pix-booted', '1'));
+  await page.goto('./');
+  await page.locator('#sl-install [data-sl-install-link]').click();
+  await expect
+    .poll(() =>
+      page.evaluate(() => document.getElementById('install')!.getBoundingClientRect().top)
+    )
+    .toBeLessThan(50);
+  expect(errors()).toEqual([]);
+  await context.close();
+});
+
+test('statusline install chip on mobile: label stays readable at rest, flash swaps to the glyph', async ({
   page,
   context,
 }) => {
-  // ≤760px hides .sl__copy-label — the desktop test above asserts on TEXT
-  // that's invisible here. This pins the glyph swap + chip pulse that stand
-  // in for it (a pixel-diff at this width showed no perceivable change
-  // before this fix — sighted mobile users got zero copy confirmation).
-  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  // ≤760px KEEPS the one-word 'install' label (a bare arrow means nothing to
+  // a first-time visitor — user-caught regression); only the hire-receipt
+  // flash swaps to the ✓ glyph + pulse, because the receipt TEXT is too long
+  // for the narrow bar. Post-wb-2 the chip no longer copies anything itself
+  // (it's a jump link) — the hire fires from the Install section's OWN copy
+  // control.
+  await context.grantPermissions(['clipboard-write']);
   const errors = watchErrors(page);
-  await gotoLive(page); // live office → the copy also hires → the receipt
+  await page.addInitScript(() => {
+    (window as unknown as { __chipPulses: number }).__chipPulses = 0;
+    document.addEventListener('animationstart', (e) => {
+      if ((e as AnimationEvent).animationName === 'chip-pulse') {
+        (window as unknown as { __chipPulses: number }).__chipPulses++;
+      }
+    });
+  });
+  await gotoLive(page); // live office → the Install copy also hires → the receipt
   await page.setViewportSize({ width: 375, height: 800 });
   const chip = page.locator('#sl-install .sl__copy');
+  const label = page.locator('#sl-install .sl__copy-label');
   const flashIcon = page.locator('#sl-install .sl__copy-icon-flash');
   await expect(chip).not.toHaveClass(/is-flash/);
   await expect(flashIcon).toBeHidden();
-  await page.locator('#sl-install [data-sl-copy]').click();
+  // the rest state must READ on mobile: arrow + the word, not a bare glyph
+  await expect(label).toBeVisible();
+  await expect(label).toHaveText('install');
+
+  await page.evaluate(() =>
+    document.getElementById('install')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+  );
+  await page.locator('.install__panel.is-active .install__copy').click();
+
   await expect(chip).toHaveClass(/is-flash/);
   await expect(flashIcon).toBeVisible();
-  // …and once the whole copied → hired-receipt sequence settles, it reverts
-  await expect(page.locator('#sl-install .sl__copy-label')).toHaveText('brew install', {
+  await expect(label).toBeHidden(); // the long receipt text never overflows the narrow bar
+  // …and once the hire-receipt sequence settles, it reverts
+  await expect(page.locator('#sl-install .sl__copy-label')).toHaveText('install', {
     timeout: 8_000,
   });
   await expect(chip).not.toHaveClass(/is-flash/);
   await expect(flashIcon).toBeHidden();
+  // ONE start: only the hire-receipt flash fires now (there's no more
+  // separate copy flash on the chip itself to queue behind).
+  expect(
+    await page.evaluate(() => (window as unknown as { __chipPulses: number }).__chipPulses)
+  ).toBe(1);
   expect(errors()).toEqual([]);
 });
 
@@ -579,8 +744,8 @@ test('the clock forces night after hours and clears on an explicit theme act', a
 test('first visit: boot intro auto-runs, reveals the page, seeds the gate', async ({ page }) => {
   await page.goto('./'); // NO pix-booted seed — the real first visit
   await expect(page.locator('#boot')).toBeVisible();
-  // The auto-run finishes in ~2.5s of sequenced timeouts — poll, no fixed wait.
-  await expect(page.locator('html')).not.toHaveAttribute('data-booting', '1', { timeout: 8_000 });
+  // Splash log displays 4 lines (~1.7s) then holds for engine (~4s MAX_ENGINE_WAITS) + settle fade (460ms) ≈ 6.3s.
+  await expect(page.locator('html')).not.toHaveAttribute('data-booting', '1', { timeout: 10_000 });
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('pix-booted'))).toBe('1');
   expect(await page.evaluate(() => document.getElementById('main')!.hasAttribute('inert'))).toBe(
     false
@@ -595,6 +760,36 @@ test('first visit: boot intro auto-runs, reveals the page, seeds the gate', asyn
   await expectSectionReveal(page, 'features');
 });
 
+test('a keypress during the Level-2 engine hold force-settles the splash immediately', async ({
+  page,
+}) => {
+  // Regression pin: skip() used to just call finish() — on the index page
+  // (#office-live present) that re-enters the SAME waitForEngine() hold an
+  // unforced finish() would, so a user gesture mid-hold did NOTHING but relight
+  // already-lit log lines; the page stayed inert up to the ~4s MAX_ENGINE_WAITS
+  // cap regardless of the keypress. A user gesture must always win over the
+  // engine hold.
+  const errors = watchErrors(page);
+  // Hang the wasm fetch forever (never fulfilled/aborted): window.__pixEngineReady
+  // then never resolves via the office's own first-frame path, so an unforced
+  // finish() would hold the full MAX_ENGINE_WAITS cap.
+  await page.route('**/wasm/**', () => {});
+  await page.goto('./'); // real first visit — no pix-booted seed
+  await expect(page.locator('#boot')).toBeVisible();
+  // Wait for the log to finish (last line lit) — the exact moment finish()
+  // runs and, since #office-live exists and the engine will never resolve,
+  // enters the waitForEngine hold. Bounded generously above the ~1.7s nominal
+  // log time for CI slack.
+  await expect(page.locator('.boot__line').last()).toHaveClass(/\bin\b/, { timeout: 5_000 });
+  await page.keyboard.press('Space');
+  // Must clear almost immediately — nowhere near the ~4s MAX_ENGINE_WAITS cap.
+  await expect(page.locator('html')).not.toHaveAttribute('data-booting', '1', { timeout: 700 });
+  expect(await page.evaluate(() => document.getElementById('main')!.hasAttribute('inert'))).toBe(
+    false
+  );
+  expect(errors()).toEqual([]);
+});
+
 test('first visit on an office-less page lifts the splash promptly (no engine-gate hang)', async ({
   page,
 }) => {
@@ -606,8 +801,29 @@ test('first visit on an office-less page lifts the splash promptly (no engine-ga
   await page.goto('./architecture/'); // real first visit (no pix-booted), no OfficeBackdrop
   await expect(page.locator('#boot')).toBeVisible();
   await expect(page.locator('#office-live')).toHaveCount(0); // confirm: no office on this page
-  // Fix clears data-booting in ~1.8s; the unguarded gate hangs to ~5.9s. 4s separates.
-  await expect(page.locator('html')).not.toHaveAttribute('data-booting', '1', { timeout: 4_000 });
+  // Splash clears data-booting in ~1.7s (4×390ms line dwell) + 460ms fade ≈ 2.1s; the unguarded gate hangs to ~5.9s. 3s separates.
+  await expect(page.locator('html')).not.toHaveAttribute('data-booting', '1', { timeout: 3_000 });
+  expect(errors()).toEqual([]);
+});
+
+test('first visit: splash displays 4-line log with per-line dwell (~390ms)', async ({ page }) => {
+  const errors = watchErrors(page);
+  // Test on docs page (no office, no engine wait) for pure splash-timing measurement.
+  await page.goto('./config/'); // NO pix-booted seed — the real first visit
+  await expect(page.locator('#boot')).toBeVisible();
+  // The splash displays 4 log lines: version, booting, themes, CLI count.
+  await expect(page.locator('#boot .boot__log')).toContainText('pixtuoid');
+  await expect(page.locator('#boot .boot__log')).toContainText('booting office');
+  await expect(page.locator('#boot .boot__log')).toContainText('loading themes');
+  await expect(page.locator('#boot .boot__log')).toContainText('10 CLIs connected');
+  // Splash clears data-booting in ~1.7s (4×390ms line dwell) + 460ms fade ≈ 2.1s — the
+  // §1 budget (user decision 2026-07-06: retimed from ~450ms/line, which measured
+  // ~2.5s end-to-end here — noticeably slower than production's felt pace).
+  await expect(page.locator('html')).not.toHaveAttribute('data-booting', '1', {
+    timeout: 3_000,
+  });
+  // Whole-viewport skip still seeds the session gate.
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('pix-booted'))).toBe('1');
   expect(errors()).toEqual([]);
 });
 
@@ -1042,69 +1258,286 @@ test('docs-table code cells render single-line (column-collapse guard)', async (
 
 test('text over the live office carries its own scrim (.text-scrim)', async ({ page }) => {
   await gotoLive(page);
-  // §5: legibility must not depend on the center-anchored scroll dimmer — the
-  // hero subcopy and the feature ledger rows carry a local scrim.
-  const bg = await page.evaluate(
+  // wb-2 C9: the hero copy (eyebrow/subcopy/CTA/platform-line) and the 4F
+  // intro paragraph are now BARE, tools-table style — legibility comes from
+  // --office-ink/--office-ink-accent tokens tuned against the real office
+  // composite, not a plate (see the WCAG test below + global.css's doc
+  // comment). Only the feature ledger and the install note still carry an
+  // actual scrim/plate.
+  const heroBg = await page.evaluate(
     () => getComputedStyle(document.querySelector('.hero .statement-sub')!).backgroundColor
   );
-  expect(bg).not.toBe('rgba(0, 0, 0, 0)');
-  expect(await page.locator('#features .ledger__row.text-scrim').count()).toBeGreaterThan(0);
+  expect(heroBg).toBe('rgba(0, 0, 0, 0)');
+  const ghostBg = await page.evaluate(
+    () => getComputedStyle(document.querySelector('.hero__ghost')!).backgroundColor
+  );
+  expect(ghostBg).toBe('rgba(0, 0, 0, 0)');
+  const featuresLeadBg = await page.evaluate(
+    () => getComputedStyle(document.querySelector('#features .section-head .lead')!).backgroundColor
+  );
+  expect(featuresLeadBg).toBe('rgba(0, 0, 0, 0)');
+
+  expect(await page.locator('#features .ledger.text-scrim').count()).toBe(1);
+  expect(await page.locator('#features .ledger.text-scrim .ledger__row').count()).toBeGreaterThan(
+    0
+  );
+  // The install note ("Also on crates.io...") floated unplated over the
+  // skyline — give it the same crisp plate (it's NOT hero, so the install
+  // card idiom applies, unlike the hero/4F bare treatment above).
+  expect(await page.locator('.install__note.text-scrim').count()).toBe(1);
 });
 
-test('the scrimmed hero subcopy clears WCAG AA at the worst-case composite (day theme)', async ({
+test('bare hero + 4F text clears WCAG AA at the real office composite (day + night)', async ({
   page,
 }) => {
-  // Review finding (task 2): the binding constraint is WCAG AA (4.5:1) for
-  // EVERY token, but the shipped test above only checked a scrim EXISTS, not
-  // that it's dark/opaque enough. The worst case is day theme, since it's the
-  // theme whose --fg-muted/--scrim pairing has the least headroom: the hero
-  // subcopy (--fg-muted) inside .text-scrim, with the dimmer capped at the
-  // hero's own data-lit-max (below its usual ceiling — see [data-lit-max] in
-  // OfficeBackdrop.astro) instead of fully dark, painted over --screen (the
-  // darkest pixel the office ever renders). Reads REAL computed styles (not
-  // hardcoded token values) so a future --scrim/--fg-muted regression fails
-  // this test rather than only a visual read.
-  await page.addInitScript(() => {
-    sessionStorage.setItem('pix-booted', '1');
-    localStorage.setItem('pix-theme', 'day');
-  });
-  await page.goto('./');
-  await expect(page.locator('html')).toHaveAttribute('data-theme', 'day');
+  // wb-2 C6/C9: the hero eyebrow/subcopy/platform-line and the 4F intro
+  // paragraph read directly over the live office (no plate — the
+  // SupportedTools-table look). Legibility now depends entirely on the ink
+  // token clearing contrast against whatever the office ACTUALLY renders
+  // behind it, so this samples the REAL canvas pixels (not a --screen proxy
+  // — with no opaque plate the underlying office pixel is no longer
+  // "immaterial") across the sampled element's bounding box, finds the
+  // brightest AND darkest pixel in it (day's dimmer LIGHTENS the composite
+  // toward --paper, night's DARKENS it toward --bg — opposite directions, so
+  // the true worst case can be either extreme depending on theme), composites
+  // each with the live dimmer, and checks both against the element's real
+  // computed ink color.
+  async function worstCaseRatio(selector: string): Promise<{ ratio: number; theme: string }> {
+    const theme = await page.evaluate(() => document.documentElement.dataset.theme || 'day');
+    const measured = await page.evaluate((sel) => {
+      const canvas = document.getElementById('office-live') as HTMLCanvasElement;
+      const el = document.querySelector(sel)!;
+      const r = el.getBoundingClientRect();
+      const cr = canvas.getBoundingClientRect();
+      const sx = canvas.width / cr.width;
+      const sy = canvas.height / cr.height;
+      const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
+      const x0 = Math.max(0, Math.floor((r.left - cr.left) * sx));
+      const y0 = Math.max(0, Math.floor((r.top - cr.top) * sy));
+      const w = Math.max(1, Math.ceil(r.width * sx));
+      const h = Math.max(1, Math.ceil(r.height * sy));
+      const data = ctx.getImageData(
+        x0,
+        y0,
+        Math.min(w, canvas.width - x0),
+        Math.min(h, canvas.height - y0)
+      ).data;
+      let maxLum = -1,
+        maxPx = [0, 0, 0];
+      let minLum = 2,
+        minPx = [0, 0, 0];
+      const relLum = ([rr, gg, bb]: number[]) => {
+        const lin = (c: number) => {
+          const s = c / 255;
+          return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * lin(rr) + 0.7152 * lin(gg) + 0.0722 * lin(bb);
+      };
+      for (let i = 0; i < data.length; i += 4) {
+        const px = [data[i], data[i + 1], data[i + 2]];
+        const lum = relLum(px);
+        if (lum > maxLum) {
+          maxLum = lum;
+          maxPx = px;
+        }
+        if (lum < minLum) {
+          minLum = lum;
+          minPx = px;
+        }
+      }
+      return {
+        maxPx,
+        minPx,
+        dimmerBg: getComputedStyle(document.getElementById('dimmer')!).backgroundColor,
+        dimmerOpacity: parseFloat(
+          (document.getElementById('dimmer') as HTMLElement).style.opacity || '0'
+        ),
+        textColor: getComputedStyle(el).color,
+      };
+    }, selector);
 
-  const measured = await page.evaluate(() => {
-    const sub = document.querySelector('.hero .statement-sub')!;
-    const litBlock = document.querySelector('.hero__copy') as HTMLElement;
+    const dim = parseRgb(measured.dimmerBg).slice(0, 3) as [number, number, number];
+    const textRgb = parseRgb(measured.textColor).slice(0, 3) as [number, number, number];
+    const afterMax = compositeOver(
+      [...dim, measured.dimmerOpacity] as [number, number, number, number],
+      measured.maxPx as [number, number, number]
+    );
+    const afterMin = compositeOver(
+      [...dim, measured.dimmerOpacity] as [number, number, number, number],
+      measured.minPx as [number, number, number]
+    );
+    const ratio = Math.min(contrastRatio(textRgb, afterMax), contrastRatio(textRgb, afterMin));
+    return { ratio, theme };
+  }
+
+  for (const theme of ['day', 'night'] as const) {
+    await page.addInitScript((t) => {
+      sessionStorage.setItem('pix-booted', '1');
+      localStorage.setItem('pix-theme', t);
+    }, theme);
+    await page.goto('./');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+
+    for (const selector of ['.hero .eyebrow', '.hero .statement-sub', '.hero__avail']) {
+      const { ratio } = await worstCaseRatio(selector);
+      expect(
+        ratio,
+        `${theme} ${selector}: WCAG AA floor is 4.5:1; measured ${ratio.toFixed(2)}:1`
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+
+    await page.evaluate(() =>
+      document.getElementById('features')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+    );
+    await page.waitForTimeout(700);
+    const { ratio: leadRatio } = await worstCaseRatio('#features .section-head .lead');
+    expect(
+      leadRatio,
+      `${theme} #features .lead: WCAG AA floor is 4.5:1; measured ${leadRatio.toFixed(2)}:1`
+    ).toBeGreaterThanOrEqual(4.5);
+  }
+});
+
+test('the statusline feed ellipsizes on the wrapping text span, not the flex row', async ({
+  page,
+}) => {
+  // A flex container's own overflow/text-overflow never applies to its
+  // children (the badge `<b>` and the raw " · {what}" run are separate
+  // anonymous flex items) — regression pin for the mid-glyph clip: ellipsis
+  // must live on `.sl__text`, and it must actually be clipping SOMETHING
+  // (i.e. the item's content is wider than its box) for this pin to mean
+  // anything at a viewport wide enough to show the feed at all.
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await gotoLive(page);
+  // The feed's real content is a build-time GH API fetch (real PR titles) —
+  // length varies build to build, so don't rely on live content happening to
+  // overflow. Force it deterministically instead: the CSS behavior under test
+  // is on `.sl__text` itself, independent of what text it holds.
+  const info = await page.evaluate(() => {
+    const text = document.querySelector('.sl__item .sl__text') as HTMLElement;
+    text.textContent =
+      'cc·pixtuoid · merged #999 · this is a deliberately very long line of feed text to force an overflow';
+    const cs = getComputedStyle(text);
     return {
-      textColor: getComputedStyle(sub).color,
-      scrimBg: getComputedStyle(sub).backgroundColor,
-      dimmerBg: getComputedStyle(document.getElementById('dimmer')!).backgroundColor,
-      dataLitMax: parseFloat(litBlock.dataset.litMax!),
-      screenToken: getComputedStyle(document.documentElement).getPropertyValue('--screen'),
+      overflow: cs.overflow,
+      textOverflow: cs.textOverflow,
+      whiteSpace: cs.whiteSpace,
+      scrollWidth: text.scrollWidth,
+      clientWidth: text.clientWidth,
     };
   });
+  expect(info.overflow).toBe('hidden');
+  expect(info.textOverflow).toBe('ellipsis');
+  expect(info.whiteSpace).toBe('nowrap');
+  expect(info.scrollWidth).toBeGreaterThan(info.clientWidth);
+});
 
-  // --screen is a PROXY for the darkest pixel the live office canvas actually
-  // renders (a real frame sample isn't practical here) — reviewer-verified
-  // immaterial: at the hero's 90% dimmer alpha, the ratio shift from any
-  // plausible canvas-vs-token delta is <0.005, against a 0.26 margin above
-  // the 4.5:1 floor.
-  const officeWorstPixel = parseHex(measured.screenToken);
-  const afterDimmer = compositeOver(
-    [...parseRgb(measured.dimmerBg).slice(0, 3), measured.dataLitMax] as [
-      number,
-      number,
-      number,
-      number,
-    ],
-    officeWorstPixel
-  );
-  const afterScrim = compositeOver(parseRgb(measured.scrimBg), afterDimmer);
-  const ratio = contrastRatio(
-    parseRgb(measured.textColor).slice(0, 3) as [number, number, number],
-    afterScrim
-  );
+test('the feed hides itself, rather than show an unreadably short fragment, at a squeezed width', async ({
+  page,
+}) => {
+  // 768-860px: .sl__text's available width drops to a sliver ("cc·pixtuoid ·
+  // mer…") even with a clean ellipsis — hiding reads better than a fragment
+  // too short to convey anything. Above/below that band it should show.
+  await page.setViewportSize({ width: 800, height: 720 });
+  await gotoLive(page);
+  await expect(page.locator('.sl__feed')).toBeHidden();
+  await page.setViewportSize({ width: 1024, height: 720 });
+  await expect(page.locator('.sl__feed')).toBeVisible();
+});
 
-  expect(ratio, `WCAG AA floor is 4.5:1; measured ${ratio.toFixed(2)}:1`).toBeGreaterThanOrEqual(
-    4.5
+test('footer separators never strand alone at a wrap boundary', async ({ page }) => {
+  // Each "·" is grouped with the item it introduces into ONE flex item
+  // (.footer__grp), so flex-wrap can only break BETWEEN groups. Pin the
+  // structure directly rather than pixel-measuring a wrap (viewport-fragile):
+  // every .footer__sep's parent must be a .footer__grp.
+  await gotoLive(page);
+  const seps = await page.locator('.footer .footer__sep').all();
+  expect(seps.length).toBeGreaterThan(0);
+  for (const sep of seps) {
+    await expect(sep.locator('xpath=..')).toHaveClass(/\bfooter__grp\b/);
+  }
+});
+
+test('the pause control never overlaps a footer link across the mobile wrap range', async ({
+  page,
+}) => {
+  // C8 clamped the pause button's ≤960px clearance with a flat +84px, sized
+  // for an assumed 2-line footer wrap — but the wrap count is non-monotonic
+  // across viewport widths (measured 3 lines in the 360-460px band on real
+  // device sizes: iPhone 12/13/14/15, Pixel 7), so a flat offset either
+  // overlaps a taller wrap or overshoots a shorter one. Sweep the whole range
+  // (the --footer-h fix) instead of spot-checking one breakpoint.
+  await gotoLive(page);
+  const widths = [360, 375, 390, 393, 412, 460, 480, 768, 960];
+  for (const width of widths) {
+    await page.setViewportSize({ width, height: 844 });
+    // expect.poll tolerates the async ResizeObserver round-trip that updates
+    // --footer-h after the reflow, and re-settles scroll-bottom on each retry
+    // (a resize can change the page's total scroll height via the footer).
+    // behavior:'instant' is load-bearing: global.css sets scroll-behavior:
+    // smooth, so the 2-arg scrollTo(x, y) form (equivalent to behavior:'auto',
+    // which DEFERS to that CSS) would still be animating when the rect read
+    // below runs — landing this poll's first read on a pre-scroll snapshot
+    // (footer off-screen, trivially zero overlap) and passing for the wrong
+    // reason regardless of the real bottom-of-page geometry.
+    await expect
+      .poll(() =>
+        page.evaluate((w) => {
+          window.scrollTo({
+            top: document.documentElement.scrollHeight,
+            left: 0,
+            behavior: 'instant',
+          });
+          const btn = document.getElementById('office-pause');
+          if (!btn || btn.hidden) return [];
+          const b = btn.getBoundingClientRect();
+          return Array.from(document.querySelectorAll<HTMLAnchorElement>('.footer a'))
+            .filter((a) => {
+              const r = a.getBoundingClientRect();
+              return !(
+                r.right <= b.left ||
+                r.left >= b.right ||
+                r.bottom <= b.top ||
+                r.top >= b.bottom
+              );
+            })
+            .map((a) => `${w}px: ${(a.textContent || '').trim()}`);
+        }, width)
+      )
+      .toEqual([]);
+  }
+});
+
+test('an install copy from the Install section hires a coworker: pix:install-copy → pix:hired', async ({
+  page,
+  context,
+}) => {
+  // wb-2: the closer's own copy row is gone (redundant right after Install)
+  // and the statusline chip is now a plain jump link — Install.astro's tabs
+  // are the surviving install-copy surface, so the hire chain is driven from
+  // there.
+  await context.grantPermissions(['clipboard-write']);
+  const errors = watchErrors(page);
+  await page.addInitScript(() => {
+    sessionStorage.setItem('pix-booted', '1');
+    (window as { __hired?: boolean }).__hired = false;
+    document.addEventListener(
+      'pix:hired',
+      () => ((window as { __hired?: boolean }).__hired = true)
+    );
+  });
+  await page.goto('./');
+  // hire() is a no-op before the first live frame — wait for the office.
+  await expect(page.locator('.backdrop.is-live')).toBeAttached({ timeout: 15_000 });
+  await page.evaluate(() =>
+    document.getElementById('install')!.scrollIntoView({ block: 'center', behavior: 'instant' })
   );
+  await page.locator('.install__panel.is-active .install__copy').click();
+  // pix:install-copy → Office.hire() → pix:hired {name}.
+  await expect
+    .poll(() => page.evaluate(() => (window as { __hired?: boolean }).__hired), {
+      timeout: 10_000,
+    })
+    .toBe(true);
+  expect(errors()).toEqual([]);
 });

@@ -19,14 +19,11 @@ import '@fontsource/lora/400.css';
 import '@fontsource/lora/600.css';
 import '../styles/global.css';
 import { asset, THEMES, THEME_BG, THEME_STORAGE_KEY, VALID_THEMES } from '../consts';
-import installTabs from '../install.json';
+import sources from '../sources.json';
 
-// THE install one-liner (single-sourced from install.json — the same file the
-// 1F tabs and the generated README install block read, so no second copy of
-// the command can drift). The brew row is the canonical short form.
-const brewTab = installTabs.find((t) => t.id === 'brew');
-if (!brewTab) throw new Error('Base: install.json lost its brew row (the canonical one-liner)');
-const INSTALL_CMD = brewTab.cmds[0];
+// Splash single sources: the CLI count comes from the sources manifest's
+// length (the same file the tools board renders + the Rust bridge test pins).
+const CLI_COUNT = sources.length;
 
 interface Props {
   title?: string;
@@ -119,7 +116,6 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
         themeKey: THEME_STORAGE_KEY,
         validThemes: VALID_THEMES,
         themeBG: THEME_BG,
-        installCmd: INSTALL_CMD,
       }}
     >
       // THE site clock boundary (7/19) — the one client-side source of truth,
@@ -190,34 +186,6 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
           } catch (e) {}
         },
       };
-      // THE install one-liner + its dispatch helper (Working Building contract):
-      // every control that copies THIS SAME one-liner (hero, statusline, docs,
-      // closer) routes through copy() so the clipboard write and the
-      // pix:install-copy event (→ OfficeBackdrop's hire listener → the statusline
-      // receipt) can never drift apart. Resolves true only after a successful
-      // write; false (no event) when the Clipboard API is unavailable. Exception:
-      // the 1F Install tabs copy a PER-METHOD command (brew/npm/cargo/…), so
-      // Install.astro writes the clipboard and dispatches pix:install-copy
-      // {source:'install'} directly instead of routing through this helper.
-      window.__pixInstall = {
-        CMD: installCmd,
-        copy: function (source) {
-          if (!navigator.clipboard || !navigator.clipboard.writeText) {
-            return Promise.resolve(false);
-          }
-          return navigator.clipboard.writeText(installCmd).then(
-            function () {
-              document.dispatchEvent(
-                new CustomEvent('pix:install-copy', { detail: { source: source } })
-              );
-              return true;
-            },
-            function () {
-              return false;
-            }
-          );
-        },
-      };
       (function () {
         try {
           const T = window.__pixTheme;
@@ -279,10 +247,13 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
         <div class="boot__line">pixtuoid <b>v{version}</b></div>
         <div class="boot__line">▸ booting office… <span class="boot__ok">ok</span></div>
         <div class="boot__line">▸ loading themes… <span class="boot__ok">ok</span></div>
-        <div class="boot__line">▸ spawning agents… <span class="boot__ok">ok</span></div>
-        <div class="boot__line">▸ ready<span class="cursor" aria-hidden="true"></span></div>
+        <div class="boot__line">▸ {CLI_COUNT} CLIs connected… <span class="boot__ok">ok</span></div>
       </div>
-      <div class="boot__hint">press any key to skip</div>
+      <div class="boot__hint">
+        <span class="boot__hint-key">press any key to skip</span><span class="boot__hint-tap"
+          >tap to skip</span
+        >
+      </div>
     </div>
 
     <slot />
@@ -510,11 +481,21 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
           }
         });
         const lines = boot.querySelectorAll('.boot__line');
+        // §1 budget: ~2.1s total on the deterministic (no live-engine-wait) path,
+        // matching production's felt pace (user decision 2026-07-06: the prior
+        // 450ms/line cadence measured ~2.5s end-to-end — noticeably slower —
+        // once the settle fade below is counted; readability of each line still
+        // outranks raw speed, so the dwell is trimmed, not cut to a blur; the
+        // splash stays skippable regardless). Four splash lines: version,
+        // booting, themes, CLI count. FIRST_MS + 4×LINE_MS + the 460ms settle
+        // fade (below) ≈ 100 + 4×390 + 460 = 2,120ms end-to-end.
+        // The live-office/index page's ACTUAL total additionally depends on
+        // window.__pixEngineReady — bounded separately by MAX_ENGINE_WAITS, not this budget.
+        const LINE_MS = 390;
+        const FIRST_MS = 100;
         let i = 0,
           done = false;
-        function finish() {
-          if (done) return;
-          done = true;
+        function settle() {
           boot.classList.add('is-done');
           try {
             sessionStorage.setItem('pix-booted', '1');
@@ -533,33 +514,43 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
           // the page and skip keyboard users past the nav/skip-link). The bg is
           // no longer inert, so Tab flows skip-link -> nav -> content as normal.
         }
-        function step() {
-          if (i < lines.length) {
-            lines[i].classList.add('in');
-            i++;
-            setTimeout(step, 260);
-          } else if (document.getElementById('office-live')) {
-            // Level 2: the lines are typed — now HOLD ("▸ ready") until the office
-            // engine is actually ready (window.__pixEngineReady, set by
-            // OfficeBackdrop on the first live frame, or on wasm failure/absence so
-            // we never hang), so the splash lifts STRAIGHT into the office reveal
-            // instead of onto a bg gap. Capped well under the first-visit reveal
-            // budget for a slow or dead engine.
+        function finish(force) {
+          if (done) return;
+          if (!force && document.getElementById('office-live')) {
+            // Level 2: log is done — now HOLD until the office engine is actually
+            // ready (window.__pixEngineReady, set by OfficeBackdrop on the first live
+            // frame, or on wasm failure/absence so we never hang), so the splash lifts
+            // STRAIGHT into the office reveal instead of onto a bg gap.
             // GATED on the office being PRESENT: this splash lives in the shared
-            // Base layout, but OfficeBackdrop (#office-live) is index-only — it's the
-            // sole setter of __pixEngineReady. On docs/404 first visits nothing would
-            // ever set the flag, so without this guard the splash would hang the full
-            // cap with the page inert. No office → keep the flat pre-Level-2 delay.
+            // Base layout, but OfficeBackdrop (#office-live) is index-only — it's
+            // the sole setter of __pixEngineReady. On docs/404 first visits nothing
+            // would ever set the flag, so without this guard the splash would hang
+            // the full cap with the page inert. No office → settle() directly.
             waitForEngine(0);
           } else {
-            setTimeout(finish, 520);
+            done = true;
+            settle();
           }
         }
-        const MAX_ENGINE_WAITS = 50; // 50 × 80ms ≈ 4s cap after the lines finish
+        function step() {
+          if (done) return;
+          const line = lines[i];
+          if (!line) {
+            finish();
+            return;
+          }
+          line.classList.add('in');
+          i++;
+          setTimeout(step, LINE_MS);
+        }
+        const MAX_ENGINE_WAITS = 50; // 50 × 80ms ≈ 4s cap after the log finishes
         function waitForEngine(n) {
           if (done) return;
           if (window.__pixEngineReady || n >= MAX_ENGINE_WAITS) {
-            setTimeout(finish, 180);
+            done = true;
+            setTimeout(function () {
+              settle();
+            }, 180);
             return;
           }
           setTimeout(function () {
@@ -568,12 +559,17 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
         }
         function skip() {
           for (let j = 0; j < lines.length; j++) lines[j].classList.add('in');
-          finish();
+          // A user gesture (click/keypress) always wins over the Level-2 engine
+          // hold — force finish() straight to settle() even mid-wait, or a tap
+          // during the hold left the page inert for up to MAX_ENGINE_WAITS more.
+          // The natural no-gesture path (step() -> finish(), no force arg) keeps
+          // holding for the engine exactly as before.
+          finish(true);
         }
         function onKey() {
           skip();
         }
-        setTimeout(step, 220);
+        setTimeout(step, FIRST_MS);
         boot.addEventListener('click', skip);
         document.addEventListener('keydown', onKey);
       })();

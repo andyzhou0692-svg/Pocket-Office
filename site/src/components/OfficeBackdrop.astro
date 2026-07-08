@@ -161,6 +161,24 @@ import { asset, DIM_RESTING } from '../consts';
     opacity: 0.45;
     transition: opacity 0.15s ease;
   }
+  /* Footer.astro's flex-wrap row sits directly above the statusline with no
+     clearance, and its fit-content width degenerates to full-container width
+     once it wraps (≤960px, measured) — its own bg plate then reaches this
+     control's x-position, and at the true scroll-bottom its taller wrapped
+     box vertically overlaps this control's fixed band too (both sit flush
+     against the reserved statusline height by construction). The wrap count
+     itself isn't fixed at 2 lines — it varies non-monotonically with viewport
+     width (measured 3 lines in the 360-460px band), so a flat pixel offset
+     either overlaps a taller wrap or overshoots a shorter one; --footer-h
+     (below) tracks the footer's REAL rendered height instead. The var()
+     fallback (74px = the old flat 84px minus this rule's own +10px gap)
+     only ever shows pre-JS/no-JS, matching the prior static behavior until
+     the ResizeObserver in the script below reports the real height. */
+  @media (max-width: 960px) {
+    .office-ctl {
+      bottom: calc(2rem + env(safe-area-inset-bottom, 0px) + var(--footer-h, 74px) + 10px);
+    }
+  }
   .office-ctl:hover,
   .office-ctl:focus-visible,
   .office-ctl[aria-pressed='true'] {
@@ -390,24 +408,50 @@ import { asset, DIM_RESTING } from '../consts';
     }
     syncPauseBtn();
 
-    // Working Building: ANY install-copy control (hero row, statusline chip,
-    // docs strip, the 1F tabs) hires through ONE event instead of
-    // each caller reaching for __pixHire. Answer with pix:hired so the
-    // statusline can flash the receipt. The name mirrors the hire cast's real
-    // identity (claude_code + cwd "/work/yours" → label cc·yours — see
-    // pixtuoid-web/src/script.rs hire_beats).
-    let hiresDispatched = 0;
-    // 3 mirrors VisitorHires::MAX_LIVE in pixtuoid-web/src/lib.rs — two copies,
-    // keep in lockstep. hire() silently REFUSES past that concurrent cap, so past
-    // the 3rd receipt we still let the copy stand (the clipboard write already
-    // happened upstream in __pixInstall.copy / the 1F tab) but STOP dispatching
-    // pix:hired: the receipt must never claim a walk-in the engine turned away.
-    const HIRE_RECEIPT_CAP = 3;
+    // .office-ctl's ≤960px clearance (above) reads --footer-h off the
+    // footer's REAL rendered height instead of a flat guess — Footer.astro's
+    // row wraps a different number of lines at different widths (measured 3
+    // lines in the 360-460px band, not just the 2 the old flat offset
+    // assumed), so only a live measurement clears every wrap. offsetHeight
+    // reads 0 if the footer were ever display:none, which harmlessly
+    // collapses the clearance to the desktop baseline via the calc's own gap
+    // term rather than going stale. DEFERRED: this is:inline script renders
+    // BEFORE <footer> (the parse-position trap already noted elsewhere in
+    // this file) — a parse-time querySelector sees no footer yet.
+    function wireFooterHeight() {
+      const footerEl = document.querySelector('.footer');
+      if (!footerEl) return;
+      const root = document.documentElement;
+      const syncFooterHeight = function () {
+        root.style.setProperty('--footer-h', footerEl.offsetHeight + 'px');
+      };
+      syncFooterHeight();
+      if ('ResizeObserver' in window) {
+        new ResizeObserver(syncFooterHeight).observe(footerEl);
+      } else {
+        window.addEventListener('resize', syncFooterHeight);
+      }
+    }
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', wireFooterHeight, { once: true });
+    } else {
+      wireFooterHeight();
+    }
+
+    // Working Building: the 1F Install tabs are the surviving install-copy
+    // control (wb-2: the statusline chip became a plain jump link and the
+    // closer's own copy row was cut, both redundant with Install) — they hire
+    // through ONE event instead of reaching for __pixHire directly. Answer
+    // with pix:hired so the statusline can flash the receipt. The name
+    // mirrors the hire cast's real identity (claude_code + cwd "/work/yours"
+    // → label cc·yours — see pixtuoid-web/src/script.rs hire_beats). The
+    // engine's own return value is the admission signal (`Office::hire`'s
+    // bool contract) — the copy path never mirrors the concurrent cap on the
+    // JS side, so the receipt can't drift from what the engine actually
+    // admitted.
     document.addEventListener('pix:install-copy', function () {
       if (!window.__pixHire) return;
-      window.__pixHire();
-      if (hiresDispatched >= HIRE_RECEIPT_CAP) return;
-      hiresDispatched++;
+      if (!window.__pixHire()) return; // engine refused: cap reached or no free desk
       document.dispatchEvent(new CustomEvent('pix:hired', { detail: { name: 'cc·yours' } }));
     });
 
@@ -446,13 +490,15 @@ import { asset, DIM_RESTING } from '../consts';
             start();
             // #434: the pix:install-copy listener above hires a coworker into
             // the background office (engine-capped at 3 concurrent; a no-op
-            // before the first frame). A function global, same idiom as
-            // __pixLights.
+            // before the first frame) and reads the admitted/refused bool
+            // straight off the wasm call — the receipt event fires on THIS
+            // return, not a JS-side guess at the engine's cap. A function
+            // global, same idiom as __pixLights.
             window.__pixHire = function () {
               try {
-                office.hire();
+                return office.hire();
               } catch (e) {
-                /* never let a background flourish break the click */
+                return false; // never let a background flourish break the click
               }
             };
           });
@@ -541,11 +587,74 @@ import { asset, DIM_RESTING } from '../consts';
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     const DIM_MAX = 0.86;
 
-    let blocks = []; // cached page-space rects; re-measured on resize only
+    let blocks = []; // cached page-space rects; re-measured on resize/body-reflow
     let lastY = -1;
     let lastOp = -1;
     let raf = 0;
     let active = null; // the currently-faded [data-lit] block
+
+    // smoothstep — darkness eases in/out with approach, no linear pop
+    function ease(t) {
+      return t * t * (3 - 2 * t);
+    }
+
+    // The shared compute-and-apply step, driven by EITHER the per-frame scroll
+    // check (frame(), below) or a fresh measure() (re-measure paths, further
+    // down). A content reflow ABOVE the viewport (e.g. a Showcase channel
+    // swap) shrinks/grows the page and the browser's own scroll anchoring
+    // adjusts window.scrollY IMMEDIATELY, in the SAME task — before this
+    // controller's re-measure ever runs. If that re-measure were merely
+    // deferred (invalidate blocks, let the NEXT frame() tick recompute), the
+    // rAF that already ran THIS frame paints one wrong frame first (a real,
+    // reproducible glitch: scroll-anchor-adjusted y against stale pre-reflow
+    // blocks briefly select the wrong [data-lit] block). Re-measure calling
+    // this SAME function synchronously means the corrected write lands in the
+    // same task, before paint — the wrong value is never on screen.
+    function recompute(y) {
+      lastY = y;
+      const center = y + window.innerHeight / 2;
+      const reach = window.innerHeight * 0.55; // how far a block throws shade
+      let best = 0;
+      let bestEl = null;
+      for (let i = 0; i < blocks.length; i++) {
+        const b = blocks[i];
+        const d = center < b.top ? b.top - center : center > b.bottom ? center - b.bottom : 0;
+        const p = d >= reach ? 0 : 1 - d / reach;
+        if (p > best) {
+          best = p;
+          bestEl = b.el;
+        }
+      }
+      // A block may cap its own darkness below DIM_MAX via data-lit-max: the
+      // hero holds a lower ceiling so the LIVE office (the product's one true
+      // trick) actually reads above the fold, while the downpage statement
+      // holds keep DIM_MAX for copy legibility. The [data-lit]::before radial
+      // wash still floors local contrast on the capped block.
+      const cap = bestEl && bestEl.dataset.litMax ? parseFloat(bestEl.dataset.litMax) : DIM_MAX;
+      const op = cap * ease(best);
+      if (Math.abs(op - lastOp) > 0.002) {
+        lastOp = op;
+        dimmer.style.opacity = op.toFixed(3);
+        // Polled global, deliberately NOT an event (contrast pix:onair): a
+        // continuous per-frame value is read at the consumer's own cadence
+        // (the statusline polls); a discrete flip gets an event + class seed.
+        window.__pixLights = op;
+      }
+      // The lit block itself rises with the darkness (opt-in via
+      // data-lit="fade"); only the active block + the one it replaces are
+      // ever written.
+      if (bestEl !== active) {
+        if (active && active.getAttribute('data-lit') === 'fade') {
+          active.style.opacity = '0.001';
+        }
+        active = bestEl;
+      }
+      if (active && active.getAttribute('data-lit') === 'fade') {
+        const t = ease(best);
+        active.style.opacity = (0.15 + 0.85 * t).toFixed(3);
+        active.style.transform = 'translateY(' + Math.round(24 * (1 - t)) + 'px)';
+      }
+    }
 
     function measure() {
       const y = window.scrollY;
@@ -553,62 +662,13 @@ import { asset, DIM_RESTING } from '../consts';
         const r = el.getBoundingClientRect();
         return { el, top: r.top + y, bottom: r.bottom + y };
       });
-      lastY = -1; // force a recompute on the next frame
-    }
-
-    // smoothstep — darkness eases in/out with approach, no linear pop
-    function ease(t) {
-      return t * t * (3 - 2 * t);
+      recompute(y); // same task, before paint — see recompute()'s comment
     }
 
     function frame() {
       raf = 0;
       const y = window.scrollY;
-      if (y !== lastY) {
-        lastY = y;
-        const center = y + window.innerHeight / 2;
-        const reach = window.innerHeight * 0.55; // how far a block throws shade
-        let best = 0;
-        let bestEl = null;
-        for (let i = 0; i < blocks.length; i++) {
-          const b = blocks[i];
-          const d = center < b.top ? b.top - center : center > b.bottom ? center - b.bottom : 0;
-          const p = d >= reach ? 0 : 1 - d / reach;
-          if (p > best) {
-            best = p;
-            bestEl = b.el;
-          }
-        }
-        // A block may cap its own darkness below DIM_MAX via data-lit-max: the
-        // hero holds a lower ceiling so the LIVE office (the product's one true
-        // trick) actually reads above the fold, while the downpage statement
-        // holds keep DIM_MAX for copy legibility. The [data-lit]::before radial
-        // wash still floors local contrast on the capped block.
-        const cap = bestEl && bestEl.dataset.litMax ? parseFloat(bestEl.dataset.litMax) : DIM_MAX;
-        const op = cap * ease(best);
-        if (Math.abs(op - lastOp) > 0.002) {
-          lastOp = op;
-          dimmer.style.opacity = op.toFixed(3);
-          // Polled global, deliberately NOT an event (contrast pix:onair): a
-          // continuous per-frame value is read at the consumer's own cadence
-          // (the statusline polls); a discrete flip gets an event + class seed.
-          window.__pixLights = op;
-        }
-        // The lit block itself rises with the darkness (opt-in via
-        // data-lit="fade"); only the active block + the one it replaces are
-        // ever written.
-        if (bestEl !== active) {
-          if (active && active.getAttribute('data-lit') === 'fade') {
-            active.style.opacity = '0.001';
-          }
-          active = bestEl;
-        }
-        if (active && active.getAttribute('data-lit') === 'fade') {
-          const t = ease(best);
-          active.style.opacity = (0.15 + 0.85 * t).toFixed(3);
-          active.style.transform = 'translateY(' + Math.round(24 * (1 - t)) + 'px)';
-        }
-      }
+      if (y !== lastY) recompute(y);
       raf = requestAnimationFrame(frame);
     }
 
@@ -629,16 +689,14 @@ import { asset, DIM_RESTING } from '../consts';
     // content below (boot reveal, lazy media) can shift rects after load
     window.addEventListener('load', measure);
     // A Showcase channel tune swaps stages of different heights, shifting the
-    // page-space top/bottom of the blocks below it (#install) — resize/load alone
-    // miss that. Re-measure (coalesced through rraf) on any body reflow.
+    // page-space top/bottom of the blocks below it (#install) — resize/load
+    // alone miss that. Call measure() DIRECTLY here (no rAF deferral, unlike
+    // the plain resize listener above): ResizeObserver notifications land in
+    // the SAME task as the reflow that triggered them, and measure() now
+    // recomputes synchronously (see recompute()'s comment) — deferring this
+    // one frame is exactly what let the stale-block glitch reach the screen.
     if ('ResizeObserver' in window) {
-      new ResizeObserver(function () {
-        if (rraf) return;
-        rraf = requestAnimationFrame(function () {
-          rraf = 0;
-          measure();
-        });
-      }).observe(document.body);
+      new ResizeObserver(measure).observe(document.body);
     }
 
     function wire() {
