@@ -4,13 +4,15 @@ import Nav from '../components/Nav.astro';
 import OfficeBackdrop from '../components/OfficeBackdrop.astro';
 import Hero from '../components/Hero.astro';
 import Showcase from '../components/Showcase.astro';
-import Features from '../components/Features.astro';
 import HowItWorks from '../components/HowItWorks.astro';
 import SupportedTools from '../components/SupportedTools.astro';
 import Install from '../components/Install.astro';
 import Footer from '../components/Footer.astro';
 import Statusline from '../components/Statusline.astro';
-import { asset, REPO, CRATES } from '../consts';
+import ElevatorShaft from '../components/ElevatorShaft.astro';
+import { asset, REPO, CRATES, floorById } from '../consts';
+
+const amenities = floorById('amenities');
 
 // Homepage structured data: a free cross-platform developer tool. Search
 // engines use this for a rich result; the version is single-sourced from the
@@ -47,32 +49,24 @@ const softwareJsonLd = {
       </p>
     </div>
     <Showcase />
-    <Features />
     {
-      /* observation gap 2 — with the frameless-window beat: the real floating
-        window is an OPAQUE, chrome-less rect of office pixels (softbuffer
-        writes XRGB, no alpha), so the beat is an office still at window
-        scale floating over the page office — the pixel-scale contrast is
-        what reads as "a separate window". */
+      /* 4F — amenities: the section ROOT is wb-3's (the elevator needs six
+        stops); its content is mounted by siblings — wb-4's <ProofSplit /> and
+        wb-5's <PantryFaq /> render INSIDE this section, in that order. */
     }
-    <div class="office-gap">
-      <div class="gap-frame" aria-hidden="true">
-        <img
-          class="gap-frame__body px"
-          src={asset('demos/night.png')}
-          data-gap-still
-          data-day={asset('demos/day.png')}
-          data-night={asset('demos/night.png')}
-          alt=""
-          loading="lazy"
-          decoding="async"
-        />
+    <section
+      id={amenities.id}
+      class="amenities"
+      data-lit
+      data-floor={amenities.fl}
+      data-floor-label={amenities.label}
+    >
+      <div class="container">
+        <div class="section-head reveal">
+          <p class="eyebrow">{amenities.fl} · {amenities.label}</p>
+        </div>
       </div>
-      <p class="gap-caption" aria-hidden="true">
-        — the floating desktop window: the same office, popped out of the terminal. lighting follows
-        your clock; it's <span data-gap-daynight>night</span> where you are.
-      </p>
-    </div>
+    </section>
     <HowItWorks />
     <SupportedTools />
     <Install />
@@ -81,21 +75,26 @@ const softwareJsonLd = {
         purely decorative like gaps 1 and 2 (the install one-liner already
         lives one section up, in Install itself — no second copy control). */
     }
-    <div class="office-gap">
+    <div class="office-gap office-gap--closer">
       <p class="gap-caption" aria-hidden="true">— your office is waiting.</p>
     </div>
   </main>
-  <script is:inline>
-    // gap 2 follows the viewer's clock: the word AND the window still swap
-    // together off __pixNight (the one boundary, defined in Base's head boot).
-    (function () {
-      const night = window.__pixNight();
-      const el = document.querySelector('[data-gap-daynight]');
-      if (el) el.textContent = night ? 'night' : 'day';
-      const img = document.querySelector('[data-gap-still]');
-      if (img) img.src = night ? img.dataset.night : img.dataset.day;
-    })();
-  </script>
   <Footer />
   <Statusline />
+  <ElevatorShaft />
 </Base>
+
+<style>
+  /* interim height until wb-4's ProofSplit mounts inside this section — a
+     floor must be tall enough to OWN the floor-spy center band (Statusline +
+     ElevatorShaft's FLOOR_SPY_ROOT_MARGIN, consts.ts) to ever become
+     "current"; the bare eyebrow shell was ~261px, well short of that band on
+     any real viewport, so 4F could never light up (it settled on 3F instead —
+     verified both the shaft LED and the statusline digit). 60vh is comfortably
+     past the band's lower edge (55% of viewport height) with margin to spare. */
+  .amenities {
+    min-height: 60vh;
+    display: flex;
+    align-items: center;
+  }
+</style>

@@ -79,7 +79,7 @@ import tabs from '../install.json';
       tab.addEventListener('click', function () {
         const id = tab.dataset.tab;
         // crossfade the panel swap with the SAME view-transition the Showcase
-        // channel dial uses one section up (guarded on reduced-motion + support),
+        // demo dial uses one section up (guarded on reduced-motion + support),
         // so the two adjacent "switch the content" gestures feel of a piece
         // instead of one crossfading and one hard-cutting.
         function swap() {
@@ -237,6 +237,11 @@ import tabs from '../install.json';
   }
   .install__note {
     padding: 0.4rem 0.7rem 0.6rem;
+    /* text-scrim's negative margin exists so OFFICE-floating text stays
+       left-aligned despite the plate's padding; INSIDE the install card the
+       visible plate edge must align with the command/tabs column instead
+       (user-caught: the plate hung ~11px left of its siblings) */
+    margin-inline: 0;
     font-size: 0.9rem;
     color: var(--fg-muted);
   }

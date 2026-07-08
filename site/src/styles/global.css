@@ -344,14 +344,23 @@ h3 {
   width: 100%;
   max-width: var(--maxw);
   margin-inline: auto;
-  padding-inline: clamp(1.1rem, 4vw, 2.5rem);
+  /* named so a fixed-chrome clearance (OfficeBackdrop's ≤760px office-ctl
+     gutter) can widen just the end side without retyping this clamp(). */
+  --container-pad-x: clamp(1.1rem, 4vw, 2.5rem);
+  padding-inline: var(--container-pad-x);
 }
 section {
-  padding-block: clamp(3.2rem, 7vw, 6rem);
+  /* compression (§4): the pre-redesign clamp(3.2rem, 7vw, 6rem) carried
+     30–39% empty scroll (audit top12 #9); the merged 5F band + retired gap
+     do the heavy lifting, this trims the per-section breathing to match.
+     Tightened a second notch (4rem → 3rem ceiling) toward the measured
+     scroll-budget pin below — see that spec for why 6.5vh itself isn't the
+     final number. */
+  padding-block: clamp(1.6rem, 5vw, 3rem);
 }
 .section-head {
   max-width: 48ch;
-  margin-bottom: clamp(1.8rem, 4vw, 3rem);
+  margin-bottom: clamp(1.1rem, 3vw, 1.8rem);
 }
 .section-head .lead {
   margin-top: 0.9rem;
@@ -569,13 +578,35 @@ section {
    found a soft glow read as a murky smudge over the office pixels; a flat
    bordered plate reads as an intentional card instead. margin-inline cancels
    the padding so the TEXT stays left-aligned with its siblings (h1, eyebrow,
-   CTA row) — only the plate's edge insets around it. */
+   CTA row) — only the plate's edge insets around it. Both sides read the
+   SAME --scrim-pad-x custom property (not two independent literals), so a
+   caller needing a tighter plate overrides just that one property and the
+   cancellation stays exact — no way for padding and margin to desync again
+   (#wb-3: a raw padding override left the margin canceling the OLD 0.75em,
+   pushing text ~7px past the edge). No current consumer uses that override;
+   the one live consumer, .install__note, instead deliberately zeroes
+   margin-inline — the IN-CARD exception where the plate edge must align
+   with its column (see Install.astro's own comment). */
+/* Every bare muted-text surface over the office rides the hero's tuned inks
+   (day LIGHTENS the composite, night DARKENS it — stock --fg-muted clears
+   neither extreme; see --office-ink's doc comment above). Lens B measured the
+   5F lead at 2.69-3.88:1 day before this rule; .roster__body gets the same
+   token in Showcase.astro's scoped styles (scoped specificity wins there). */
+section[data-lit] .section-head .lead {
+  color: var(--office-ink);
+}
+section[data-lit] .section-head .eyebrow {
+  /* same nudge for the coral eyebrows (hero's own scoped rule pioneered it) */
+  color: var(--office-ink-accent);
+}
+
 .text-scrim {
+  --scrim-pad-x: 0.75em;
   background: var(--scrim);
   border: 1px solid var(--border-strong);
   border-radius: 0;
-  padding: 0.5em 0.75em;
-  margin-inline: -0.75em;
+  padding: 0.5em var(--scrim-pad-x);
+  margin-inline: calc(-1 * var(--scrim-pad-x));
 }
 
 .office-gap {
@@ -588,48 +619,29 @@ section {
     min-height: 70svh;
   }
 }
+/* the closing hold reads at a shorter beat — the caption (and wb-2's install
+   line) sit low, so 55svh keeps the emotional hold without a full empty screen
+   (tightened a second notch from 80svh toward the scroll-budget pin below —
+   the caption is position:absolute off the bottom edge, so this height is
+   pure held-air, never a content floor). Hold #1 (the "real thing" gap)
+   deliberately KEEPS the full-viewport base. */
+.office-gap--closer {
+  min-height: 55svh;
+}
 .office-gap .gap-caption {
   position: absolute;
   bottom: 3.2rem;
-  left: clamp(1rem, 4vw, 3rem);
+  /* named so OfficeBackdrop's ≤760px office-ctl clearance can size a
+     matching max-width without retyping this clamp() (the caption sits
+     outside .container, as a direct <main> child, so that clearance can't
+     reach it via .container's own padding). */
+  --gap-caption-inset: clamp(1rem, 4vw, 3rem);
+  left: var(--gap-caption-inset);
   font-family: var(--font-mono);
   font-size: 0.85rem;
   color: var(--chip-ink);
   background: var(--chip-bg);
   padding: 0.5rem 0.8rem;
-}
-/* The frameless-window beat (gap 2): the product's floating desktop window
-   is a chrome-less OPAQUE rect of office pixels (softbuffer XRGB, no alpha),
-   so the beat is exactly that — a small office still at its own pixel scale,
-   floating over the page office on a deep shadow. No fake title bar: the
-   window is frameless in the product, so it's frameless here. */
-.gap-frame {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -55%);
-  width: min(560px, 72vw);
-  border: 1px solid rgba(216, 207, 192, 0.4);
-  background: var(--screen);
-  /* ambient ring first so the TOP edge separates from the office too —
-     bottom-weighted drop shadows alone let the upper edge dissolve */
-  box-shadow:
-    0 0 34px rgba(0, 0, 0, 0.4),
-    0 32px 90px rgba(0, 0, 0, 0.6),
-    0 8px 24px rgba(0, 0, 0, 0.45);
-  pointer-events: none;
-}
-@media (max-width: 560px) {
-  .gap-frame {
-    width: 86vw;
-  }
-}
-.gap-frame__body {
-  display: block;
-  width: 100%;
-  aspect-ratio: 16 / 10;
-  object-fit: cover;
-  object-position: center 30%;
 }
 
 /* scanline overlay — very faint, only reads as CRT texture up close */

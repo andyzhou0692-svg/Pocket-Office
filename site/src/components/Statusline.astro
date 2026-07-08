@@ -10,7 +10,14 @@
 // office — with canned office-life beats interleaved; falls back to the
 // canned reel when the API is unreachable so the build never fails.
 import sources from '../sources.json';
-import { FLOORS, floorName, DIM_RESTING, REPO } from '../consts';
+import {
+  FLOORS,
+  floorName,
+  DIM_RESTING,
+  FLOOR_SPY_ROOT_MARGIN,
+  BOTTOM_CLAMP_EPSILON_PX,
+  REPO,
+} from '../consts';
 import { GH_FETCH_TIMEOUT_MS } from '../../config/gh-stars.mjs';
 
 // Build-time star count (§2): null when the API was unreachable at build —
@@ -144,7 +151,7 @@ const badgeColor = (who: string): string | undefined => {
     <span class="sl__sep">·</span>
     <span data-sl-clock></span>
     <span class="sl__sep">·</span>
-    <span class="sl__onair" data-sl-onair>○ STILL</span>
+    <span class="sl__onair" data-sl-onair>○ STATIC</span>
   </div>
   <div class="sl__install hw-panel" id="sl-install">
     {
@@ -463,7 +470,14 @@ const badgeColor = (who: string): string | undefined => {
   }
 </style>
 
-<script is:inline define:vars={{ dimResting: DIM_RESTING }}>
+<script
+  is:inline
+  define:vars={{
+    dimResting: DIM_RESTING,
+    floorSpyRootMargin: FLOOR_SPY_ROOT_MARGIN,
+    bottomClampEpsilonPx: BOTTOM_CLAMP_EPSILON_PX,
+  }}
+>
   (function () {
     const bar = document.getElementById('statusline');
     if (!bar) return;
@@ -551,7 +565,7 @@ const badgeColor = (who: string): string | undefined => {
             if (e.isIntersecting) setActive(e.target.dataset.floor);
           });
         },
-        { rootMargin: '-45% 0px -45% 0px', threshold: 0 }
+        { rootMargin: floorSpyRootMargin, threshold: 0 }
       );
       document.querySelectorAll('[data-floor]').forEach(function (s) {
         io.observe(s);
@@ -563,19 +577,19 @@ const badgeColor = (who: string): string | undefined => {
       observeFloors();
     }
 
-    // Bottom-clamp: 1F (install) + the footer rarely fill the -45%/-45%
-    // middle band the observer above keys off, so the last section can never
-    // cross it — the readout freezes on the SECOND-to-last floor while the
-    // visitor reads the very end of the page. At the true scroll max, the
-    // last floor wins unconditionally, overriding whatever the observer last
-    // reported (wb-3's elevator shaft mirrors this same clamp on rebase — it
-    // consumes the identical -45%/-45% root-margin authority).
-    const BOTTOM_CLAMP_EPSILON_PX = 2; // rounding slack: scrollY+innerHeight vs scrollHeight
+    // Bottom-clamp: 1F (install) + the footer rarely fill the center band
+    // (FLOOR_SPY_ROOT_MARGIN, consts.ts) the observer above keys off, so the
+    // last section can never cross it — the readout freezes on the
+    // SECOND-to-last floor while the visitor reads the very end of the page.
+    // At the true scroll max, the last floor wins unconditionally,
+    // overriding whatever the observer last reported (the elevator shaft
+    // mirrors this same clamp — it consumes the identical root-margin
+    // authority, see ElevatorShaft.astro).
     function clampToLastFloorAtBottom() {
       if (!btns.length) return;
       const atBottom =
         window.scrollY + window.innerHeight >=
-        document.documentElement.scrollHeight - BOTTOM_CLAMP_EPSILON_PX;
+        document.documentElement.scrollHeight - bottomClampEpsilonPx;
       if (atBottom) setActive(btns[btns.length - 1].dataset.floorBtn);
     }
     let bottomRaf = 0;
@@ -655,7 +669,7 @@ const badgeColor = (who: string): string | undefined => {
         }, 250);
       }
     }
-    // the on-air readout reflects LIVE / user-PAUSED / STILL (poster) — the
+    // the on-air readout reflects LIVE / user-PAUSED / STATIC (poster) — the
     // paused state is what makes the fixed bar read as paused, not '● LIVE'
     let isLive = false;
     function renderAir() {
@@ -669,8 +683,8 @@ const badgeColor = (who: string): string | undefined => {
         live = true;
       } else {
         // reduced motion shows the still POSTER (a frame); live-capable mode
-        // shows a paused feed (STILL)
-        text = mq.matches ? '□ STILL FRAME' : '○ STILL';
+        // shows a paused feed (STATIC)
+        text = mq.matches ? '□ STATIC FRAME' : '○ STATIC';
         live = false;
       }
       onair.textContent = text;
@@ -678,7 +692,7 @@ const badgeColor = (who: string): string | undefined => {
     }
     // seed from the backdrop's class: the one-shot pix:onair event can fire
     // before this script attaches (fast wasm load), and a missed event would
-    // read STILL forever
+    // read STATIC forever
     if (!mq.matches && document.querySelector('.backdrop.is-live')) isLive = true;
     renderAir();
     document.addEventListener('pix:onair', function (e) {

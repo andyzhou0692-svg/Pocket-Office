@@ -1,6 +1,35 @@
 ---
-import { SHOWCASE, showcaseVariants, showcaseGroups, floorById, floorName, asset } from '../consts';
+import {
+  SHOWCASE,
+  showcaseVariants,
+  showcaseGroups,
+  floorById,
+  floorName,
+  asset,
+  FEATURES,
+  featureForChannel,
+} from '../consts';
 import ChannelStage from './ChannelStage.astro';
+import PixIcon from './PixIcon.astro';
+
+// features.json is the TOTAL feature collection, partitioned by whether a row
+// carries `channel` (consts.ts): channel-bearing rows drive the dial below;
+// the rest render here as the merged 5F band's quiet, non-interactive grid
+// BELOW the CRT + dial — the dial is the ONE interactive switcher (a prior
+// per-row "tune in →" link duplicated it, and half its channel mapping was
+// fabricated, e.g. Coffee run → vibing). gen-readme.mjs reads only
+// icon/name/desc/featured off every row regardless of partition; `card` is
+// site-only (roster body text, falling back to `desc` when absent).
+// `desc` is authored for the README's markdown table, so it may carry
+// backtick code spans (e.g. `pixtuoid floating`) — strip them for this
+// plain-text context (a `card.blurb`, when present, is already backtick-free
+// by convention, so the strip is a no-op there).
+const roster = FEATURES.filter((f) => !f.channel).map((f) => ({
+  icon: f.icon,
+  pix: f.pix,
+  title: f.name,
+  body: (f.card?.blurb ?? f.desc).replace(/`/g, ''),
+}));
 
 const floor = floorById('showcase');
 const channels = SHOWCASE.map((c, i) => ({
@@ -8,13 +37,13 @@ const channels = SHOWCASE.map((c, i) => ({
   ch: String(i + 1).padStart(2, '0'),
   variants: showcaseVariants(c),
   groups: showcaseGroups(c),
+  featureDesc: featureForChannel(c.id).desc,
 }));
 const live = channels.filter((c) => c.status === 'live');
 const def = channels.find((c) => c.default) ?? live[0];
 // headline count derived from the dial itself — a hardcoded "Eight" desyncs
-// the moment a channel is added or dropped. Deliberately counts ALL channels
-// (the dial shows "soon" slots too) while the eyebrow counts live.length "on
-// air" — the two diverge by design the day a soon-channel lands.
+// the moment a demo is added or dropped. Counts ALL entries (the dial can
+// show "soon" placeholders too, though none exist today).
 const COUNT_WORDS = [
   'Zero',
   'One',
@@ -39,6 +68,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
   data-lit
   data-floor={floor.fl}
   data-floor-label={floor.label}
+  data-keys-scope="channels"
 >
   {
     /* the legacy #themes/#weather anchor spans + their hash map were removed in
@@ -46,12 +76,11 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
   }
   <div class="container">
     <div class="section-head reveal">
-      <p class="eyebrow">{floor.fl} · {floorName(floor)} — {live.length} channels on air</p>
-      <h2 class="statement statement--md">{countWord} channels.<br />One office.</h2>
+      <p class="eyebrow">{floor.fl} · {floorName(floor)} — watch it work</p>
+      <h2 class="statement statement--md">{countWord} demos.<br />One office.</h2>
       <p class="lead">
-        The channel on screen is live — the same office running in your browser. Drag the clock
-        forward, roll in a storm, switch the vibe. The other channels are recorded; flip a channel
-        to watch them on the big screen.
+        What's playing is live — the same office running in your browser. Every demo on the list is
+        watchable: pick one and the wall plays it. Drag the clock, roll in a storm, switch the vibe.
       </p>
     </div>
 
@@ -59,27 +88,57 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
       <div class="studio__stages">
         {live.map((c) => <ChannelStage channel={c} active={c.id === def.id} />)}
       </div>
-      <div class="dial" role="group" aria-label="Demo channels">
-        {
-          channels.map((c) =>
-            c.status === 'live' ? (
-              <button
-                class="mon dial__ch"
-                data-ch={c.id}
-                aria-pressed={c.id === def.id ? 'true' : 'false'}
-              >
-                <span class="dial__num">{c.ch}</span> {c.label}
-                {c.kind === 'live' && <small class="dial__live">live</small>}
-              </button>
-            ) : (
-              <span class="dial__ch dial__ch--soon">
-                <span class="dial__num">{c.ch}</span> {c.label} <small>soon</small>
-              </span>
+      <div class="studio__panel">
+        <div class="dial" role="group" aria-label="Demos">
+          {
+            channels.map((c) =>
+              c.status === 'live' ? (
+                <button
+                  class="mon dial__ch"
+                  data-ch={c.id}
+                  data-desc={c.featureDesc}
+                  aria-pressed={c.id === def.id ? 'true' : 'false'}
+                  aria-expanded={c.id === def.id ? 'true' : 'false'}
+                  aria-controls="dial-desc"
+                >
+                  <span class="dial__num">{c.ch}</span> {c.label}
+                  {c.kind === 'live' && <small class="dial__live">live</small>}
+                </button>
+              ) : (
+                <span class="dial__ch dial__ch--soon">
+                  <span class="dial__num">{c.ch}</span> {c.label} <small>soon</small>
+                </span>
+              )
             )
-          )
+          }
+        </div>
+        {
+          /* the ONE accordion slot (not per-row): the panel already sits taller
+            than the dial's own content (the CRT stage sets the row height), so
+            the picked demo's desc expands into that existing headroom rather
+            than reflowing the grid — id/aria-live so a screen reader announces
+            the swap same as a real disclosure region's content would. */
         }
+        <p class="dial__desc" id="dial-desc" aria-live="polite">
+          {def.featureDesc}
+        </p>
       </div>
     </div>
+
+    <span id="features" aria-hidden="true"></span>
+    <ul class="roster reveal" aria-label="Feature highlights">
+      {
+        roster.map((r) => (
+          <li class="roster__row">
+            <span class="roster__icon" aria-hidden="true">
+              {r.pix ? <PixIcon name={r.pix} scale={2} /> : r.icon}
+            </span>
+            <span class="roster__name">{r.title}</span>
+            <span class="roster__body">{r.body}</span>
+          </li>
+        ))
+      }
+    </ul>
   </div>
 </section>
 
@@ -89,6 +148,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
     if (!studio) return;
     const stages = studio.querySelectorAll('[data-stage]');
     const monitors = studio.querySelectorAll('button.mon[data-ch]');
+    const dialDesc = studio.querySelector('.dial__desc');
     const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
     let inView = false;
 
@@ -102,16 +162,16 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
       root.style.setProperty('--amber', accent2 || accent);
     }
 
-    // ---- lazy hydration: promote data-src media the first time a channel is
-    // tuned or its monitor is hovered/focused (zero offscreen video bytes)
+    // ---- lazy hydration: promote data-src media the first time a demo is
+    // picked or its monitor is hovered/focused (zero offscreen video bytes)
     function hydrate(stage) {
       stage.querySelectorAll('img[data-src]').forEach(function (img) {
         img.src = img.dataset.src;
         img.removeAttribute('data-src');
       });
       stage.querySelectorAll('video[data-mp4]').forEach(function (v) {
-        // hidden channels defer their poster too (browsers fetch poster even on
-        // [hidden] videos) — promote it alongside the sources on first tune/hover
+        // hidden demos defer their poster too (browsers fetch poster even on
+        // [hidden] videos) — promote it alongside the sources on first pick/hover
         if (v.dataset.poster) {
           v.poster = v.dataset.poster;
           v.removeAttribute('data-poster');
@@ -132,7 +192,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
       });
     }
 
-    // ---- play policy: a clip plays iff its stage is the tuned one AND the
+    // ---- play policy: a clip plays iff its stage is the picked one AND the
     // studio is in view AND reduced-motion is off AND the office isn't paused
     // (WCAG 2.2.2 — the #office-pause button governs the clips too via the
     // pix:paused listener below). Under reduced-motion show native controls.
@@ -186,7 +246,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
     });
     syncVideos();
 
-    // ---- VIBING channel: a live pixtuoid office (wasm) driven by the time
+    // ---- VIBING demo: a live pixtuoid office (wasm) driven by the time
     // slider + weather/theme chips. `syncCanvas` mirrors syncVideos' gate —
     // active + visible + unpaused + motion allowed — and is called from the
     // SAME four sites syncVideos is (the pix:paused listener above, the
@@ -377,7 +437,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
       }
     }
 
-    // ---- channel tuning (hidden-swap; view-transition crossfade when available)
+    // ---- demo picking (hidden-swap; view-transition crossfade when available)
     function tune(id, silent) {
       const next = studio.querySelector('[data-stage="' + id + '"]');
       if (!next || !next.hidden) return;
@@ -387,8 +447,18 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
           s.hidden = s !== next;
         });
         monitors.forEach(function (m) {
-          m.setAttribute('aria-pressed', m.dataset.ch === id ? 'true' : 'false');
+          const on = m.dataset.ch === id;
+          m.setAttribute('aria-pressed', on ? 'true' : 'false');
+          m.setAttribute('aria-expanded', on ? 'true' : 'false');
+          if (on && dialDesc) dialDesc.textContent = m.dataset.desc || '';
         });
+        // a brief pulse marks the accordion body as freshly swapped-in content
+        // (the same transient-class idiom the OSD chip retint uses below).
+        if (dialDesc) {
+          dialDesc.classList.remove('dial__desc--pulse');
+          void dialDesc.offsetWidth;
+          dialDesc.classList.add('dial__desc--pulse');
+        }
         syncVideos();
         syncCanvas();
       }
@@ -408,11 +478,36 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
       m.addEventListener('focus', warm);
     });
 
-    // ---- OSD chips (variant-set channels) — the old gallery JS, parameterized
+    // ---- scoped demo keys (§4): while focus is inside the studio, digits
+    // 1–N pick a demo instead of riding the building's floor elevator. The
+    // section carries data-keys-scope="channels", so Base.astro's document-level
+    // floor handler yields these digits to us — the CRT wins, no 2F jump, no
+    // double-action. The digit → demo map is read from the dial's own
+    // .dial__num labels (single source: the rendered dial), so it can't desync.
+    const scope = document.querySelector('[data-keys-scope="channels"]');
+    if (scope) {
+      const dialButtons = Array.prototype.slice.call(scope.querySelectorAll('button.dial__ch'));
+      scope.addEventListener('keydown', function (e) {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (window.__pixKeys && window.__pixKeys.typing(e)) return;
+        if (!/^[1-9]$/.test(e.key)) return;
+        const num = e.key.padStart(2, '0');
+        const btn = dialButtons.find(function (b) {
+          const n = b.querySelector('.dial__num');
+          return n && n.textContent.trim() === num;
+        });
+        if (!btn) return; // a soon/absent demo — inert (Base already yielded)
+        e.preventDefault();
+        tune(btn.dataset.ch);
+        btn.focus();
+      });
+    }
+
+    // ---- OSD chips (variant-set demos) — the old gallery JS, parameterized
     stages.forEach(function (st) {
       const img = st.querySelector('img.terminal__screen');
       const title = st.querySelector('[data-stage-title]');
-      // .osd__chip is reused by the VIBING live channel's weather/theme groups
+      // .osd__chip is reused by the VIBING live demo's weather/theme groups
       // too (data-weather/data-theme, no data-src) — filter to the variant-set
       // chips this loop drives; the VIBING controller above owns its own.
       const chips = Array.prototype.filter.call(st.querySelectorAll('.osd__chip'), function (c) {
@@ -491,7 +586,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
   @media (max-width: 480px) {
     /* 3× max-content is ~376px — past a 360/390px phone, so the studio's
        overflow-x:clip would hide the right dial column (03 Dashboard / 06 Spaces,
-       untappable). Wrap to two shrinkable columns so all 7 channels stay on-screen. */
+       untappable). Wrap to two shrinkable columns so all 7 demos stay on-screen. */
     .dial {
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 0.4rem 1rem;
@@ -502,7 +597,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
   }
   @media (pointer: coarse) {
     /* lift the row pitch toward the 44px thumb target — 0.55rem left adjacent
-       channels ~41px centre-to-centre (mis-tap range). */
+       demos ~41px centre-to-centre (mis-tap range). */
     .dial__ch {
       padding-block: 0.7rem;
     }
@@ -536,8 +631,8 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
     cursor: default;
   }
   /* the dial's two small appended status tags share one geometry (pinned here
-     so a size tweak can't drift): "soon" dims a placeholder channel; "live"
-     LED-glows the one INTERACTIVE channel (kind:"live") apart from the clips. */
+     so a size tweak can't drift): "soon" dims a placeholder demo; "live"
+     LED-glows the one INTERACTIVE demo (kind:"live") apart from the clips. */
   .dial__ch--soon small,
   .dial__live {
     font-size: 0.72em;
@@ -547,30 +642,38 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
     color: var(--led);
     text-shadow: 0 0 6px var(--led-glow);
   }
+  /* the ONE accordion slot for the picked demo's feature desc — sits in the
+     panel's existing headroom below the compact dial grid (the CRT column
+     sets the row height, so the dial rarely fills it) rather than expanding
+     per-row, which would ×7 the panel's height for a 3-column grid. */
+  .dial__desc {
+    margin: 0.9rem 0 0;
+    padding-top: 0.7rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--font-body);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+  }
+  @keyframes dial-desc-in {
+    0% {
+      opacity: 0.35;
+      transform: translateY(-3px);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .dial__desc--pulse {
+    animation: dial-desc-in 0.3s ease-out;
+  }
 
   .showcase {
     position: relative;
-    /* inherit section's clamp(3.2rem,7vw,6rem)=96px — the lone 80px override was
-       an unexplained dip in an otherwise strict cadence (HowItWorks also follows
-       an office-gap and keeps 96px). */
-  }
-  /* Mobile only: at narrow widths the kicker + heading wrap onto more lines and
-     scroll into view while still low in the viewport — far from the dimmer's
-     center-line, so its distance-based ease (OfficeBackdrop's recompute()) hasn't
-     engaged yet and the text crosses bare office floor unplated for a stretch of
-     scroll (clean only once the block nears center). Desktop's shorter content
-     reaches center — and a real dimmer level — by the time it's visible at all,
-     so it never shows this gap. Give the section head the same guaranteed-floor
-     scrim idiom Hero/Features/Install already lean on (same padding/margin-inline
-     cancel as .text-scrim, reused directly rather than via the class since it
-     wraps the whole head, not one paragraph). */
-  @media (max-width: 760px) {
-    .section-head {
-      background: var(--scrim);
-      border: 1px solid var(--border-strong);
-      padding: 0.75rem;
-      margin-inline: -0.75rem;
-    }
+    /* inherit section's shared padding-block (global.css) — the lone 80px
+       override was an unexplained dip in an otherwise strict cadence
+       (HowItWorks also follows an office-gap and keeps the shared value). */
   }
   .studio {
     display: grid;
@@ -588,6 +691,59 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
   }
   .studio__stages {
     min-width: 0;
+  }
+  .studio__panel {
+    min-width: 0;
+  }
+  /* the quiet, non-interactive feature grid — moved BELOW the stage (was
+     the studio panel's narrow single-column list, stacked beside the dial);
+     now a full-width 2-column grid across the whole container, single
+     column ≤760px, with a tighter row rhythm than the old stacked list. */
+  .roster {
+    list-style: none;
+    margin: 1rem 0 0;
+    padding: 0.8rem 0 0;
+    border-top: 1px solid var(--border);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    column-gap: 2.2rem;
+    row-gap: 0.5rem;
+  }
+  @media (max-width: 760px) {
+    .roster {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+  .roster__row {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    grid-template-areas: 'icon name' 'icon body';
+    column-gap: 0.7rem;
+    align-items: start;
+    text-align: left;
+    /* BARE over the dimmed office — no plate (user verdict, same rule as the
+       hero + tools table: the section's DIM_MAX backing IS the background) */
+    padding-block: 0.3rem;
+    font: inherit;
+    color: var(--fg);
+  }
+  .roster__icon {
+    grid-area: icon;
+  }
+  .roster__name {
+    grid-area: name;
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.98rem;
+  }
+  .roster__body {
+    grid-area: body;
+    font-family: var(--font-body);
+    font-size: 0.88rem;
+    /* bare over the office: the tuned ink, not --fg-muted (see global.css's
+       --office-ink doc comment; scoped specificity beats the global rule, so
+       the token is applied here directly) */
+    color: var(--office-ink);
   }
   @media (prefers-reduced-motion: reduce) {
     /* the VIBING channel's controls only make sense with the office running,

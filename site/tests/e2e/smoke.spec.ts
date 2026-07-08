@@ -5,7 +5,7 @@ import { expect, test, type Page } from '@playwright/test';
 // events, data-attribute wiring) where tsc/eslint/knip/astro-build are blind.
 // The first seven tests are regression pins for bug classes a human review
 // actually caught on this site:
-//   - the missed one-shot `pix:onair` event (statusline read STILL forever)
+//   - the missed one-shot `pix:onair` event (statusline read STATIC forever)
 //   - the `is:inline` parse-position trap (scrollspy frozen on floor 6)
 //   - the floating-nav variant leaking onto the docs pages
 //   - a wasm/glue ABI mismatch throwing at runtime under the hero
@@ -159,7 +159,7 @@ test('the dimmer darkens statements and releases in office gaps', async ({ page 
     page.evaluate(() => parseFloat(document.getElementById('dimmer')!.style.opacity || '0'));
   // A statement at viewport center pulls the darkness in…
   await page.evaluate(() =>
-    document.getElementById('features')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+    document.getElementById('install')!.scrollIntoView({ block: 'center', behavior: 'instant' })
   );
   await expect.poll(dim).toBeGreaterThan(0.5);
   // …and the first observation gap releases it (the office IS the content).
@@ -175,7 +175,7 @@ test('the dimmer darkens statements and releases in office gaps', async ({ page 
       parseFloat((document.querySelector('.hero__copy') as HTMLElement).style.opacity || '1')
     );
   await page.evaluate(() =>
-    document.getElementById('features')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+    document.getElementById('install')!.scrollIntoView({ block: 'center', behavior: 'instant' })
   );
   await expect.poll(heroOp).toBeLessThan(0.01);
   await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'instant' }));
@@ -246,35 +246,6 @@ test('the dimmer tracks live geometry across a Showcase channel swap', async ({ 
       })
       .toBeLessThan(0.01);
   }
-});
-
-// The gap-2 floating-window still was the ORIGINAL suspect for the dimmer
-// glitch above (a lazy image with no width/height reserving no space). It
-// isn't: `.gap-frame__body`'s CSS `aspect-ratio: 16/10` pins the box before
-// the PNG ever arrives. Pin the EXPECTED box, not before/after equality: a
-// stray height presentational attribute overrides aspect-ratio (it only
-// applies to auto dimensions) and blew the frame to natural height — a
-// same-before-and-after assertion stayed green through that regression.
-// Do NOT re-add width/height attributes to this <img> (the 1600×1440
-// natural size is 10:9, not the frame's 16/10 crop).
-test('the gap-2 still holds its 16/10 crop before and after the image loads', async ({ page }) => {
-  await gotoLive(page);
-  const frameBox = () =>
-    page.evaluate(() => {
-      const r = document.querySelector('.gap-frame__body')!.getBoundingClientRect();
-      return { w: r.width, h: r.height };
-    });
-  const expectSixteenTen = (box: { w: number; h: number }) =>
-    expect(Math.abs(box.h - (box.w * 10) / 16)).toBeLessThan(1);
-  expectSixteenTen(await frameBox());
-  await page.evaluate(() =>
-    document.querySelector('.gap-frame')!.scrollIntoView({ block: 'center', behavior: 'instant' })
-  );
-  await page.waitForFunction(() => {
-    const img = document.querySelector<HTMLImageElement>('[data-gap-still]');
-    return !!img && img.complete && img.naturalWidth > 0;
-  });
-  expectSixteenTen(await frameBox());
 });
 
 test('the hero pause switch freezes the office and resumes it seamlessly', async ({ page }) => {
@@ -511,7 +482,7 @@ test('wasm fetch failure keeps the still poster without an uncaught error', asyn
   await page.waitForLoadState('networkidle');
   await expect(page.locator('.backdrop__poster')).toBeVisible();
   await expect(page.locator('.backdrop.is-live')).not.toBeAttached();
-  await expect(page.locator('[data-sl-onair]')).toHaveText('○ STILL');
+  await expect(page.locator('[data-sl-onair]')).toHaveText('○ STATIC');
   // #456: the office canvas never went live, but the statusline ticker / hero dust
   // / showcase clips still auto-animate — so the pause control must be VISIBLE and
   // actually govern them (WCAG 2.2.2), not hidden as if nothing were animating.
@@ -704,15 +675,15 @@ test('WCAG 2.1.4: the statusline keys toggle turns the digit shortcuts off, then
   await keysToggle.click();
   await expect(keysToggle).toHaveAttribute('aria-checked', 'false');
   // OFF: a floor digit is inert — the lift readout does not move
-  await page.keyboard.press('4');
+  await page.keyboard.press('3');
   await expect(page.locator('[data-lift-digit]')).toHaveText('2F');
   // …and the choice is persisted (single-char shortcuts have a real off-switch)
   expect(await page.evaluate(() => localStorage.getItem('pix-keys'))).toBe('off');
   // flip it back ON — the digit rides again
   await keysToggle.click();
   await expect(keysToggle).toHaveAttribute('aria-checked', 'true');
-  await page.keyboard.press('4');
-  await expect(page.locator('[data-lift-digit]')).toHaveText('4F', { timeout: 10_000 });
+  await page.keyboard.press('3');
+  await expect(page.locator('[data-lift-digit]')).toHaveText('3F', { timeout: 10_000 });
 });
 
 test('the clock forces night after hours and clears on an explicit theme act', async ({ page }) => {
@@ -752,12 +723,12 @@ test('first visit: boot intro auto-runs, reveals the page, seeds the gate', asyn
   );
   // finish() dispatched pix:revealed, arming the reveal-on-scroll observer —
   // opacity:0 still counts as "visible" to Playwright, so assert the CLASS.
-  await expectSectionReveal(page, 'features');
+  await expectSectionReveal(page, 'install');
   // Gate round-trip: a seeded session skips the overlay, and the IMMEDIATE
   // pix:revealed path must arm the reveal observer just the same.
   await page.reload();
   await expect(page.locator('#boot')).not.toBeVisible();
-  await expectSectionReveal(page, 'features');
+  await expectSectionReveal(page, 'install');
 });
 
 test('a keypress during the Level-2 engine hold force-settles the splash immediately', async ({
@@ -1150,9 +1121,7 @@ test('nav menus + docs: dropdown, TOC scrollspy, 404, mobile burger', async ({ p
   await ctx.close();
 });
 
-test('landing fixed chrome: floating nav, statusline readouts, floor popover, day/night gap', async ({
-  page,
-}) => {
+test('landing fixed chrome: floating nav, statusline readouts, floor popover', async ({ page }) => {
   await page.addInitScript(() => sessionStorage.setItem('pix-booted', '1'));
   await page.goto('./'); // no live-office wait — everything here is wasm-independent
   // The load-bearing half of the floating variant: no live blur filter over a
@@ -1165,15 +1134,6 @@ test('landing fixed chrome: floating nav, statusline readouts, floor popover, da
   // fallback pre-wasm, so no live wait is needed); clock is format-only — TZ-agnostic.
   await expect(page.locator('[data-sl-lights]')).toHaveText(/lights \d+%/);
   await expect(page.locator('[data-sl-clock]')).toHaveText(/^\d{2}:\d{2} (day|night)$/);
-  // Gap-2's claim must AGREE with the one clock boundary — consistency, not a
-  // fixed value, so it's green at any hour.
-  const s = await page.evaluate(() => ({
-    night: window.__pixNight!(),
-    word: document.querySelector('[data-gap-daynight]')!.textContent,
-    src: (document.querySelector('[data-gap-still]') as HTMLImageElement).src,
-  }));
-  expect(s.word).toBe(s.night ? 'night' : 'day');
-  expect(s.src).toContain(s.night ? 'night.png' : 'day.png');
   // Floor popover: toggle → Esc closes → reopen → a floor jump closes AND
   // rides the lift (the same scrollspy round-trip as the digit-keys test).
   const toggle = page.locator('[data-floor-toggle]');
@@ -1258,12 +1218,13 @@ test('docs-table code cells render single-line (column-collapse guard)', async (
 
 test('text over the live office carries its own scrim (.text-scrim)', async ({ page }) => {
   await gotoLive(page);
-  // wb-2 C9: the hero copy (eyebrow/subcopy/CTA/platform-line) and the 4F
-  // intro paragraph are now BARE, tools-table style — legibility comes from
-  // --office-ink/--office-ink-accent tokens tuned against the real office
-  // composite, not a plate (see the WCAG test below + global.css's doc
-  // comment). Only the feature ledger and the install note still carry an
-  // actual scrim/plate.
+  // wb-2 C9: the hero copy (eyebrow/subcopy/CTA/platform-line) is now BARE,
+  // tools-table style — legibility comes from --office-ink/--office-ink-accent
+  // tokens tuned against the real office composite, not a plate (see the WCAG
+  // test below + global.css's doc comment). The install note still carries an
+  // actual scrim/plate; the standalone Features ledger was retired — its rows
+  // now live inside the merged 5F studio band as the roster, which carries
+  // the same local-scrim legibility guarantee the old ledger rows had.
   const heroBg = await page.evaluate(
     () => getComputedStyle(document.querySelector('.hero .statement-sub')!).backgroundColor
   );
@@ -1272,29 +1233,35 @@ test('text over the live office carries its own scrim (.text-scrim)', async ({ p
     () => getComputedStyle(document.querySelector('.hero__ghost')!).backgroundColor
   );
   expect(ghostBg).toBe('rgba(0, 0, 0, 0)');
-  const featuresLeadBg = await page.evaluate(
-    () => getComputedStyle(document.querySelector('#features .section-head .lead')!).backgroundColor
-  );
-  expect(featuresLeadBg).toBe('rgba(0, 0, 0, 0)');
 
-  expect(await page.locator('#features .ledger.text-scrim').count()).toBe(1);
-  expect(await page.locator('#features .ledger.text-scrim .ledger__row').count()).toBeGreaterThan(
-    0
-  );
   // The install note ("Also on crates.io...") floated unplated over the
   // skyline — give it the same crisp plate (it's NOT hero, so the install
-  // card idiom applies, unlike the hero/4F bare treatment above).
+  // card idiom applies, unlike the hero's bare treatment above).
   expect(await page.locator('.install__note.text-scrim').count()).toBe(1);
+  // The roster rows are BARE over the section's DIM_MAX backing (user verdict,
+  // same rule as the hero + tools table) — the plate must never come back.
+  expect(await page.locator('#showcase .roster__row.text-scrim').count()).toBe(0);
+  // …and INSIDE the card the plate's visible edge aligns with the tabs/command
+  // column: text-scrim's negative office-margin is zeroed there (user-caught —
+  // the plate hung ~11px left of its siblings).
+  const [noteX, tabsX] = await page.evaluate(() => [
+    document.querySelector('.install__note')!.getBoundingClientRect().x,
+    document.querySelector('.install__tabs')!.getBoundingClientRect().x,
+  ]);
+  expect(Math.abs(noteX - tabsX)).toBeLessThan(1);
 });
 
-test('bare hero + 4F text clears WCAG AA at the real office composite (day + night)', async ({
+test('bare hero text clears WCAG AA at the real office composite (day + night)', async ({
   page,
 }) => {
-  // wb-2 C6/C9: the hero eyebrow/subcopy/platform-line and the 4F intro
-  // paragraph read directly over the live office (no plate — the
-  // SupportedTools-table look). Legibility now depends entirely on the ink
-  // token clearing contrast against whatever the office ACTUALLY renders
-  // behind it, so this samples the REAL canvas pixels (not a --screen proxy
+  // wb-2 C6/C9: the hero eyebrow/subcopy/platform-line read directly over the
+  // live office (no plate — the SupportedTools-table look). The 4F Features
+  // intro paragraph this test also covered was retired along with the
+  // standalone floor (its rows are now scrimmed roster entries in the merged
+  // 5F band — see the .text-scrim test above — so the bare-ink-token
+  // legibility path no longer applies to them). Legibility now depends
+  // entirely on the ink token clearing contrast against whatever the office
+  // ACTUALLY renders behind it, so this samples the REAL canvas pixels (not a --screen proxy
   // — with no opaque plate the underlying office pixel is no longer
   // "immaterial") across the sampled element's bounding box, finds the
   // brightest AND darkest pixel in it (day's dimmer LIGHTENS the composite
@@ -1378,23 +1345,27 @@ test('bare hero + 4F text clears WCAG AA at the real office composite (day + nig
     await page.goto('./');
     await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
 
-    for (const selector of ['.hero .eyebrow', '.hero .statement-sub', '.hero__avail']) {
+    // Every BARE muted-text surface over the office, not just the hero's
+    // (lens B measured #showcase's lead + roster body at 3.79-3.96:1 day —
+    // the sibling sweep adds the other sections' leads and eyebrows too):
+    for (const selector of [
+      '.hero .eyebrow',
+      '.hero .statement-sub',
+      '.hero__avail',
+      '#showcase .section-head .lead',
+      '#showcase .eyebrow',
+      '.roster__body',
+      '#how .eyebrow',
+      '#tools .section-head .lead',
+      '#install .section-head .lead',
+      '#amenities .eyebrow',
+    ]) {
       const { ratio } = await worstCaseRatio(selector);
       expect(
         ratio,
         `${theme} ${selector}: WCAG AA floor is 4.5:1; measured ${ratio.toFixed(2)}:1`
       ).toBeGreaterThanOrEqual(4.5);
     }
-
-    await page.evaluate(() =>
-      document.getElementById('features')!.scrollIntoView({ block: 'center', behavior: 'instant' })
-    );
-    await page.waitForTimeout(700);
-    const { ratio: leadRatio } = await worstCaseRatio('#features .section-head .lead');
-    expect(
-      leadRatio,
-      `${theme} #features .lead: WCAG AA floor is 4.5:1; measured ${leadRatio.toFixed(2)}:1`
-    ).toBeGreaterThanOrEqual(4.5);
   }
 });
 
@@ -1458,6 +1429,48 @@ test('footer separators never strand alone at a wrap boundary', async ({ page })
   }
 });
 
+test('no footer line begins or ends with a separator dot once the row wraps', async ({ page }) => {
+  // R3 (wb-3 matrix sweep): the sibling test above only proves a "·" can't be
+  // stranded ALONE mid-row — but each dot introduces its FOLLOWING item
+  // (.footer__grp), so a group that itself wraps to a new line still leads
+  // that line with its own dot (#768-day-08: "· built in Rust" opening
+  // line 2). Below the width where the row visibly wraps, Footer.astro now
+  // hides the dots entirely and lets the row's flex gap carry the
+  // separation. Check actual RENDERED rows (grouped by top position), not
+  // raw textContent — a display:none dot still shows up in textContent even
+  // though nothing paints, which would false-positive this check.
+  await gotoLive(page);
+  await page.setViewportSize({ width: 768, height: 900 });
+  await page.evaluate(() =>
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'instant' })
+  );
+  const bad = await page.evaluate(() => {
+    const line = document.querySelector('.footer__line')!;
+    const items = Array.from(line.children).filter(
+      (el) => (el as HTMLElement).offsetParent !== null
+    );
+    const rows = new Map<number, Element[]>();
+    for (const el of items) {
+      const top = Math.round(el.getBoundingClientRect().top);
+      (rows.get(top) ?? rows.set(top, []).get(top)!).push(el);
+    }
+    const findings: string[] = [];
+    for (const rowEls of rows.values()) {
+      rowEls.sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left);
+      const leadingSep = rowEls[0].querySelector('.footer__sep');
+      if (leadingSep && getComputedStyle(leadingSep).display !== 'none') {
+        findings.push(`leading: "${(rowEls[0].textContent || '').trim()}"`);
+      }
+      const lastText = (rowEls[rowEls.length - 1].textContent || '').trim();
+      if (lastText.endsWith('·')) {
+        findings.push(`trailing: "${lastText}"`);
+      }
+    }
+    return findings;
+  });
+  expect(bad).toEqual([]);
+});
+
 test('the pause control never overlaps a footer link across the mobile wrap range', async ({
   page,
 }) => {
@@ -1505,6 +1518,82 @@ test('the pause control never overlaps a footer link across the mobile wrap rang
         }, width)
       )
       .toEqual([]);
+  }
+});
+
+test('the pause control never occludes in-page copy at mobile widths', async ({ page }) => {
+  // R1 (wb-3 matrix sweep): .office-ctl is position:fixed, so its on-screen
+  // band is CONSTANT across the whole scroll — every section's copy passes
+  // under that same band at some scroll offset, not just the footer's (the
+  // sibling test above only ever guarded the footer). OfficeBackdrop.astro
+  // now widens .container's end-padding and caps the two office-gap
+  // captions' width (they render outside .container) by the button's own
+  // footprint at ≤760px. Prove it at the four convicted spots: for each,
+  // scroll the page so the copy's OWN midpoint lands on the button's fixed
+  // band midpoint (the worst-case alignment a visitor could ever scroll
+  // to — the band is viewport-relative and constant, so this position
+  // always exists short of the document's scroll ends), then check the two
+  // rects don't intersect. A plain scrollIntoView({block:'center'}) does NOT
+  // reproduce this — it centers the copy in the *viewport*, not in the
+  // button's band near the bottom, so it can miss the real collision.
+  await gotoLive(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  async function assertClearOfPause(selector: string): Promise<void> {
+    const overlap = await page.evaluate((sel) => {
+      const el = document.querySelector(sel) as HTMLElement | null;
+      const btn = document.getElementById('office-pause') as HTMLElement | null;
+      if (!el || !btn || btn.hidden) return { found: !!el, overlap: false };
+      // Align the copy's midpoint with the button's fixed-band midpoint —
+      // the worst-case scroll position for this exact pair.
+      const b = btn.getBoundingClientRect();
+      const r = el.getBoundingClientRect();
+      const elAbsMid = (r.top + r.bottom) / 2 + window.scrollY;
+      const bandMid = (b.top + b.bottom) / 2;
+      window.scrollTo({ top: Math.max(0, Math.round(elAbsMid - bandMid)), behavior: 'instant' });
+      const r2 = el.getBoundingClientRect();
+      const b2 = btn.getBoundingClientRect();
+      const overlap = !(
+        r2.right <= b2.left ||
+        r2.left >= b2.right ||
+        r2.bottom <= b2.top ||
+        r2.top >= b2.bottom
+      );
+      return { found: true, overlap };
+    }, selector);
+    expect(overlap.found, `${selector} not found`).toBe(true);
+    expect(overlap.overlap, `${selector} overlaps #office-pause's fixed band`).toBe(false);
+  }
+
+  await assertClearOfPause('.hero__ghost[href="#showcase-vibing"]'); // hero CTA ("▸ play with it live")
+  await assertClearOfPause('.office-gap:not(.office-gap--closer) .gap-caption'); // gap-1 caption
+  await assertClearOfPause('.how__step:first-child .how__detail p'); // HowItWorks step 01 body
+  await assertClearOfPause('[data-vibing-time-label]'); // Showcase VIBING clock readout
+});
+
+test('the elevator shaft never overlaps the studio panel copy at 390 or 768', async ({ page }) => {
+  // R2a (wb-3 matrix sweep): .shaft is position:fixed at every width (only
+  // its rail width shrinks ≤760px, via --shaft-w) — the roster's feature-row
+  // text ran under it at BOTH 390 (14px dot-rail) and 768 (24px full rail),
+  // since .container never reserved a gutter for it (unlike the statusline's
+  // own body-padding reservation for ITS fixed bar). Horizontal position
+  // doesn't depend on scroll, so this checks pure geometry, no scrolling
+  // needed: every roster row's right edge must clear the shaft's left edge.
+  await gotoLive(page);
+  for (const width of [390, 768]) {
+    await page.setViewportSize({ width, height: 844 });
+    const overlaps = await page.evaluate(() => {
+      const shaft = document.querySelector('.shaft');
+      if (!shaft) return [];
+      const shaftLeft = shaft.getBoundingClientRect().left;
+      return Array.from(document.querySelectorAll<HTMLElement>('.roster__row'))
+        .map((el) => el.getBoundingClientRect().right - shaftLeft)
+        .filter((over) => over > 0);
+    });
+    expect(
+      overlaps,
+      `${width}px: roster rows reach ${overlaps}px past the shaft's left edge`
+    ).toEqual([]);
   }
 });
 
