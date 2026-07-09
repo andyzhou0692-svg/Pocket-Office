@@ -1,4 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
+import sourcesData from '../../src/sources.json' with { type: 'json' };
+
+// read the manifest directly (same idiom as floors.spec.ts's features.json
+// import) so the hero-badge bridge test below can't drift from a hand-copied
+// expected count.
+type SourceRow = { badge: string; badge_color: string; name: string; status: string };
+const supportedSources = (sourcesData as SourceRow[]).filter((s) => s.status === 'supported');
 
 // The smoke suite: one assertion per cross-component CONTRACT of the OPEN
 // FLOOR page — the seams that only exist at runtime (window globals, custom
@@ -37,10 +44,21 @@ function compositeOver(
   return [r * a + ur * (1 - a), g * a + ug * (1 - a), b * a + ub * (1 - a)];
 }
 function parseRgb(css: string): [number, number, number, number] {
-  const m = css.match(/rgba?\(([^)]+)\)/);
-  if (!m) throw new Error(`unparseable color: ${css}`);
-  const [r, g, b, a] = m[1].split(',').map((s) => parseFloat(s));
-  return [r, g, b, a ?? 1];
+  const rgb = css.match(/rgba?\(([^)]+)\)/);
+  if (rgb) {
+    const [r, g, b, a] = rgb[1].split(',').map((s) => parseFloat(s));
+    return [r, g, b, a ?? 1];
+  }
+  // Chromium resolves a color-mix() result to the `color(srgb r g b [/ a])`
+  // functional form (0–1 components), not rgb() — the hero badge-code hue
+  // (color-mix toward white/black) hits this path; every other caller still
+  // sees plain rgb()/rgba() and takes the branch above.
+  const srgb = css.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\)/);
+  if (srgb) {
+    const [r, g, b, a] = srgb.slice(1, 5).map((s) => (s === undefined ? undefined : parseFloat(s)));
+    return [r! * 255, g! * 255, b! * 255, a ?? 1];
+  }
+  throw new Error(`unparseable color: ${css}`);
 }
 /**
  * Fail the calling test if the page logs an uncaught error or console.error.
@@ -413,7 +431,7 @@ test('reduced motion: an install copy writes the clipboard but hires nobody', as
 
 test('docs pages keep the sticky nav with section links', async ({ page }) => {
   // The floating-nav treatment is index-ONLY; the docs pages have no office
-  // backdrop or statusline, so they keep the sticky bar (the #426-review
+  // backdrop (they DO mount the statusline since wb-5), so they keep the sticky bar (the #426-review
   // regression: `nav--floating` leaked here — absolute, transparent, links
   // hidden — and every scroll offset went stale).
   const errors = watchErrors(page);
@@ -1364,11 +1382,208 @@ test('bare hero text clears WCAG AA at the real office composite (day + night)',
       '#tools .section-head .lead',
       '#install .section-head .lead',
       '#amenities .eyebrow',
+      '.pantry__cite',
     ]) {
       const { ratio } = await worstCaseRatio(selector);
       expect(
         ratio,
         `${theme} ${selector}: WCAG AA floor is 4.5:1; measured ${ratio.toFixed(2)}:1`
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+test('hero badge row: one chip per registered source, matching the tools-table row count', async ({
+  page,
+}) => {
+  // One manifest (sources.json), two consumers (Hero's chip row, the tools
+  // table on #tools) — a bridge, not two independently-maintained counts, so
+  // adding/removing a source can't silently desync them.
+  await page.addInitScript(() => sessionStorage.setItem('pix-booted', '1'));
+  await page.goto('./');
+  const chips = page.locator('.hero__badges .hero__badge');
+  await expect(chips).toHaveCount(supportedSources.length);
+  await expect(chips.first()).toHaveText(
+    `${supportedSources[0].badge.replace('·', '')} ${supportedSources[0].name}`
+  );
+
+  const tableRows = page.locator('.tools tbody:not(.tools__planned) tr');
+  await expect(tableRows).toHaveCount(supportedSources.length);
+});
+
+test('hero badge hues clear WCAG AA against their theme-aware chip surface (day + night)', async ({
+  page,
+}) => {
+  // The badge-code hue is a cross-boundary copy of the app's per-source color
+  // (pinned to theme::NORMAL.source by the Rust bridge test), painted on a
+  // chip surface that FLIPS per theme — day's light --surface chip darkens
+  // the hue toward black, night's dark --screen chip lightens it toward
+  // white (global.css's .hero__badge-code doc comment) — so this sweeps
+  // every rendered hue in both themes rather than trusting one spot check.
+  for (const theme of ['day', 'night'] as const) {
+    await page.addInitScript((t) => {
+      sessionStorage.setItem('pix-booted', '1');
+      localStorage.setItem('pix-theme', t);
+    }, theme);
+    await page.goto('./');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+
+    const chips = await page.evaluate(() =>
+      [...document.querySelectorAll('.hero__badge')].map((li) => ({
+        codeColor: getComputedStyle(li.querySelector('.hero__badge-code')!).color,
+        chipBg: getComputedStyle(li).backgroundColor,
+        label: li.textContent?.trim(),
+      }))
+    );
+    expect(chips.length, `${theme}: no .hero__badge chips rendered`).toBe(supportedSources.length);
+    for (const { codeColor, chipBg, label } of chips) {
+      const fg = parseRgb(codeColor).slice(0, 3) as [number, number, number];
+      const bg = parseRgb(chipBg).slice(0, 3) as [number, number, number];
+      const ratio = contrastRatio(fg, bg);
+      expect(
+        ratio,
+        `${theme} "${label}": WCAG AA floor is 4.5:1; code ${codeColor} on chip ${chipBg} measured ${ratio.toFixed(2)}:1`
+      ).toBeGreaterThanOrEqual(4.5);
+    }
+  }
+});
+
+test('tenant board text (badges, legend, planned rows, soon marks, star plaque) clears WCAG AA against the dark board ground (day + night)', async ({
+  page,
+}) => {
+  // The tenant board (#tools) is a .hw-panel — its --screen ground is a
+  // THEME-INDEPENDENT literal (global.css never redefines --screen per
+  // theme), unlike the hero's day/night chip split. This sweep runs both
+  // page themes anyway as a defense-in-depth pin, not because the ratio is
+  // expected to move.
+  for (const theme of ['day', 'night'] as const) {
+    await page.addInitScript((t) => {
+      sessionStorage.setItem('pix-booted', '1');
+      localStorage.setItem('pix-theme', t);
+    }, theme);
+    await page.goto('./');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await page.evaluate(() =>
+      document.getElementById('tools')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+    );
+
+    const boardBg = await page.evaluate(
+      () => getComputedStyle(document.querySelector('.tools__board')!).backgroundColor
+    );
+    const bg = parseRgb(boardBg).slice(0, 3) as [number, number, number];
+    const assertAA = (codeColor: string, label: string) => {
+      const fg = parseRgb(codeColor).slice(0, 3) as [number, number, number];
+      const ratio = contrastRatio(fg, bg);
+      expect(
+        ratio,
+        `${theme} "${label}": WCAG AA floor is 4.5:1; color ${codeColor} on board ${boardBg} measured ${ratio.toFixed(2)}:1`
+      ).toBeGreaterThanOrEqual(4.5);
+    };
+
+    const badges = await page.evaluate(() =>
+      [...document.querySelectorAll('.tools__board .tools__badge')].map((b) => ({
+        codeColor: getComputedStyle(b).color,
+        label: b.textContent?.trim(),
+      }))
+    );
+    expect(badges.length, `${theme}: no .tools__badge chips rendered`).toBe(
+      supportedSources.length
+    );
+    for (const { codeColor, label } of badges) assertAA(codeColor, `badge ${label}`);
+
+    // the legend is the sole decode key for the LED marks — always renders,
+    // since the current manifest always has both 'yes' and 'experimental'
+    // states on screen.
+    const legendColor = await page.evaluate(
+      () => getComputedStyle(document.querySelector('.tools__legend')!).color
+    );
+    assertAA(legendColor, 'legend');
+
+    // the star plaque is its OWN .hw-panel beside the board (same --screen
+    // ground); assert its own bg rather than reuse boardBg, so a future
+    // divergence between the two panels' grounds can't go unnoticed.
+    const plaqueBg = await page.evaluate(
+      () => getComputedStyle(document.querySelector('.tools__plaque')!).backgroundColor
+    );
+    const assertPlaqueAA = (codeColor: string, label: string) => {
+      const fg = parseRgb(codeColor).slice(0, 3) as [number, number, number];
+      const ratio = contrastRatio(fg, parseRgb(plaqueBg).slice(0, 3) as [number, number, number]);
+      expect(
+        ratio,
+        `${theme} "${label}": WCAG AA floor is 4.5:1; color ${codeColor} on plaque ${plaqueBg} measured ${ratio.toFixed(2)}:1`
+      ).toBeGreaterThanOrEqual(4.5);
+    };
+    const plaqueColors = await page.evaluate(() => ({
+      stars: getComputedStyle(document.querySelector('.tools__plaque-stars')!).color,
+      engraving: getComputedStyle(document.querySelector('.tools__plaque-engraving')!).color,
+      link: getComputedStyle(document.querySelector('.tools__plaque-link')!).color,
+    }));
+    assertPlaqueAA(plaqueColors.stars, 'plaque stars');
+    assertPlaqueAA(plaqueColors.engraving, 'plaque engraving');
+    assertPlaqueAA(plaqueColors.link, 'plaque link');
+
+    // sources.json currently has zero "planned" rows, so the planned tbody
+    // and its "soon" mark never render on the live page. Probe the SAME
+    // markup SupportedTools.astro's template emits for a planned row
+    // (MARK('planned')), injected into the real table so it picks up the
+    // live cascade — pins the rule even with an empty planned set.
+    // PAIRED-COPY PIN: MARK() is inline in SupportedTools.astro (unexported —
+    // Playwright can't call Astro frontmatter), so this literal MUST track
+    // MARK's 'planned'/'soon' markup by hand; edit both or the probe asserts
+    // stale markup. (The matching note sits on MARK() itself.)
+    const planned = await page.evaluate(() => {
+      const table = document.querySelector('.tools__board table')!;
+      const tbody = document.createElement('tbody');
+      tbody.className = 'tools__planned';
+      tbody.innerHTML =
+        '<tr><th scope="row">Probe Tool</th><td class="tools__cell" data-state="planned">' +
+        '<span class="tools__mark tools__soon" aria-hidden="true">soon</span></td></tr>';
+      table.appendChild(tbody);
+      const result = {
+        rowColor: getComputedStyle(tbody.querySelector('th')!).color,
+        soonColor: getComputedStyle(tbody.querySelector('.tools__soon')!).color,
+      };
+      tbody.remove();
+      return result;
+    });
+    assertAA(planned.rowColor, 'planned row');
+    assertAA(planned.soonColor, 'soon mark');
+  }
+});
+
+test('pantry chitchat bubble text clears WCAG AA against its own dark ground (day + night)', async ({
+  page,
+}) => {
+  // Same pattern as the tenant-board sweep above: .pantry__bubble paints its
+  // OWN opaque --screen background (not a shared board), so read fg/bg off
+  // the bubble element directly rather than a separate panel ancestor. Both
+  // tokens are THEME-INDEPENDENT (global.css never redefines --screen/
+  // --chip-bright per theme, same reasoning as the board/plaque), so this
+  // sweep is defense-in-depth, not an expected-to-move ratio.
+  for (const theme of ['day', 'night'] as const) {
+    await page.addInitScript((t) => {
+      sessionStorage.setItem('pix-booted', '1');
+      localStorage.setItem('pix-theme', t);
+    }, theme);
+    await page.goto('./');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme);
+    await page.evaluate(() =>
+      document.querySelector('.pantry')!.scrollIntoView({ block: 'center', behavior: 'instant' })
+    );
+    const bubbles = await page.evaluate(() =>
+      [...document.querySelectorAll('.pantry__bubble')].map((b) => {
+        const cs = getComputedStyle(b);
+        return { color: cs.color, bg: cs.backgroundColor, label: b.textContent?.trim() };
+      })
+    );
+    expect(bubbles.length, `${theme}: no .pantry__bubble rendered`).toBeGreaterThan(0);
+    for (const { color, bg, label } of bubbles) {
+      const fg = parseRgb(color).slice(0, 3) as [number, number, number];
+      const bgRgb = parseRgb(bg).slice(0, 3) as [number, number, number];
+      const ratio = contrastRatio(fg, bgRgb);
+      expect(
+        ratio,
+        `${theme} "${label}": WCAG AA floor is 4.5:1; ${color} on ${bg} measured ${ratio.toFixed(2)}:1`
       ).toBeGreaterThanOrEqual(4.5);
     }
   }
