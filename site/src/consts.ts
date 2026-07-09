@@ -4,11 +4,17 @@ import showcaseData from './showcase.json';
 import featuresData from './features.json';
 
 // Shared site constants + a base-path-safe asset/link helper.
-// (GitHub Pages serves the site under /pixtuoid/, so every internal URL must
-//  be prefixed with import.meta.env.BASE_URL — asset() does that robustly.)
+// (The site serves at the origin root of pixtuoid.dev — base '/' — but every
+//  internal URL still goes through asset()/BASE_URL so a base change, like the
+//  old /pixtuoid/ project page, can never silently break links.)
 export const REPO = 'https://github.com/IvanWng97/pixtuoid';
 export const CRATES = 'https://crates.io/crates/pixtuoid';
 export const SPONSOR = 'https://buymeacoffee.com/IvanWng97';
+// Deploy origin. The BUILD authority is `site` in astro.config.mjs — `Astro.site`
+// reflects it, and this const is only the type-narrowing fallback for the
+// (build-time unreachable) `Astro.site` undefined arm, shared so the two head
+// consumers (Base.astro canonical/og, index.astro JSON-LD) can't drift apart.
+export const SITE_ORIGIN = 'https://pixtuoid.dev';
 
 const BASE = import.meta.env.BASE_URL;
 export const asset = (p: string): string => `${BASE.replace(/\/$/, '')}/${p.replace(/^\//, '')}`;
