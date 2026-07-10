@@ -125,6 +125,24 @@ src/
 │                       skew stays report-ONLY (the <cli> --version probe is too costly for the interactive
 │                       panel-open; advisory). doctor=health PROVIDER, ConnState=connection lifecycle it
 │                       ANNOTATES (sub-state, not overlap)
+├── focus/              FOCUS-JUMP (click a sprite / dashboard `f` → the agent's terminal APP comes to the
+│                       foreground; spec docs/superpowers/specs/2026-07-10). mod.rs: resolve_pid (slot.pid for
+│                       the hook family — filled from the `_pid` riding each hook Identity — else the CC/Codex
+│                       point queries `source::{cc,codex}_pid_for_session`, both recycle-guarded; an EXITING
+│                       slot is REFUSED — the cheap click-time pid-recycle guard) + ancestor_walk (PURE over an
+│                       injected ProcessTable, cycle-guarded, stops at pid≤1 — mock-table unit tests) +
+│                       focus_agent (the ONE orchestration entry; activation injected so dispatch tests never
+│                       touch the OS). Per-OS glue (codecov-ignored, winit-class): macos.rs `/bin/ps -o ppid=`
+│                       per hop (NOT proc_pidinfo — it EPERMs at the setuid-root `login` in terminal chains;
+│                       live-dogfood-caught) + NSRunningApplication activate (objc2-app-kit pinned to winit's
+│                       stack, zero TCC); windows.rs Toolhelp32 + EnumWindows/SetForegroundWindow
+│                       (foreground-lock denial = silent no-op); linux.rs /proc walk + ONE channel per env:
+│                       sway/hyprland IPC by env marker (focusable asks the compositor tree for pid ownership,
+│                       so the walk surfaces the terminal, not the agent) else EWMH _NET_ACTIVE_WINDOW via
+│                       x11rb — i3 rides EWMH, NOT swaymsg (GNOME Wayland fails closed). ONE failure rule: every
+│                       miss = tracing::debug + silent no-op — no fallback tiers, no info UI (user-directed).
+│                       App-level only in v1 (no tab/pane precision — backlog). Windows hook-family pids are
+│                       effectively absent (the shim's parent is a transient cmd.exe — see pixtuoid-hook).
 ├── config.rs           AppConfig persistence (~/.config/pixtuoid/config.toml), XDG-aware
 ├── runtime/            mod.rs (RunConfig, boot-capacity math, headless summarize — all unit-tested;
 │                       ConnectedSources = the live `Arc<Mutex<HashSet<String>>>` connected-set,

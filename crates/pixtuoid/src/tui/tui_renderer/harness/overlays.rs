@@ -350,7 +350,7 @@ fn pet_tooltip_falls_back_to_default_name_when_not_configured() {
 // ===================================================================
 
 #[test]
-fn pinned_active_agent_tooltip_shows_state_and_detail() {
+fn hovered_active_agent_tooltip_shows_state_and_detail() {
     // active() sets last_event_at = started; created >5s ago so active_str is
     // a numeric percent (not "--%"), and active_ms>0 forces a non-zero %.
     let mut a = active(
@@ -363,7 +363,8 @@ fn pinned_active_agent_tooltip_shows_state_and_detail() {
     let id = a.agent_id;
     let scene = scene_with(vec![a], 16);
     let mut r = build(120, 44, vec![]);
-    r.set_pinned_agent(Some(id));
+    r.render(&scene, &pack(), t0()).unwrap();
+    super::hover_agent(&mut r, &scene, id, 120, 44);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
     assert!(text.contains("Active"), "active state word: {text}");
@@ -382,7 +383,7 @@ fn pinned_active_agent_tooltip_shows_state_and_detail() {
 }
 
 #[test]
-fn pinned_agent_tooltip_shows_source_badge() {
+fn hovered_agent_tooltip_shows_source_badge() {
     // The dossier leads with the shared `[xx]` source badge (same builder as the
     // dashboard/Sources panel) so the tooltip can't drift from them.
     let mut a = active(
@@ -397,7 +398,8 @@ fn pinned_agent_tooltip_shows_source_badge() {
     let id = a.agent_id;
     let scene = scene_with(vec![a], 16);
     let mut r = build(120, 44, vec![]);
-    r.set_pinned_agent(Some(id));
+    r.render(&scene, &pack(), t0()).unwrap();
+    super::hover_agent(&mut r, &scene, id, 120, 44);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
     // claude-code → the `[cc]` badge prefix.
@@ -412,7 +414,7 @@ fn pinned_agent_tooltip_shows_source_badge() {
 }
 
 #[test]
-fn pinned_subagent_tooltip_shows_lineage() {
+fn hovered_subagent_tooltip_shows_lineage() {
     // A subagent's dossier carries a `↳ under {parent}` line; a root agent's
     // does not (the parent must resolve in the scene).
     let parent = active(
@@ -433,7 +435,8 @@ fn pinned_subagent_tooltip_shows_lineage() {
     let child_id = child.agent_id;
     let scene = scene_with(vec![parent, child], 16);
     let mut r = build(120, 44, vec![]);
-    r.set_pinned_agent(Some(child_id));
+    r.render(&scene, &pack(), t0()).unwrap();
+    super::hover_agent(&mut r, &scene, child_id, 120, 44);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
     assert!(
@@ -443,7 +446,7 @@ fn pinned_subagent_tooltip_shows_lineage() {
 }
 
 #[test]
-fn pinned_waiting_agent_tooltip_shows_reason() {
+fn hovered_waiting_agent_tooltip_shows_reason() {
     let mut a = idle("/ttW/0.jsonl", 0, t0() - Duration::from_secs(60));
     a.state = ActivityState::Waiting {
         reason: Arc::from("permission to edit"),
@@ -451,7 +454,8 @@ fn pinned_waiting_agent_tooltip_shows_reason() {
     let id = a.agent_id;
     let scene = scene_with(vec![a], 16);
     let mut r = build(120, 44, vec![]);
-    r.set_pinned_agent(Some(id));
+    r.render(&scene, &pack(), t0()).unwrap();
+    super::hover_agent(&mut r, &scene, id, 120, 44);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
     assert!(text.contains("Waiting"), "waiting state arm: {text}");
@@ -464,7 +468,7 @@ fn pinned_waiting_agent_tooltip_shows_reason() {
 }
 
 #[test]
-fn pinned_exiting_agent_tooltip_suppresses_meter() {
+fn hovered_exiting_agent_tooltip_suppresses_meter() {
     // A walking-out agent keeps its retained Active payload (mark_exiting doesn't
     // reset `state`), but the dossier reads `◌ Exiting` — so the active-% meter is
     // suppressed (keyed off the exiting-first `kind`, matching the tool span).
@@ -479,7 +483,8 @@ fn pinned_exiting_agent_tooltip_suppresses_meter() {
     let id = a.agent_id;
     let scene = scene_with(vec![a], 16);
     let mut r = build(120, 44, vec![]);
-    r.set_pinned_agent(Some(id));
+    r.render(&scene, &pack(), t0()).unwrap();
+    super::hover_agent(&mut r, &scene, id, 120, 44);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
     assert!(text.contains("Exiting"), "exiting state word: {text}");
@@ -490,7 +495,7 @@ fn pinned_exiting_agent_tooltip_suppresses_meter() {
 }
 
 #[test]
-fn pinned_exiting_agent_tooltip_suppresses_waiting_reason() {
+fn hovered_exiting_agent_tooltip_suppresses_waiting_reason() {
     // Symmetric to the meter: a Waiting slot now exiting reads `◌ Exiting`, not a
     // `?reason` (the Waiting arm is gated on the exiting-first `kind` too).
     let mut a = idle("/exW/0.jsonl", 0, t0() - Duration::from_secs(60));
@@ -501,7 +506,8 @@ fn pinned_exiting_agent_tooltip_suppresses_waiting_reason() {
     let id = a.agent_id;
     let scene = scene_with(vec![a], 16);
     let mut r = build(120, 44, vec![]);
-    r.set_pinned_agent(Some(id));
+    r.render(&scene, &pack(), t0()).unwrap();
+    super::hover_agent(&mut r, &scene, id, 120, 44);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
     assert!(text.contains("Exiting"), "exiting state word: {text}");
@@ -532,15 +538,18 @@ fn exiting_agent_label_uses_exiting_color() {
 }
 
 #[test]
-fn pinned_then_removed_agent_is_a_safe_noop() {
-    // paint_hover_tooltip's early return when the pinned id is gone from scene.
+fn hovered_then_removed_agent_is_a_safe_noop() {
+    // The hover hit re-resolves per frame: with the agent removed from the
+    // scene the same parked mouse resolves nothing (or another surface) —
+    // the render must not panic. (The pinned-id variant of this test died
+    // with click-to-pin; hover is re-evaluated each frame by construction.)
     let id = AgentId::from_transcript_path("/ttGone/0.jsonl");
     let scene = scene_with(vec![slot(id, 0, 0, t0())], 16);
     let mut r = build(120, 44, vec![]);
     r.render(&scene, &pack(), t0()).unwrap();
-    r.set_pinned_agent(Some(id));
-    // Re-render with the agent removed → tooltip paint hits the get()=None bail.
+    super::hover_agent(&mut r, &scene, id, 120, 44);
+    // Re-render with the agent removed → the hover resolves None, no tooltip.
     let empty = SceneState::uniform(16);
     r.render(&empty, &pack(), t0() + Duration::from_millis(33))
-        .expect("render must not panic when the pinned agent vanished");
+        .expect("render must not panic when the hovered agent vanished");
 }
