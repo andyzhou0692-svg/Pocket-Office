@@ -680,6 +680,38 @@ impl Reducer {
                     }
                 }
             }
+            AgentEvent::ModelInfo {
+                agent_id,
+                model,
+                effort,
+            } => {
+                // Pure observation cache — updates an EXISTING slot only (a
+                // model line must never register a session; unknown id =
+                // no-op). Legitimate on BOTH transports: model/effort are
+                // wire data, not liveness. Known bounded residual: the
+                // watcher reads RECENT/LIVE-probed files from the TOP, so a
+                // first-sight replay can stamp a HISTORICAL effort marker
+                // with apply-time `now` — a session that used max effort
+                // earlier (but no longer) flames for up to the scene's
+                // EFFORT_TTL (10 min) after attach, then self-heals. Purely
+                // cosmetic; model is immune (last-seen-wins, no freshness).
+                // `model` writes only on change (Arc churn); `effort`
+                // re-stamps `now` per sighting — the freshness the scene
+                // layer's TTL reads.
+                if let Some(slot) = scene.agents.get_mut(&agent_id) {
+                    if let Some(m) = model {
+                        if slot.model.as_deref() != Some(m.as_str()) {
+                            slot.model = Some(std::sync::Arc::from(m.as_str()));
+                        }
+                    }
+                    if let Some(e) = effort {
+                        slot.effort = Some(crate::state::EffortObservation::new(
+                            std::sync::Arc::from(e.as_str()),
+                            now,
+                        ));
+                    }
+                }
+            }
         }
     }
 
@@ -1097,6 +1129,8 @@ impl Reducer {
                 unknown_cwd: !has_cwd && parent_id.is_none(),
                 parent_id,
                 pid: None,
+                model: None,
+                effort: None,
             },
         );
         true
