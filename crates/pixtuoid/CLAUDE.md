@@ -124,13 +124,23 @@ src/
 │                       (main.rs), AND `run` (the CLI report) all read — surfaces can't drift apart. Version
 │                       skew stays report-ONLY (the <cli> --version probe is too costly for the interactive
 │                       panel-open; advisory). doctor=health PROVIDER, ConnState=connection lifecycle it
-│                       ANNOTATES (sub-state, not overlap)
+│                       ANNOTATES (sub-state, not overlap). + the #526 focus-jump block (`focus_section`,
+│                       pure + registry-bucketed: activation backend per OS — linux via the pure
+│                       `linux_activation_backend` over the SAME env markers focus/linux.rs keys on —
+│                       + CC/Codex probe-root presence via `source::cc_registry_dir` / codex
+│                       default_paths; report-only, NO TUI notice — user-cut)
 ├── focus/              FOCUS-JUMP (click a sprite / dashboard `f` → the agent's terminal APP comes to the
-│                       foreground; spec docs/superpowers/specs/2026-07-10). mod.rs: resolve_pid (slot.pid for
-│                       the hook family — filled from the `_pid` riding each hook Identity — else the CC/Codex
-│                       point queries `source::{cc,codex}_pid_for_session`, both recycle-guarded; an EXITING
-│                       slot is REFUSED — the cheap click-time pid-recycle guard) + ancestor_walk (PURE over an
-│                       injected ProcessTable, cycle-guarded, stops at pid≤1 — mock-table unit tests) +
+│                       foreground; spec docs/superpowers/specs/2026-07-10). mod.rs: focus_slot (the ONE
+│                       painter-agnostic dispatch entry — tui click/`f` today, the floating trigger later) →
+│                       resolve_pid (slot.pid for stamp-channel sources — a `PidIdentity` (pid + kernel start
+│                       marker) riding each hook Identity — else the registry `FocusChannel::TranscriptProbe`
+│                       gate + the CC/Codex point queries `source::{cc,codex}_pid_for_session`, recycle-guarded;
+│                       probe fns stay HERE, lockstep-tested against the registry enum — wasm const-table
+│                       boundary; TWO click-time guards on the cached path: an EXITING slot is REFUSED,
+│                       and the start marker is re-read via ProcessTable::start_time — mismatch/gone = recycled
+│                       pid, refused, #527) + ancestor_walk (PURE over an
+│                       injected ProcessTable, cycle-guarded, stops at pid≤1 — mock-table unit tests; KNOWN
+│                       common miss #538: tmux/screen/zellij servers are daemonized → walk dead-ends at pid 1) +
 │                       focus_agent (the ONE orchestration entry; activation injected so dispatch tests never
 │                       touch the OS). Per-OS glue (codecov-ignored, winit-class): macos.rs `/bin/ps -o ppid=`
 │                       per hop (NOT proc_pidinfo — it EPERMs at the setuid-root `login` in terminal chains;
