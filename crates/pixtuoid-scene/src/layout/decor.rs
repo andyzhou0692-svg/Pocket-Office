@@ -177,6 +177,22 @@ pub struct FurnitureDef {
     /// side); seats use "front + sides, no back" so a walker never paths in
     /// through the sofa back. Edit one bool to change an entry side.
     pub approach: ApproachSides,
+    /// Where `footprint` sits inside the VISUAL box horizontally — the mask's
+    /// per-row anchoring authority (was PER-SITE lore: `mask.rs` inferred it
+    /// from `visual.h > footprint.h` and three kinds bypassed the helper).
+    /// Every current row is `Center` (footprint centered under the sprite);
+    /// the field exists so a future sideways-overhanging piece declares
+    /// `Start`/`End` instead of needing a new stamp path.
+    pub ground_x: GroundAlign,
+    /// Where `footprint` sits inside the VISUAL box vertically: `End` for the
+    /// overhang canopy/panel/column pieces (invariant #6, the walk-behind
+    /// shape — the tall sprite overhangs the shallow south strip and occludes
+    /// a walker parked behind it), `Center` for the meeting sofa body + floor
+    /// lamp, `Start` for the desk (footprint == the body; a SOLID obstacle,
+    /// NOT walk-behind — switching it to `End` is what would enable that).
+    /// Resolves to a pixel offset from `visual − footprint` at stamp time
+    /// (drift-free).
+    pub ground_y: GroundAlign,
 }
 
 /// Canonical seat approach: front + sides, exclude the back. Rotates with
@@ -308,12 +324,22 @@ impl Furniture {
 pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
     // Decor that isn't a wander destination: no dwell, approachable from
     // anywhere (unused — decor never runs stand_point). Spelled once.
+    // ground_y default `End`: the decor rows that spread `..DECOR` are the
+    // overhang canopy/panel/column pieces (plants, whiteboard, TV, bookshelf,
+    // meeting screen), whose ground strip pins to the sprite base. The flat
+    // singletons that also spread it (meeting/pantry/side tables, stool)
+    // resolve `End` to offset 0 anyway (footprint == visual), so they stay
+    // byte-identical; the two CENTERED exceptions (meeting sofa body, floor
+    // lamp) override `ground_y` explicitly below. `ground_x` is `Center` for
+    // every row today.
     const DECOR: FurnitureDef = FurnitureDef {
         footprint: None,
         visual: Size { w: 0, h: 0 },
         occupies_pos: false,
         dwell: DwellWindow::DECOR,
         approach: ApproachSides::ALL,
+        ground_x: GroundAlign::Center,
+        ground_y: GroundAlign::End,
     };
     match kind {
         Furniture::Couch => FurnitureDef {
@@ -334,6 +360,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
             // so the couch is reachable; that N approach is the FAR side in
             // 2.5D, so the walk-in passes behind the couch until it settles.
             approach: SEAT_APPROACH,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Center,
         },
         Furniture::Pantry => FurnitureDef {
             footprint: None,             // runtime-sized — see obstacle_footprint
@@ -344,6 +372,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 8_000,
             },
             approach: ApproachSides::ALL,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Center,
         },
         Furniture::PhoneBooth => FurnitureDef {
             // Ground contact = the door/base (the bottom ~3 rows); the 12px booth
@@ -358,6 +388,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 22_000,
             },
             approach: ApproachSides::ALL,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::End,
         },
         Furniture::StandingDesk => FurnitureDef {
             // Ground contact = the legs/base (bottom ~3 rows); the desktop
@@ -370,6 +402,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 22_000,
             },
             approach: ApproachSides::ALL,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::End,
         },
         Furniture::VendingMachine => FurnitureDef {
             footprint: Some(Size { w: 4, h: 6 }),
@@ -380,6 +414,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 4_000,
             },
             approach: ApproachSides::ALL,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Center,
         },
         Furniture::Printer => FurnitureDef {
             footprint: Some(Size { w: 5, h: 4 }),
@@ -390,6 +426,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 4_000,
             },
             approach: ApproachSides::ALL,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Center,
         },
         Furniture::MeetingSofa => FurnitureDef {
             footprint: None,
@@ -400,6 +438,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 20_000,
             },
             approach: SEAT_APPROACH,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Center,
         },
         Furniture::MeetingStand => FurnitureDef {
             footprint: None,
@@ -410,6 +450,8 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 20_000,
             },
             approach: SEAT_APPROACH,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Center,
         },
         // Plants: all share the tight PLANT_FOOTPRINT ground (leaves overhang,
         // invariant #6) but each has a distinct sprite height.
@@ -464,8 +506,9 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
         // below the window band into the room). It needs a ground footprint or
         // a walker clips through its base. The shelves above overhang that base
         // (invariant #6), so the mask south-anchors the shallow 3px base strip
-        // to the sprite bottom (`stamp_south_strip`, the wall-decor loop) — the
-        // upper shelves sit in the already-blocked window band.
+        // to the sprite bottom (`ground_y: End` via `stamp_ground`, the
+        // wall-decor loop) — the upper shelves sit in the already-blocked
+        // window band.
         Furniture::Bookshelf => FurnitureDef {
             footprint: Some(Size { w: 8, h: 3 }),
             visual: Size { w: 8, h: 12 },
@@ -503,6 +546,9 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
         Furniture::MeetingSofaBody => FurnitureDef {
             footprint: Some(Size { w: 16, h: 3 }),
             visual: Size { w: 20, h: 7 }, // == the real meeting_sofa.sprite (20w × 7 data rows)
+            // CENTERED (not south): the 16×3 strip sits on the sofa pos — seat
+            // settle clearance + narrowest-room connectivity are tuned to it.
+            ground_y: GroundAlign::Center,
             ..DECOR
         },
         // 11×5 = the real meeting-table sprite (paint_meeting_table). footprint ==
@@ -534,6 +580,9 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
         Furniture::FloorLamp => FurnitureDef {
             footprint: Some(Size { w: 2, h: 7 }),
             visual: Size { w: 4, h: 10 },
+            // CENTERED (not south): the tall 2×7 footprint reaches the disc at
+            // the sprite south from a centered stamp; End would lift it off.
+            ground_y: GroundAlign::Center,
             ..DECOR
         },
         Furniture::LoungeSideTable => FurnitureDef {
@@ -566,9 +615,73 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
                 range_ms: 15_000,
             },
             approach: DESK_APPROACH,
+            ground_x: GroundAlign::Center,
+            ground_y: GroundAlign::Start,
         },
     }
 }
+
+/// Where a footprint sits inside its VISUAL box on ONE axis — the general
+/// top-down collision-box model (a rect declared relative to the sprite, the
+/// standard shape in tile-world engines). Each variant declares INTENT and
+/// resolves its pixel offset from `visual − footprint` at stamp time, so it
+/// can NEVER drift when a sprite is resized (a raw stored offset would —
+/// that is the whole point of this type over a `dx: u16` field). Three
+/// variants cover every furniture row today; add an `Inset(u16)` escape
+/// hatch here IF a piece ever needs a footprint pinned to an interior band
+/// (none does — walk-behind is just `End`, the overhang shape).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroundAlign {
+    /// Flush to the box's LOW edge — North (y) / West (x): offset 0.
+    Start,
+    /// Centered ON the sprite center (== the placement `pos` for a Center
+    /// anchor): offset `visual/2 − footprint/2`. This is `floor(v/2) −
+    /// floor(f/2)`, NOT `floor((v−f)/2)` — the two differ by 1px when the
+    /// visual and footprint heights have opposite parity (the floor lamp:
+    /// visual 10, footprint 7), and the legacy `stamp_anchored` centered the
+    /// footprint on `pos` (the former). Getting this wrong lifts the lamp's
+    /// block off its disc by 1px — caught by the walkable golden.
+    Center,
+    /// Flush to the box's HIGH edge — South (y) / East (x): offset
+    /// `visual − footprint`. The canopy/panel/column shape (invariant #6):
+    /// a walker parks deep behind the overhang and the sprite's own y-sort
+    /// occludes them. This IS the walk-behind shape every overhang piece
+    /// (and, if ever wanted, the desk) uses — no special case needed.
+    End,
+}
+
+impl GroundAlign {
+    /// The pixel offset from the visual box's low edge for a `footprint`-long
+    /// span inside a `visual`-long box. `saturating_sub` keeps a (malformed)
+    /// footprint-larger-than-visual row at offset 0 rather than wrapping.
+    pub(crate) const fn offset(self, visual: u16, footprint: u16) -> u16 {
+        match self {
+            GroundAlign::Start => 0,
+            // center-on-pos, NOT center-in-box: see the `Center` doc.
+            GroundAlign::Center => (visual / 2).saturating_sub(footprint / 2),
+            GroundAlign::End => visual.saturating_sub(footprint),
+        }
+    }
+}
+
+/// Static footprints of the pantry bistro pair, lifted to consts so the
+/// placement clamp in `compute.rs` derives its cluster half-extent from the
+/// ONE table instead of a hand-folded copy (whose comment had already rotted
+/// against the row). Both rows are static `Some`; the `None` arm is a
+/// compile-time impossibility, so `panic!` (const-stable) makes that a build
+/// guarantee rather than a silent `Size{0,0}` that would only SHRINK the
+/// derived half-extent — a smaller cluster doesn't overlap walls, so the
+/// clamp tests would NOT catch it.
+pub(crate) const PANTRY_TABLE_FOOTPRINT: Size =
+    match furniture_def(Furniture::PantryTable).footprint {
+        Some(s) => s,
+        None => panic!("PantryTable must carry a static footprint"),
+    };
+pub(crate) const PANTRY_CHAIR_FOOTPRINT: Size =
+    match furniture_def(Furniture::PantryChair).footprint {
+        Some(s) => s,
+        None => panic!("PantryChair must carry a static footprint"),
+    };
 
 /// The **home desk** descriptor — sugar over the [`Furniture::Desk`] table row
 /// (kept because the desk is per-agent, not a `WaypointKind`, and ~10 call sites
@@ -892,6 +1005,44 @@ mod tests {
             "desk uses the editable DESK_APPROACH policy"
         );
         assert!(d.dwell.range_ms > 0, "seated dwell range must be positive");
+    }
+
+    #[test]
+    fn ground_align_stays_inside_the_visual_and_follows_the_declared_intent() {
+        // Every row's resolved footprint offset must keep the blocked rect
+        // INSIDE its visual box (a rect poking past the sprite would block
+        // ground the renderer never draws — invisible walls), and the
+        // declared `ground_y` must match the intent class: End (south strip)
+        // for the overhang rows, Center for MeetingSofaBody/FloorLamp, Start
+        // for the desk. A new overhanging kind that forgets to classify
+        // itself (leaving DECOR's End default is correct for overhang; a
+        // wrong Center/Start on an overhang row) is caught HERE, not as a
+        // silent wrong-mask at runtime. Flat boxes (footprint == visual) only
+        // get the in-box check.
+        for &kind in Furniture::ALL {
+            let def = furniture_def(kind);
+            let Some(fp) = def.footprint else {
+                continue; // no static ground — ground_x/y unused
+            };
+            let dx = def.ground_x.offset(def.visual.w, fp.w);
+            let dy = def.ground_y.offset(def.visual.h, fp.h);
+            assert!(
+                dx + fp.w <= def.visual.w.max(fp.w) && dy + fp.h <= def.visual.h.max(fp.h),
+                "{kind:?}: blocked rect must not poke past the visual box"
+            );
+            // Vertical intent guard for the overhang rows (visual taller than
+            // footprint). The two documented Center exceptions are exempt;
+            // flat boxes aren't overhang so they're skipped.
+            let center_exception =
+                matches!(kind, Furniture::MeetingSofaBody | Furniture::FloorLamp);
+            if def.visual.h > fp.h && !center_exception && kind != Furniture::Desk {
+                assert_eq!(
+                    def.ground_y,
+                    GroundAlign::End,
+                    "{kind:?}: an overhang row must south-anchor (End) unless documented"
+                );
+            }
+        }
     }
 
     #[test]
