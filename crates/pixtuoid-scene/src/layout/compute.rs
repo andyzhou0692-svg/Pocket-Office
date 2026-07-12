@@ -717,7 +717,14 @@ pub(super) fn compute_pod_desks(
     // extend past cubicle_band into the cubicle_aisle (the pod_rows
     // formula counts strides between origins but not the final
     // pod's tail height).
-    let desk_y_max = cubicle_band.y + cubicle_band.height - DESK_H;
+    // Honest GROUND clamp on Y (the twin of desk_x_max below): the desk is
+    // walk-behind (ground_y: End), so its shallow footprint is anchored to the
+    // sprite BASE — the blocked ground reaches DESK_GROUND_H (the full visual
+    // height) below the desk Point, NOT DESK_H (the slot). Clamping on DESK_H
+    // let a bottom-row desk's ground spill up to 2 px south into cubicle_aisle
+    // (the walk-behind Start→End move staled the old clamp). Slot-vs-ground on Y.
+    let desk_y_max =
+        (cubicle_band.y + cubicle_band.height).saturating_sub(super::decor::DESK_GROUND_H);
     // Mirror clamp for x: `pod_cols` floors at 1, so on a 34-66px band the
     // forced pod's 2nd desk column lands past the band's right edge (even
     // entirely off-buffer) — an invisible desk whose walk anchor sits outside
@@ -725,7 +732,12 @@ pub(super) fn compute_pod_desks(
     // graceful degradation as the y clamp and the meeting room's
     // MEETING_FURNITURE_MIN_W gate (capacity auto-computes from
     // `home_desks.len()`, so the smaller count IS the floor's real capacity).
-    let desk_x_max = (cubicle_band.x + cubicle_band.width).saturating_sub(DESK_W);
+    // Honest GROUND clamp: a desk's blocked ground is DESK_GROUND_W wide (the
+    // side cabinets, not the DESK_W slot), so the last column must leave room
+    // for the full 14-px sprite — DESK_W here let it poke 4 px past the buffer
+    // edge (#549 drift). Slot-vs-ground on the X axis.
+    let desk_x_max =
+        (cubicle_band.x + cubicle_band.width).saturating_sub(super::decor::DESK_GROUND_W);
     let push_desk = |desks: &mut Vec<Point>, x: u16, y: u16| -> bool {
         if desks.len() >= n || y > desk_y_max || x > desk_x_max {
             return desks.len() >= n;

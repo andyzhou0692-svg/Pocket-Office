@@ -1,18 +1,28 @@
-# 16x9 top-down desk — the monitor's top bezel RISES 1px above the desk back so
-# the screen reads as a standing display, not flush with the desktop. Row 0 is
-# the raised bezel (sides transparent so only the monitor pokes up); the desk is
-# blitted at desk.y-1 (see DeskCubicle in drawable.rs) so this row sits ABOVE the
-# desk while the frame/screen/surface/keyboard keep their original desk.y-relative
-# rows — which is why paint_screen_glow (anchored at desk.y) still lines up.
-# Screen uses `j` (dark) so the bright lime screen-glow overlay reads as
-# "monitor lit up — workstation is active" by contrast.
+# 14x8 top-down desk (slimmed 16x9 -> 14x8 for laptop density; front
+# redesigned 2026-07-11, user-pick "Apple style": side LEGS + open gap
+# instead of the old keyboard slab -- the two front-lip rows are legs at
+# both edges with transparent middle, so the carpet (and anyone walking
+# behind the desk front) shows through; no cup, no visible divider --
+# the last column is plain desk surface, kept so the 8-px monitor centers
+# on an even 14-px top).
+# Row 0 is the raised monitor bezel that RISES 1px above the desk back
+# (blitted at desk.y-1, see DeskCubicle in drawable.rs) so the screen reads
+# as a standing display. Screen uses `j` (dark) so the lime screen-glow
+# overlay reads as "workstation active" by contrast. The sprite is
+# DESK_W + 4 = 14 px wide == the FurnitureDef visual.w AND the blocked-ground
+# width (footprint is (DESK_W+4) x DESK_FOOT_H, a shallow south strip,
+# ground_y: End -- the monitor + surface overhang NORTH = walk-behind,
+# invariant #6 -- stamped TopLeft in mask.rs). Sprite-width-vs-visual.w is
+# pinned by `desk_sprite_width_tracks_the_footprint_overhang` so a DESK_W edit
+# that moves visual.w but not these rows can't silently desync render vs
+# mask/occlusion/z-sort. The overhang is VERTICAL only: the bezel row above
+# (desk.y-1) + the 2-row front lip.
 @frame 0
-. . . M M M M M M M M . . . . .
-D D D M M M M M M M M D D D D D
-D D D M j j j j j j M D D D D D
-D D D M j j j j j j M D D D D D
-D D D D n n n n n n D D D D D D
-d d d d d d d d d d d d d d d d
-D k k k k k k k k k D D D K D D
-D k k k k k k k k k D D D D D D
-d d d d d d d d d d d d d d d d
+. . . M M M M M M M M . . .
+D D D M M M M M M M M D D D
+D D D M j j j j j j M D D D
+D D D M j j j j j j M D D D
+D D D D n n n n n n D D D D
+d d d d d d d d d d d d d d
+d d . . . . . . . . . . d d
+d d . . . . . . . . . . d d
