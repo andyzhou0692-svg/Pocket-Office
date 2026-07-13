@@ -8,13 +8,13 @@ pub(crate) mod driver;
 
 pub use driver::run;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use pixtuoid_core::source::manager::SourceDeath;
 use pixtuoid_core::state::{ActivityState, DaemonState, MAX_FLOORS};
-use pixtuoid_core::SceneState;
+use pixtuoid_core::{AgentId, SceneState};
 use tokio::sync::watch;
 
 /// The reducer publishes a fresh `Arc<SceneState>` on every mutation through
@@ -74,10 +74,93 @@ pub struct RunConfig {
 #[derive(Clone, Default)]
 pub struct ConnectedSources(Arc<Mutex<HashSet<String>>>);
 
-fn apply_agent_names(scene: &mut SceneState, names: &BTreeMap<String, String>) {
-    for slot in scene.agents.values_mut() {
-        if let Some(display_name) = names.get(slot.label.as_ref()).cloned() {
-            slot.label = display_name.into();
+struct VisualNameResolver {
+    configured: BTreeMap<String, String>,
+    raw_labels: HashMap<AgentId, String>,
+    analyst_numbers: HashMap<AgentId, usize>,
+    next_analyst: usize,
+}
+
+impl VisualNameResolver {
+    fn new(configured: BTreeMap<String, String>) -> Self {
+        Self {
+            configured,
+            raw_labels: HashMap::new(),
+            analyst_numbers: HashMap::new(),
+            next_analyst: 1,
+        }
+    }
+
+    fn apply(&mut self, scene: &mut SceneState) {
+        self.raw_labels
+            .retain(|id, _| scene.agents.contains_key(id));
+        self.analyst_numbers
+            .retain(|id, _| scene.agents.contains_key(id));
+
+        for (id, slot) in &scene.agents {
+            self.raw_labels
+                .entry(*id)
+                .or_insert_with(|| slot.label.to_string());
+        }
+
+        let mut configured_ids = HashSet::new();
+        for (raw_label, display_name) in &self.configured {
+            let existing = scene
+                .agents
+                .iter()
+                .find(|(_, slot)| slot.label.as_ref() == display_name)
+                .map(|(id, _)| *id);
+            let target = existing.or_else(|| {
+                scene
+                    .agents
+                    .iter()
+                    .filter(|(id, _)| {
+                        self.raw_labels.get(id).map(String::as_str) == Some(raw_label.as_str())
+                            && !configured_ids.contains(*id)
+                    })
+                    .max_by_key(|(id, slot)| (slot.parent_id.is_none(), slot.last_event_at, **id))
+                    .map(|(id, _)| *id)
+            });
+
+            if let Some(id) = target {
+                configured_ids.insert(id);
+                self.analyst_numbers.remove(&id);
+                scene
+                    .agents
+                    .get_mut(&id)
+                    .expect("selected agent exists")
+                    .label = display_name.clone().into();
+            }
+        }
+
+        for (id, number) in &self.analyst_numbers {
+            if configured_ids.contains(id) {
+                continue;
+            }
+            if let Some(slot) = scene.agents.get_mut(id) {
+                slot.label = format!("Analyst {number:02}").into();
+            }
+        }
+
+        let mut unnamed: Vec<_> = scene
+            .agents
+            .iter()
+            .filter(|(id, _)| {
+                !configured_ids.contains(id) && !self.analyst_numbers.contains_key(id)
+            })
+            .map(|(id, slot)| (*id, slot.desk_index))
+            .collect();
+        unnamed.sort_by_key(|(id, desk)| (*desk, *id));
+
+        for (id, _) in unnamed {
+            let number = self.next_analyst;
+            self.next_analyst += 1;
+            self.analyst_numbers.insert(id, number);
+            scene
+                .agents
+                .get_mut(&id)
+                .expect("selected agent exists")
+                .label = format!("Analyst {number:02}").into();
         }
     }
 }
@@ -224,7 +307,7 @@ mod tests {
     }
 
     #[test]
-    fn apply_agent_names_replaces_known_labels_and_keeps_unknown_labels() {
+    fn visual_names_replace_known_labels_and_hide_unknown_labels() {
         let now = SystemTime::now();
         let mut scene = SceneState::uniform(8);
         let mut reducer = Reducer::new();
@@ -257,13 +340,84 @@ mod tests {
             "cx·secondbrain-os".to_string(),
             "Vivian".to_string(),
         )]);
-        apply_agent_names(&mut scene, &names);
+        let mut resolver = VisualNameResolver::new(names);
+        resolver.apply(&mut scene);
 
         let labels: Vec<String> = scene.agents.values().map(|a| a.label.to_string()).collect();
         assert!(labels.iter().any(|label| label == "Vivian"), "{labels:?}");
         assert!(
-            labels.iter().any(|label| label == "cx·other-project"),
+            labels.iter().any(|label| label == "Analyst 01"),
             "{labels:?}"
+        );
+    }
+
+    #[test]
+    fn visual_names_assign_one_persistent_name_and_number_the_rest() {
+        let now = SystemTime::now();
+        let mut scene = SceneState::uniform(8);
+        let mut reducer = Reducer::new();
+        let root = pixtuoid_core::AgentId::from_parts("codex", "root-session");
+        let child = pixtuoid_core::AgentId::from_parts("codex", "child-session");
+        let sibling = pixtuoid_core::AgentId::from_parts("codex", "sibling-session");
+
+        for (agent_id, session_id, parent_id) in [
+            (root, "root-session", None),
+            (child, "child-session", Some(root)),
+            (sibling, "sibling-session", Some(root)),
+        ] {
+            reducer.apply(
+                &mut scene,
+                pixtuoid_core::AgentEvent::SessionStart {
+                    agent_id,
+                    source: "codex".into(),
+                    session_id: session_id.into(),
+                    cwd: PathBuf::from("/tmp/secondbrain-os"),
+                    parent_id,
+                },
+                now,
+                Transport::Jsonl,
+            );
+        }
+
+        let names = std::collections::BTreeMap::from([(
+            "cx·secondbrain-os".to_string(),
+            "Vivian".to_string(),
+        )]);
+
+        let mut resolver = VisualNameResolver::new(names);
+        resolver.apply(&mut scene);
+
+        let first_labels: std::collections::BTreeMap<_, _> = scene
+            .agents
+            .iter()
+            .map(|(id, slot)| (*id, slot.label.to_string()))
+            .collect();
+        resolver.apply(&mut scene);
+
+        let vivians = scene
+            .agents
+            .values()
+            .filter(|slot| slot.label.as_ref() == "Vivian")
+            .count();
+        assert_eq!(vivians, 1, "only the primary agent may be Vivian");
+        assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
+        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
+        assert_eq!(scene.agents[&sibling].label.as_ref(), "Analyst 02");
+        assert_eq!(
+            first_labels,
+            scene
+                .agents
+                .iter()
+                .map(|(id, slot)| (*id, slot.label.to_string()))
+                .collect(),
+            "temporary names must stay stable across scene updates"
+        );
+        assert!(
+            scene
+                .agents
+                .values()
+                .all(|slot| !slot.label.contains("cx·")),
+            "raw Codex labels must never reach the office"
         );
     }
 

@@ -5,12 +5,13 @@
 //! gate and is re-exported there, so public paths don't move.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::Result;
 
 use super::{codex_home, codex_id_from_path, decode_codex_line, derive_codex_label, SOURCE_NAME};
 use crate::source::fd_probe;
-use crate::source::jsonl::{ChildEndUnclaims, JsonlWatcher, ProbeSnapshot};
+use crate::source::jsonl::{ChildEndUnclaims, JsonlWatcher, ProbeSnapshot, DEFAULT_INITIAL_WINDOW};
 use crate::source::{Source, TaggedSender};
 
 /// Codex writes no session-end marker; the reducer's stale-sweep reaps dead
@@ -126,6 +127,20 @@ fn codex_probe_root_resolved(sessions_root: &Path, home: &Path) -> Option<PathBu
     Some(sessions_root.to_path_buf())
 }
 
+const FIRST_PARTY_INITIAL_WINDOW: Duration = Duration::from_secs(30);
+
+fn codex_startup_window(sessions_root: &Path) -> Duration {
+    codex_startup_window_resolved(sessions_root, &codex_home())
+}
+
+fn codex_startup_window_resolved(sessions_root: &Path, home: &Path) -> Duration {
+    if codex_probe_root_resolved(sessions_root, home).is_some() {
+        FIRST_PARTY_INITIAL_WINDOW
+    } else {
+        DEFAULT_INITIAL_WINDOW
+    }
+}
+
 /// Source that watches the Codex session transcript directory.
 pub struct CodexSource {
     pub sessions_root: PathBuf,
@@ -161,7 +176,8 @@ impl Source for CodexSource {
             derive_codex_label,
             codex_session_ended,
         )
-        .with_id_deriver(codex_id_from_path);
+        .with_id_deriver(codex_id_from_path)
+        .with_initial_window(codex_startup_window(&self.sessions_root));
         if let Some(root) = codex_probe_root(&self.sessions_root) {
             watcher = watcher
                 .with_liveness_probe(std::sync::Arc::new(move || live_codex_rollout_ids(&root)));
@@ -290,6 +306,21 @@ mod tests {
         assert_eq!(
             codex_probe_root_resolved(Path::new("/srv/other/sessions"), home.path()),
             None
+        );
+    }
+
+    #[test]
+    fn first_party_startup_window_excludes_old_finished_sessions() {
+        let home = tempfile::tempdir().unwrap();
+        let sessions = home.path().join("sessions");
+        assert_eq!(
+            codex_startup_window_resolved(&sessions, home.path()),
+            std::time::Duration::from_secs(30)
+        );
+        assert_eq!(
+            codex_startup_window_resolved(Path::new("/tmp/fixture"), home.path()),
+            std::time::Duration::from_secs(3600),
+            "custom replay roots keep the upstream history window"
         );
     }
 

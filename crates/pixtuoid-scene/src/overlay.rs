@@ -70,20 +70,21 @@ pub fn build_overlay(
     let agents: Vec<_> = scene.agents.values().cloned().collect();
     let mut label_counts: HashMap<&str, usize> = HashMap::new();
     for agent in &agents {
-        *label_counts.entry(&*agent.label).or_insert(0) += 1;
+        *label_counts.entry(badge_label(&agent.label)).or_insert(0) += 1;
     }
     let mut out = Vec::new();
     for agent in &agents {
         let Some(anchor) = character_anchor(agent, layout, now, rctx) else {
             continue;
         };
-        let needs_disambig = label_counts.get(&*agent.label).copied().unwrap_or(0) > 1
+        let badge = badge_label(&agent.label);
+        let needs_disambig = label_counts.get(badge).copied().unwrap_or(0) > 1
             && agent.session_id.chars().count() >= 4;
         let raw: std::borrow::Cow<'_, str> = if needs_disambig {
             let id4 = disambig_suffix(&agent.session_id);
-            std::borrow::Cow::Owned(format!("{}·{id4}", agent.label))
+            std::borrow::Cow::Owned(format!("{badge}·{id4}"))
         } else {
-            std::borrow::Cow::Borrowed(&*agent.label)
+            std::borrow::Cow::Borrowed(badge)
         };
         // Label width budget: the desk width plus this much slack before truncation.
         const LABEL_BUDGET_PAD: u16 = 4;
@@ -105,6 +106,14 @@ pub fn build_overlay(
         });
     }
     out
+}
+
+fn badge_label(label: &str) -> &str {
+    label
+        .strip_suffix(')')
+        .and_then(|without_close| without_close.split_once(" ("))
+        .filter(|(name, title)| !name.is_empty() && !title.is_empty())
+        .map_or(label, |(name, _)| name)
 }
 
 /// Fit a label into `budget` chars without losing the `·xxxx` session-id
@@ -235,6 +244,14 @@ mod tests {
         assert_eq!(els[0].text, "cc");
         assert_eq!(els[0].tone, LabelTone::Active);
         assert!(!els[0].hovered);
+    }
+
+    #[test]
+    fn titled_agent_uses_only_its_name_on_the_floor() {
+        let s = scene_of(vec![slot("Tom (Head of IBD)", "sess-tom", 0, active())]);
+        let els = overlay_of(&s, None);
+        assert_eq!(els.len(), 1);
+        assert_eq!(els[0].text, "Tom");
     }
 
     #[test]

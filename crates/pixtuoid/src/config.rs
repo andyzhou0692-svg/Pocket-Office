@@ -51,7 +51,7 @@ pub struct AppConfig {
     )]
     pub sources: BTreeMap<String, bool>,
     /// Optional visual aliases from Pixtuoid's raw agent label to the name
-    /// shown in the office. Unknown labels remain unchanged.
+    /// shown in the office. Remaining agents receive numbered Analyst labels.
     #[serde(
         rename = "agent-names",
         default,
@@ -1260,14 +1260,18 @@ mod tests {
 
     #[test]
     fn agent_names_table_parses_visual_aliases() {
-        let cfg: AppConfig =
-            toml::from_str("[agent-names]\n\"cx·secondbrain-os\" = \"Vivian\"\ntom = \"Tom\"\n")
-                .unwrap();
+        let cfg: AppConfig = toml::from_str(
+            "[agent-names]\n\"cx·secondbrain-os\" = \"Vivian\"\ntom = \"Tom (Head of IBD)\"\n",
+        )
+        .unwrap();
         assert_eq!(
             cfg.agent_names.get("cx·secondbrain-os").map(String::as_str),
             Some("Vivian")
         );
-        assert_eq!(cfg.agent_names.get("tom").map(String::as_str), Some("Tom"));
+        assert_eq!(
+            cfg.agent_names.get("tom").map(String::as_str),
+            Some("Tom (Head of IBD)")
+        );
     }
 
     #[test]

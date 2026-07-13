@@ -126,7 +126,7 @@ pub struct JsonlWatcher {
     child_end_unclaims: Option<ChildEndUnclaims>,
 }
 
-const DEFAULT_INITIAL_WINDOW: Duration = Duration::from_secs(3600);
+pub(crate) const DEFAULT_INITIAL_WINDOW: Duration = Duration::from_secs(3600);
 const DEFAULT_POLL_INTERVAL: Duration = Duration::from_secs(60);
 
 /// Test-only seam: forces every `JsonlWatcher` in this process onto a polling

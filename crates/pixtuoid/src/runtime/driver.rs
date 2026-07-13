@@ -33,8 +33,8 @@ use pixtuoid_core::{AgentEvent, Reducer, SceneState, TaggedReceiver, Transport};
 use tokio::sync::{mpsc, watch};
 
 use super::{
-    apply_agent_names, boot_capacities_for, cap_boot_capacities, summarize, ConnectedSources,
-    RunConfig, SceneRx, FALLBACK_DESKS,
+    boot_capacities_for, cap_boot_capacities, summarize, ConnectedSources, RunConfig, SceneRx,
+    VisualNameResolver, FALLBACK_DESKS,
 };
 
 pub fn run(cfg: RunConfig) -> Result<()> {
@@ -233,6 +233,7 @@ pub(crate) async fn reducer_task(
     presence_exit_watch: Option<daemon::PresenceExitWatch>,
 ) {
     let mut reducer = Reducer::new();
+    let mut visual_names = VisualNameResolver::new(agent_names);
     // Disabled once the presence channel closes (all senders dropped) so its
     // `recv() -> None` branch can't busy-loop the select.
     let mut presence_open = true;
@@ -260,7 +261,7 @@ pub(crate) async fn reducer_task(
                 }
                 tracing::debug!(?transport, ?ev, "event");
                 reducer.apply(&mut scene, ev, now, transport);
-                apply_agent_names(&mut scene, &agent_names);
+                visual_names.apply(&mut scene);
                 if scene_tx.send(Arc::new(scene.clone())).is_err() {
                     tracing::warn!("scene channel closed — renderer dropped");
                     break;
