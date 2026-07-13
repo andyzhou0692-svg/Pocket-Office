@@ -30,11 +30,10 @@ use crate::runtime::SceneRx;
 use pixtuoid_scene::{embedded_pack, floor, pet, theme};
 
 const FRAME_TICK_MS: u64 = 33;
-const VISUAL_COWORKER_FRAME_TICK_MS: u64 = 66;
 
-fn frame_tick(has_render_only_agents: bool) -> Duration {
+fn frame_tick(has_render_only_agents: bool, visual_coworker_fps: u64) -> Duration {
     let tick_ms = if has_render_only_agents {
-        VISUAL_COWORKER_FRAME_TICK_MS
+        (1000 / visual_coworker_fps.max(1)).max(1)
     } else {
         FRAME_TICK_MS
     };
@@ -548,6 +547,10 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
         focus_roots,
         first_run,
     } = session;
+    let visual_coworker_fps = crate::config::resolve_visual_coworker_fps(&crate::config::load(
+        &config_path,
+        &mut Vec::new(),
+    ));
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
     let visual_coworkers = crate::runtime::VisualCoworkers::new(visual_coworker_names);
     let term = setup_terminal()?;
@@ -626,9 +629,12 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
             let snapshot = scene_rx.borrow_and_update().clone();
             let render_scene = visual_coworkers.render_scene(&snapshot, now);
             // Render-only coworkers multiply the number of animated terminal
-            // cells. Lower only this richer scene to ~15fps so the terminal
-            // can keep up; Vivian alone retains the original ~30fps cadence.
-            let tick = frame_tick(render_scene.agents.len() > snapshot.agents.len());
+            // cells. Use their configured cadence while Vivian alone retains
+            // the original ~30fps cadence.
+            let tick = frame_tick(
+                render_scene.agents.len() > snapshot.agents.len(),
+                visual_coworker_fps,
+            );
             renderer.evict_missing(&render_scene);
             let sig = (renderer.buf().width(), renderer.buf().height());
             if last_layout_sig != Some(sig) {
@@ -1109,8 +1115,8 @@ mod dispatch_tests {
 
     #[test]
     fn visual_coworkers_use_lower_terminal_frame_rate() {
-        assert_eq!(frame_tick(false), Duration::from_millis(33));
-        assert_eq!(frame_tick(true), Duration::from_millis(66));
+        assert_eq!(frame_tick(false, 20), Duration::from_millis(33));
+        assert_eq!(frame_tick(true, 20), Duration::from_millis(50));
     }
 
     #[test]

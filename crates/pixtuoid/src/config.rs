@@ -22,6 +22,10 @@ pub struct PetEntry {
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppConfig {
     pub theme: Option<String>,
+    /// Terminal animation rate while display-only coworkers are visible.
+    /// Absent or zero falls back to the low-load default.
+    #[serde(rename = "visual-coworker-fps")]
+    pub visual_coworker_fps: Option<u64>,
     /// Optional per-floor desk cap. When set, each floor holds at most
     /// this many desks — excess agents overflow to additional floors.
     /// When absent, capacity is fully auto-computed from terminal size.
@@ -86,6 +90,14 @@ pub const FLOATING_MIN_H: u32 = 160;
 /// Floor the parsed floating-window opacity is clamped up to — below this the
 /// window is too transparent to read.
 pub const FLOATING_MIN_OPACITY: f32 = 0.2;
+pub const VISUAL_COWORKER_FPS_DEFAULT: u64 = 15;
+
+pub fn resolve_visual_coworker_fps(config: &AppConfig) -> u64 {
+    config
+        .visual_coworker_fps
+        .filter(|fps| *fps > 0)
+        .unwrap_or(VISUAL_COWORKER_FPS_DEFAULT)
+}
 
 /// Raw `[floating]` table as parsed — every field optional so a partial table (or an
 /// absent one) is valid; [`resolve_floating`] fills defaults + clamps.
@@ -449,6 +461,21 @@ pub fn resolve_pets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn visual_coworker_fps_roundtrips_as_a_config_setting() {
+        let cfg: AppConfig = toml::from_str("visual-coworker-fps = 20").unwrap();
+        assert_eq!(resolve_visual_coworker_fps(&cfg), 20);
+        let serialized = toml::to_string(&cfg).unwrap();
+        assert!(
+            serialized.contains("visual-coworker-fps = 20"),
+            "configured movement speed must survive config parsing: {serialized:?}"
+        );
+        assert_eq!(
+            resolve_visual_coworker_fps(&AppConfig::default()),
+            VISUAL_COWORKER_FPS_DEFAULT
+        );
+    }
 
     #[test]
     fn load_missing_returns_defaults() {
