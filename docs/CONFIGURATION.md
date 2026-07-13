@@ -19,6 +19,10 @@ tom = "Tom (Head of IBD)"
 amy = "Amy (Head of IR)"
 jess = "Jess (Head of Strategy)"
 
+# Codex subagents use their dispatch task_name as the raw alias key. For
+# example, task_name = "tom" resolves through the table above. Unmapped
+# task names remain numbered Analysts.
+
 # One stanza per pet. Omit the whole section to show all pets with default
 # names; use `pets = []` to disable all pets. `name` is optional (shown in
 # the pet's hover tooltip). Keep [[pets]] last — it's a table section.

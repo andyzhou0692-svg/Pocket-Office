@@ -77,6 +77,7 @@ pub struct ConnectedSources(Arc<Mutex<HashSet<String>>>);
 struct VisualNameResolver {
     configured: BTreeMap<String, String>,
     raw_labels: HashMap<AgentId, String>,
+    rendered_labels: HashMap<AgentId, String>,
     analyst_numbers: HashMap<AgentId, usize>,
     next_analyst: usize,
 }
@@ -86,6 +87,7 @@ impl VisualNameResolver {
         Self {
             configured,
             raw_labels: HashMap::new(),
+            rendered_labels: HashMap::new(),
             analyst_numbers: HashMap::new(),
             next_analyst: 1,
         }
@@ -94,13 +96,17 @@ impl VisualNameResolver {
     fn apply(&mut self, scene: &mut SceneState) {
         self.raw_labels
             .retain(|id, _| scene.agents.contains_key(id));
+        self.rendered_labels
+            .retain(|id, _| scene.agents.contains_key(id));
         self.analyst_numbers
             .retain(|id, _| scene.agents.contains_key(id));
 
         for (id, slot) in &scene.agents {
-            self.raw_labels
-                .entry(*id)
-                .or_insert_with(|| slot.label.to_string());
+            let was_rendered_by_us =
+                self.rendered_labels.get(id).map(String::as_str) == Some(slot.label.as_ref());
+            if !was_rendered_by_us {
+                self.raw_labels.insert(*id, slot.label.to_string());
+            }
         }
 
         let mut configured_ids = HashSet::new();
@@ -125,6 +131,7 @@ impl VisualNameResolver {
             if let Some(id) = target {
                 configured_ids.insert(id);
                 self.analyst_numbers.remove(&id);
+                self.rendered_labels.insert(id, display_name.clone());
                 scene
                     .agents
                     .get_mut(&id)
@@ -138,7 +145,9 @@ impl VisualNameResolver {
                 continue;
             }
             if let Some(slot) = scene.agents.get_mut(id) {
-                slot.label = format!("Analyst {number:02}").into();
+                let label = format!("Analyst {number:02}");
+                self.rendered_labels.insert(*id, label.clone());
+                slot.label = label.into();
             }
         }
 
@@ -156,11 +165,13 @@ impl VisualNameResolver {
             let number = self.next_analyst;
             self.next_analyst += 1;
             self.analyst_numbers.insert(id, number);
+            let label = format!("Analyst {number:02}");
+            self.rendered_labels.insert(id, label.clone());
             scene
                 .agents
                 .get_mut(&id)
                 .expect("selected agent exists")
-                .label = format!("Analyst {number:02}").into();
+                .label = label.into();
         }
     }
 }
@@ -419,6 +430,55 @@ mod tests {
                 .all(|slot| !slot.label.contains("cx·")),
             "raw Codex labels must never reach the office"
         );
+    }
+
+    #[test]
+    fn visual_names_promote_a_numbered_worker_after_a_dispatch_tag_arrives() {
+        let now = SystemTime::now();
+        let mut scene = SceneState::uniform(8);
+        let mut reducer = Reducer::new();
+        let root = pixtuoid_core::AgentId::from_parts("codex", "root-session");
+        let child = pixtuoid_core::AgentId::from_parts("codex", "child-session");
+
+        for (agent_id, session_id, parent_id) in [
+            (root, "root-session", None),
+            (child, "child-session", Some(root)),
+        ] {
+            reducer.apply(
+                &mut scene,
+                pixtuoid_core::AgentEvent::SessionStart {
+                    agent_id,
+                    source: "codex".into(),
+                    session_id: session_id.into(),
+                    cwd: PathBuf::from("/tmp/secondbrain-os"),
+                    parent_id,
+                },
+                now,
+                Transport::Jsonl,
+            );
+        }
+
+        let names = std::collections::BTreeMap::from([
+            ("cx·secondbrain-os".to_string(), "Vivian".to_string()),
+            ("tom".to_string(), "Tom (Head of IBD)".to_string()),
+        ]);
+        let mut resolver = VisualNameResolver::new(names);
+        resolver.apply(&mut scene);
+        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
+
+        reducer.apply(
+            &mut scene,
+            pixtuoid_core::AgentEvent::Rename {
+                agent_id: child,
+                label: "tom".to_string(),
+            },
+            now,
+            Transport::Jsonl,
+        );
+        resolver.apply(&mut scene);
+
+        assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
+        assert_eq!(scene.agents[&child].label.as_ref(), "Tom (Head of IBD)");
     }
 
     #[test]

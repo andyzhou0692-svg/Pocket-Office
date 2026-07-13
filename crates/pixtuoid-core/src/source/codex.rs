@@ -153,6 +153,22 @@ pub fn decode_codex_line(transcript_path: &str, source: &str, v: Value) -> Resul
     };
 
     let out = match (outer, inner) {
+        ("session_meta", _) => payload
+            .and_then(|p| p.get("source"))
+            .and_then(Value::as_object)
+            .and_then(|source| source.get("subagent"))
+            .and_then(Value::as_object)
+            .and_then(|subagent| subagent.get("other"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| {
+                vec![AgentEvent::Rename {
+                    agent_id,
+                    label: ellipsize(name, MAX_DECODED_FIELD_CHARS),
+                }]
+            })
+            .unwrap_or_default(),
         // `task_started`/`task_complete` are what codex serializes TODAY; the v2
         // `turn_started`/`turn_complete` are upstream's OWN serde aliases
         // (`#[serde(rename="task_started", alias="turn_started")]` in codex-rs
@@ -489,6 +505,23 @@ mod tests {
     fn session_meta_and_unknown_emit_nothing() {
         assert!(ev(json!({"type":"session_meta","payload":{"id":"u","cwd":"/r"}})).is_empty());
         assert!(ev(json!({"type":"event_msg","payload":{"type":"token_count"}})).is_empty());
+    }
+
+    #[test]
+    fn subagent_session_meta_emits_its_visual_dispatch_name() {
+        let out = ev(json!({
+            "type": "session_meta",
+            "payload": {
+                "id": "child",
+                "cwd": "/r",
+                "source": {"subagent": {"other": "tom"}},
+                "thread_source": "subagent"
+            }
+        }));
+        assert!(
+            matches!(out.as_slice(), [AgentEvent::Rename { label, .. }] if label == "tom"),
+            "the dispatch name must reach the office as a display rename, got {out:?}"
+        );
     }
 
     #[test]
