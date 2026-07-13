@@ -6,14 +6,15 @@
 //! nearest-neighbor upscales it into the surface (CPU, `0x00RRGGBB`) so the pixel-art
 //! office stays chunky/legible instead of 1:1-tiny. Redraw is event-driven (a
 //! `FloatingEvent::SceneChanged` from the pipeline
-//! bridge) plus a ~30fps animation tick WHILE agents OR a live gateway daemon (the OpenClaw
-//! lobster mascot in `scene.daemons`) are present (motion is time-driven); with no agents and
-//! every daemon Down it drops to a slow ~1fps ambient tick (keeping the time-driven
-//! clock/weather/lightning/day-night/pet alive without the 30fps cost), never fully idle.
+//! bridge) plus a ~30fps animation tick WHILE real or render-only agents OR a live gateway
+//! daemon (the OpenClaw lobster mascot in `scene.daemons`) are present (motion is time-driven);
+//! only a zero-capacity office with no agents and every daemon Down drops to a slow ~1fps
+//! ambient tick (keeping the clock/weather/lightning/day-night/pet alive), never fully idle.
 //! Platform glue — codecov-ignored like `driver.rs`; the testable seams are
 //! `floating::offscreen` (render) and `floating::geometry` (the window/monitor rect math
 //! pulled out of here: off-screen-recovery overlap + the corner-resize hit-test).
 
+use std::collections::BTreeMap;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -53,6 +54,7 @@ pub(crate) struct FloatingApp {
     /// The configured office pets — one is selected per floor (v1 shows floor 0's).
     pets: Vec<pixtuoid_scene::pet::Pet>,
     renderer: OfficeRenderer,
+    visual_coworkers: crate::runtime::VisualCoworkers,
     scene_rx: watch::Receiver<Arc<SceneState>>,
     floor_caps: Arc<[AtomicUsize; MAX_FLOORS]>,
     /// The buffer size the capacity atomics were last synced for — capacity only changes
@@ -84,6 +86,7 @@ impl FloatingApp {
         pack: Pack,
         config_path: PathBuf,
         pets: Vec<pixtuoid_scene::pet::Pet>,
+        visual_coworker_names: BTreeMap<String, String>,
         scene_rx: watch::Receiver<Arc<SceneState>>,
         floor_caps: Arc<[AtomicUsize; MAX_FLOORS]>,
     ) -> Self {
@@ -94,6 +97,7 @@ impl FloatingApp {
             config_path,
             pets,
             renderer: OfficeRenderer::new(),
+            visual_coworkers: crate::runtime::VisualCoworkers::new(visual_coworker_names),
             scene_rx,
             floor_caps,
             last_caps_size: None,
@@ -148,14 +152,16 @@ impl FloatingApp {
         }
         // Arc clone releases the watch borrow before the (mutable) renderer borrow.
         let scene = self.scene_rx.borrow().clone();
+        let now = SystemTime::now();
+        let render_scene = self.visual_coworkers.render_scene(&scene, now);
         let floor_meta = FloorMeta::ground();
         let floor_pet =
             pixtuoid_scene::pet::select_pet_for_floor(floor_meta.floor_seed, &self.pets);
         let office = self.renderer.render(
-            &scene,
+            &render_scene,
             &self.pack,
             self.theme,
-            SystemTime::now(),
+            now,
             buf_w,
             buf_h,
             floor_meta,
@@ -194,7 +200,7 @@ impl FloatingApp {
         // Name badges + the neon wall board, drawn POST-upscale at native surface res
         // (crisp anti-aliased Monaspace Neon) using the same layout/route state the office
         // pass just used. Badges are a fixed caption height; the board scales with the panel.
-        let labels = self.renderer.labels(&scene, SystemTime::now());
+        let labels = self.renderer.labels(&render_scene, now);
         super::offscreen::paint_labels_into_surface(
             &mut sb,
             win_w,
@@ -203,7 +209,7 @@ impl FloatingApp {
             scale as i32,
             self.theme,
         );
-        let board = self.renderer.board(&scene, SystemTime::now());
+        let board = self.renderer.board(&scene, now);
         super::offscreen::paint_wall_board_into_surface(
             &mut sb,
             win_w,
@@ -368,8 +374,9 @@ impl ApplicationHandler<FloatingEvent> for FloatingApp {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        // Agents animate continuously (walk/breathe — time-driven), so tick ~30fps WHILE
-        // any agent is present. When the office is EMPTY we don't go fully idle: the
+        // Real and render-only agents animate continuously (walk/breathe — time-driven), so
+        // tick ~30fps WHILE either can be drawn. When the office is EMPTY because it has no
+        // real agents and no free desk for a visual coworker, we don't go fully idle: the
         // time-driven AMBIENT layer (clock hands, weather cycle, lightning, day/night
         // lighting, the wandering pet) still advances, so a 0fps idle would freeze it and
         // an empty-office window would look dead/broken. Drop to a slow ~1fps ambient tick
@@ -381,6 +388,7 @@ impl ApplicationHandler<FloatingEvent> for FloatingApp {
         // it stays on the ambient tick — same brief terminal transition as before this change).
         let scene = self.scene_rx.borrow();
         let office_idle = scene.agents.is_empty()
+            && scene.next_free_desk().is_none()
             && scene
                 .daemons()
                 .values()

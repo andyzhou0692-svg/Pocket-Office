@@ -154,11 +154,11 @@ fn default_pack_loads_with_required_animations() {
         assert!(pack.animation(name).is_some(), "missing animation: {name}");
     }
     let seated = pack.animation("seated").unwrap();
-    assert_eq!(seated.frames[0].width(), 8);
+    assert_eq!(seated.frames[0].width(), 12);
     assert_eq!(seated.frames[0].height(), 10);
 
     let standing = pack.animation("standing").unwrap();
-    assert_eq!(standing.frames[0].width(), 8);
+    assert_eq!(standing.frames[0].width(), 12);
     assert_eq!(standing.frames[0].height(), 12);
 
     let walking = pack.animation("walking").unwrap();

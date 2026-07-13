@@ -12,20 +12,16 @@ theme = "cyberpunk"
 max-desks = 8
 pack-dir = "~/.config/pixtuoid/packs/robot"
 
-# Display-only aliases. The key is Pixtuoid's current raw label.
+# Display-only aliases. The Codex root alias names Vivian. The reserved tom,
+# amy and jess keys name persistent render-only office residents.
 [agent-names]
 "cx·secondbrain-os" = "Vivian"
 tom = "Tom (Head of IBD)"
 amy = "Amy (Head of IR)"
 jess = "Jess (Head of Strategy)"
 
-# Codex subagents use their dispatch task_name as the raw alias key. For
-# example, task_name = "tom" resolves through the table above. Unmapped
-# task names remain numbered Analysts.
-
-# A root Codex assistant message may emit `<!-- ai-office-role: jess -->` to
-# use a configured alias for the current turn. AI Office resets the root label
-# when the turn completes. Role markers from subagents are ignored.
+# Real subagents remain stable numbered Analysts. Resident activity is a local
+# visual rotation and does not classify work or consume model tokens.
 
 # One stanza per pet. Omit the whole section to show all pets with default
 # names; use `pets = []` to disable all pets. `name` is optional (shown in
@@ -45,7 +41,7 @@ kind = "dog"        # name omitted → "Office Dog"
 | `theme` | `"normal"` | Color theme — `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox`. |
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
-| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid agent label to the name shown in detailed views. Floor badges show only the name. Remaining agents receive stable `Analyst 01`, `Analyst 02`, and so on labels while present. |
+| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Real subagents receive stable `Analyst 01`, `Analyst 02`, and so on labels while present. |
 | `[[pets]]` | all kinds, default names | One stanza per pet. `kind` (`"cat"`/`"dog"`) is required; `name` is optional (the hover-tooltip label, default `Office Cat`/`Office Dog`). Omit the section for all pets; `pets = []` for none; an unknown `kind` is skipped without affecting other settings. Keep it last (it's a table section). |
 
 ## System-managed (don't edit — pixtuoid writes these for you)

@@ -103,6 +103,7 @@ async fn run_async(cfg: RunConfig) -> Result<()> {
         (cap, false) => cap_boot_capacities(compute_boot_capacities(), cap),
     };
     let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::new(boot_caps)));
+    let visual_coworker_names = agent_names.clone();
 
     let floor_caps: Arc<[AtomicUsize; MAX_FLOORS]> =
         Arc::new(std::array::from_fn(|i| AtomicUsize::new(boot_caps[i])));
@@ -140,6 +141,7 @@ async fn run_async(cfg: RunConfig) -> Result<()> {
             config_path,
             desk_cap,
             pets,
+            visual_coworker_names,
             source_health: health_rx,
             socket_path,
             connected,

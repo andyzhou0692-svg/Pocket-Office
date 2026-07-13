@@ -5,8 +5,10 @@
 //! (issue #103).
 
 pub(crate) mod driver;
+mod visual_coworkers;
 
 pub use driver::run;
+pub(crate) use visual_coworkers::VisualCoworkers;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
@@ -78,7 +80,6 @@ struct VisualNameResolver {
     configured: BTreeMap<String, String>,
     raw_labels: HashMap<AgentId, String>,
     rendered_labels: HashMap<AgentId, String>,
-    active_roles: HashMap<AgentId, String>,
     analyst_numbers: HashMap<AgentId, usize>,
     next_analyst: usize,
 }
@@ -89,7 +90,6 @@ impl VisualNameResolver {
             configured,
             raw_labels: HashMap::new(),
             rendered_labels: HashMap::new(),
-            active_roles: HashMap::new(),
             analyst_numbers: HashMap::new(),
             next_analyst: 1,
         }
@@ -100,8 +100,6 @@ impl VisualNameResolver {
             .retain(|id, _| scene.agents.contains_key(id));
         self.rendered_labels
             .retain(|id, _| scene.agents.contains_key(id));
-        self.active_roles
-            .retain(|id, _| scene.agents.contains_key(id));
         self.analyst_numbers
             .retain(|id, _| scene.agents.contains_key(id));
 
@@ -109,57 +107,22 @@ impl VisualNameResolver {
             let was_rendered_by_us =
                 self.rendered_labels.get(id).map(String::as_str) == Some(slot.label.as_ref());
             if !was_rendered_by_us {
-                if let Some(role) = slot.label.strip_prefix("role:") {
-                    if slot.parent_id.is_none() {
-                        if role == "vivian" {
-                            self.active_roles.remove(id);
-                        } else if self.configured.contains_key(role) {
-                            self.active_roles.insert(*id, role.to_string());
-                        }
-                    }
-                    continue;
-                }
                 self.raw_labels.insert(*id, slot.label.to_string());
             }
         }
 
         let mut configured_ids = HashSet::new();
         for (raw_label, display_name) in &self.configured {
-            let root_owns_raw = scene.agents.iter().any(|(id, slot)| {
-                slot.parent_id.is_none()
-                    && self.raw_labels.get(id).map(String::as_str) == Some(raw_label.as_str())
-            });
-            let existing = scene
+            let target = scene
                 .agents
                 .iter()
-                .find(|(id, slot)| {
-                    slot.label.as_ref() == display_name
+                .filter(|(id, slot)| {
+                    slot.parent_id.is_none()
                         && !configured_ids.contains(*id)
-                        && (!root_owns_raw || slot.parent_id.is_none())
-                        && self
-                            .active_roles
-                            .get(id)
-                            .or_else(|| self.raw_labels.get(id))
-                            .map(String::as_str)
-                            == Some(raw_label.as_str())
+                        && self.raw_labels.get(id).map(String::as_str) == Some(raw_label.as_str())
                 })
+                .max_by_key(|(id, slot)| (slot.last_event_at, **id))
                 .map(|(id, _)| *id);
-            let target = existing.or_else(|| {
-                scene
-                    .agents
-                    .iter()
-                    .filter(|(id, _)| {
-                        self.active_roles
-                            .get(id)
-                            .or_else(|| self.raw_labels.get(id))
-                            .map(String::as_str)
-                            == Some(raw_label.as_str())
-                            && !configured_ids.contains(*id)
-                    })
-                    .filter(|(_, slot)| !root_owns_raw || slot.parent_id.is_none())
-                    .max_by_key(|(id, slot)| (slot.parent_id.is_none(), slot.last_event_at, **id))
-                    .map(|(id, _)| *id)
-            });
 
             if let Some(id) = target {
                 configured_ids.insert(id);
@@ -466,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn visual_names_promote_a_numbered_worker_after_a_dispatch_tag_arrives() {
+    fn visual_names_keep_subagents_numbered_after_a_dispatch_tag_arrives() {
         let now = SystemTime::now();
         let mut scene = SceneState::uniform(8);
         let mut reducer = Reducer::new();
@@ -510,73 +473,6 @@ mod tests {
         );
         resolver.apply(&mut scene);
 
-        assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
-        assert_eq!(scene.agents[&child].label.as_ref(), "Tom (Head of IBD)");
-    }
-
-    #[test]
-    fn visual_role_temporarily_relabels_only_the_root_and_resets_to_vivian() {
-        let now = SystemTime::now();
-        let mut scene = SceneState::uniform(8);
-        let mut reducer = Reducer::new();
-        let root = pixtuoid_core::AgentId::from_parts("codex", "root-session");
-        let child = pixtuoid_core::AgentId::from_parts("codex", "child-session");
-
-        for (agent_id, session_id, parent_id) in [
-            (root, "root-session", None),
-            (child, "child-session", Some(root)),
-        ] {
-            reducer.apply(
-                &mut scene,
-                pixtuoid_core::AgentEvent::SessionStart {
-                    agent_id,
-                    source: "codex".into(),
-                    session_id: session_id.into(),
-                    cwd: PathBuf::from("/tmp/secondbrain-os"),
-                    parent_id,
-                },
-                now,
-                Transport::Jsonl,
-            );
-        }
-
-        let names = std::collections::BTreeMap::from([
-            ("cx·secondbrain-os".to_string(), "Vivian".to_string()),
-            ("jess".to_string(), "Jess (Head of Strategy)".to_string()),
-        ]);
-        let mut resolver = VisualNameResolver::new(names);
-        resolver.apply(&mut scene);
-        assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
-        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
-
-        for agent_id in [root, child] {
-            reducer.apply(
-                &mut scene,
-                pixtuoid_core::AgentEvent::Rename {
-                    agent_id,
-                    label: "role:jess".to_string(),
-                },
-                now,
-                Transport::Jsonl,
-            );
-        }
-        resolver.apply(&mut scene);
-        assert_eq!(
-            scene.agents[&root].label.as_ref(),
-            "Jess (Head of Strategy)"
-        );
-        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
-
-        reducer.apply(
-            &mut scene,
-            pixtuoid_core::AgentEvent::Rename {
-                agent_id: root,
-                label: "role:vivian".to_string(),
-            },
-            now,
-            Transport::Jsonl,
-        );
-        resolver.apply(&mut scene);
         assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
         assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
     }

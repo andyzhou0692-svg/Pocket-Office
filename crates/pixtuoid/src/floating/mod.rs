@@ -95,6 +95,7 @@ pub fn run(cfg: RunConfig) -> Result<()> {
     // scale-ignorant boot_capacities_for over-seeds and can strand a boot-race agent.
     let boot_caps = offscreen::boot_capacities_for_window(floating_cfg.width, floating_cfg.height);
     let (scene_tx, scene_rx) = watch::channel(Arc::new(SceneState::new(boot_caps)));
+    let visual_coworker_names = agent_names.clone();
     let floor_caps: Arc<[AtomicUsize; MAX_FLOORS]> =
         Arc::new(std::array::from_fn(|i| AtomicUsize::new(boot_caps[i])));
     rt.spawn(reducer_task(
@@ -163,6 +164,7 @@ pub fn run(cfg: RunConfig) -> Result<()> {
         pack,
         config_path,
         pets,
+        visual_coworker_names,
         scene_rx,
         floor_caps,
     );

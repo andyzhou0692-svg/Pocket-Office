@@ -7,6 +7,7 @@ mod ui_state;
 pub mod welcome;
 pub mod widgets;
 
+use std::collections::BTreeMap;
 use std::io::{stdout, Stdout};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -497,6 +498,7 @@ pub(crate) struct TuiSession {
     pub config_path: std::path::PathBuf,
     pub desk_cap: Option<usize>,
     pub pets: Vec<pet::Pet>,
+    pub visual_coworker_names: BTreeMap<String, String>,
     pub source_health:
         tokio::sync::watch::Receiver<Vec<pixtuoid_core::source::manager::SourceDeath>>,
     /// The resolved hook socket (Unix) / named pipe (Windows) the daemon bound,
@@ -526,6 +528,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
         config_path,
         desk_cap,
         pets,
+        visual_coworker_names,
         mut source_health,
         socket_path,
         connected,
@@ -534,6 +537,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
         first_run,
     } = session;
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
+    let visual_coworkers = crate::runtime::VisualCoworkers::new(visual_coworker_names);
     let term = setup_terminal()?;
     let mut renderer = TuiRenderer::new(term, theme, pets);
     // First-run onboarding "move-in" overlay (TOP of the modal precedence chain).
@@ -611,7 +615,8 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
         loop {
             let now = ui.now();
             let snapshot = scene_rx.borrow_and_update().clone();
-            renderer.evict_missing(&snapshot);
+            let render_scene = visual_coworkers.render_scene(&snapshot, now);
+            renderer.evict_missing(&render_scene);
             let sig = (renderer.buf().width(), renderer.buf().height());
             if last_layout_sig != Some(sig) {
                 renderer.invalidate_routes();
@@ -626,7 +631,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
             // the drift-scan-fed footer warning) — see UiState::build_frames.
             ui.build_frames(now, &snapshot, &health)
                 .apply_to(&mut renderer, now);
-            renderer.render(&snapshot, &pack, now)?;
+            renderer.render(&render_scene, &pack, now)?;
 
             // Auto-compute per-floor desk capacity from the current
             // terminal dimensions. Each floor uses its own layout seed, so
