@@ -169,6 +169,14 @@ pub fn decode_codex_line(transcript_path: &str, source: &str, v: Value) -> Resul
                 }]
             })
             .unwrap_or_default(),
+        ("response_item", "message") => office_role_from_message(payload)
+            .map(|role| {
+                vec![AgentEvent::Rename {
+                    agent_id,
+                    label: format!("role:{role}"),
+                }]
+            })
+            .unwrap_or_default(),
         // `task_started`/`task_complete` are what codex serializes TODAY; the v2
         // `turn_started`/`turn_complete` are upstream's OWN serde aliases
         // (`#[serde(rename="task_started", alias="turn_started")]` in codex-rs
@@ -210,7 +218,13 @@ pub fn decode_codex_line(transcript_path: &str, source: &str, v: Value) -> Resul
         | ("response_item", "tool_search_output") => vec![start()],
         ("event_msg", "task_complete")
         | ("event_msg", "turn_complete")
-        | ("event_msg", "turn_aborted") => vec![end()],
+        | ("event_msg", "turn_aborted") => vec![
+            end(),
+            AgentEvent::Rename {
+                agent_id,
+                label: "role:vivian".to_string(),
+            },
+        ],
         // Burn-tier observation: `turn_context` opens every turn carrying the
         // model + (on reasoning turns only) the effort — both RAW verbatim,
         // last-seen-wins downstream, so a mid-session model/effort switch
@@ -238,6 +252,27 @@ pub fn decode_codex_line(transcript_path: &str, source: &str, v: Value) -> Resul
         _ => vec![],
     };
     Ok(out)
+}
+
+const OFFICE_ROLE_MARKER: &str = "<!-- ai-office-role:";
+
+fn office_role_from_message(payload: Option<&Map<String, Value>>) -> Option<&str> {
+    let payload = payload?;
+    if payload.get("role").and_then(Value::as_str) != Some("assistant") {
+        return None;
+    }
+
+    payload
+        .get("content")
+        .and_then(Value::as_array)?
+        .iter()
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .find_map(|text| {
+            let (_, after_marker) = text.split_once(OFFICE_ROLE_MARKER)?;
+            let (role, _) = after_marker.split_once("-->")?;
+            let role = role.trim();
+            matches!(role, "vivian" | "tom" | "amy" | "jess").then_some(role)
+        })
 }
 
 /// A Codex `function_call` requesting escalated sandbox permissions (`arguments`
@@ -495,9 +530,58 @@ mod tests {
         for t in ["task_complete", "turn_complete", "turn_aborted"] {
             let out = ev(json!({"type":"event_msg","payload":{"type":t,"turn_id":"t"}}));
             assert!(
-                matches!(out.as_slice(), [AgentEvent::ActivityEnd { .. }]),
-                "{t}"
+                matches!(
+                    out.as_slice(),
+                    [
+                        AgentEvent::ActivityEnd { .. },
+                        AgentEvent::Rename { label, .. }
+                    ] if label == "role:vivian"
+                ),
+                "{t} must end activity and reset the visual role, got {out:?}"
             );
+        }
+    }
+
+    #[test]
+    fn assistant_office_role_marker_emits_transient_visual_rename() {
+        let out = ev(json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "assistant",
+                "content": [{
+                    "type": "output_text",
+                    "text": "[decide · loaded: context]\n*Read: help · Risk: miss*\n<!-- ai-office-role: jess -->"
+                }]
+            }
+        }));
+        assert!(
+            matches!(out.as_slice(), [AgentEvent::Rename { label, .. }] if label == "role:jess"),
+            "the visual role marker must reach the office, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn invalid_or_non_assistant_office_role_markers_are_ignored() {
+        for line in [
+            json!({
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [{"type": "output_text", "text": "<!-- ai-office-role: ceo -->"}]
+                }
+            }),
+            json!({
+                "type": "response_item",
+                "payload": {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": "<!-- ai-office-role: jess -->"}]
+                }
+            }),
+        ] {
+            assert!(ev(line).is_empty());
         }
     }
 

@@ -23,6 +23,10 @@ jess = "Jess (Head of Strategy)"
 # example, task_name = "tom" resolves through the table above. Unmapped
 # task names remain numbered Analysts.
 
+# A root Codex assistant message may emit `<!-- ai-office-role: jess -->` to
+# use a configured alias for the current turn. AI Office resets the root label
+# when the turn completes. Role markers from subagents are ignored.
+
 # One stanza per pet. Omit the whole section to show all pets with default
 # names; use `pets = []` to disable all pets. `name` is optional (shown in
 # the pet's hover tooltip). Keep [[pets]] last — it's a table section.
