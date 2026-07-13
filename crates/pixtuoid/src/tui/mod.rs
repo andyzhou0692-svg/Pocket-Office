@@ -29,6 +29,18 @@ use tui_renderer::TuiRenderer;
 use crate::runtime::SceneRx;
 use pixtuoid_scene::{embedded_pack, floor, pet, theme};
 
+const FRAME_TICK_MS: u64 = 33;
+const VISUAL_COWORKER_FRAME_TICK_MS: u64 = 66;
+
+fn frame_tick(has_render_only_agents: bool) -> Duration {
+    let tick_ms = if has_render_only_agents {
+        VISUAL_COWORKER_FRAME_TICK_MS
+    } else {
+        FRAME_TICK_MS
+    };
+    Duration::from_millis(tick_ms)
+}
+
 /// Which overlay (if any) currently owns input, plus the one count the picker
 /// needs. The two together drive the modal precedence chain (onboarding > help >
 /// version > connection > dashboard > theme-picker > normal); when one is open it
@@ -570,9 +582,6 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
     let mut ui = ui_state::UiState::new(theme, onboarding_ui, version_popup, socket_path, log_path);
     let mut last_layout_sig: Option<(u16, u16)> = None;
 
-    // Render/event-loop tick (~30fps).
-    const FRAME_TICK_MS: u64 = 33;
-    let tick = Duration::from_millis(FRAME_TICK_MS);
     let result: Result<()> = (async {
         // External-signal teardown: raw mode delivers keyboard Ctrl-C as a key
         // event (the quit chord), but an EXTERNAL SIGINT/SIGTERM (`kill <pid>`,
@@ -616,6 +625,10 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
             let now = ui.now();
             let snapshot = scene_rx.borrow_and_update().clone();
             let render_scene = visual_coworkers.render_scene(&snapshot, now);
+            // Render-only coworkers multiply the number of animated terminal
+            // cells. Lower only this richer scene to ~15fps so the terminal
+            // can keep up; Vivian alone retains the original ~30fps cadence.
+            let tick = frame_tick(render_scene.agents.len() > snapshot.agents.len());
             renderer.evict_missing(&render_scene);
             let sig = (renderer.buf().width(), renderer.buf().height());
             if last_layout_sig != Some(sig) {
@@ -1061,8 +1074,12 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
 
 #[cfg(test)]
 mod dispatch_tests {
-    use super::{connect_source, disconnect_source, dispatch_key, FloorNav, KeyAction, ModalState};
+    use super::{
+        connect_source, disconnect_source, dispatch_key, frame_tick, FloorNav, KeyAction,
+        ModalState,
+    };
     use crossterm::event::{KeyCode, KeyModifiers};
+    use std::time::Duration;
 
     const NONE: KeyModifiers = KeyModifiers::NONE;
     const CTRL: KeyModifiers = KeyModifiers::CONTROL;
@@ -1088,6 +1105,12 @@ mod dispatch_tests {
             current_floor: 1,
             in_transition: false,
         }
+    }
+
+    #[test]
+    fn visual_coworkers_use_lower_terminal_frame_rate() {
+        assert_eq!(frame_tick(false), Duration::from_millis(33));
+        assert_eq!(frame_tick(true), Duration::from_millis(66));
     }
 
     #[test]
