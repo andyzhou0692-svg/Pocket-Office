@@ -135,16 +135,66 @@ pub struct Personality {
     pub aimless_pref_pct: u8,
 }
 
-/// Widths of the hashed personality ranges: trip-chance lands in 25..=60 (span
-/// 36), aimless-preference in 0..=50 (span 51).
-const TRIP_CHANCE_SPAN_PCT: u64 = 36;
-const AIMLESS_PREF_SPAN_PCT: u64 = 51;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ChanceRange {
+    min_pct: u8,
+    span_pct: u8,
+}
+
+impl ChanceRange {
+    const fn fixed(pct: u8) -> Self {
+        Self {
+            min_pct: pct,
+            span_pct: 1,
+        }
+    }
+
+    fn sample(self, hash: u64) -> u8 {
+        self.min_pct + (hash % u64::from(self.span_pct.max(1))) as u8
+    }
+}
+
+/// Data-only idle policy. The default preserves the original 25..=60 trip
+/// chance and 0..=50 aimless preference exactly; themed behavior packs can
+/// substitute different ranges without touching pose or motion mechanics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct IdleBehavior {
+    trip_chance: ChanceRange,
+    aimless_preference: ChanceRange,
+}
+
+impl IdleBehavior {
+    pub(crate) const fn fixed(trip_chance_pct: u8, aimless_preference_pct: u8) -> Self {
+        Self {
+            trip_chance: ChanceRange::fixed(trip_chance_pct),
+            aimless_preference: ChanceRange::fixed(aimless_preference_pct),
+        }
+    }
+}
+
+pub(crate) const DEFAULT_IDLE_BEHAVIOR: IdleBehavior = IdleBehavior {
+    trip_chance: ChanceRange {
+        min_pct: 25,
+        span_pct: 36,
+    },
+    aimless_preference: ChanceRange {
+        min_pct: 0,
+        span_pct: 51,
+    },
+};
 
 pub fn personality_for(agent_id: AgentId) -> Personality {
+    personality_for_with_behavior(agent_id, DEFAULT_IDLE_BEHAVIOR)
+}
+
+pub(crate) fn personality_for_with_behavior(
+    agent_id: AgentId,
+    behavior: IdleBehavior,
+) -> Personality {
     let h = agent_id.raw();
     Personality {
-        trip_chance_pct: (25 + (h % TRIP_CHANCE_SPAN_PCT)) as u8, // 25..=60
-        aimless_pref_pct: ((h >> 8) % AIMLESS_PREF_SPAN_PCT) as u8, // 0..=50
+        trip_chance_pct: behavior.trip_chance.sample(h),
+        aimless_pref_pct: behavior.aimless_preference.sample(h >> 8),
     }
 }
 
@@ -152,7 +202,15 @@ pub fn personality_for(agent_id: AgentId) -> Personality {
 /// wander trip on this cycle, or stay seated? Trip frequency is driven by
 /// per-agent Personality so different agents wander at different rates.
 pub fn takes_trip(agent_id: AgentId, cycle_n: u64) -> bool {
-    let p = personality_for(agent_id);
+    takes_trip_with_behavior(agent_id, cycle_n, DEFAULT_IDLE_BEHAVIOR)
+}
+
+pub(crate) fn takes_trip_with_behavior(
+    agent_id: AgentId,
+    cycle_n: u64,
+    behavior: IdleBehavior,
+) -> bool {
+    let p = personality_for_with_behavior(agent_id, behavior);
     let mix = agent_id.raw() ^ cycle_n.wrapping_mul(0x9e37_79b9_7f4a_7c15);
     (mix % 100) < p.trip_chance_pct as u64
 }
@@ -162,7 +220,15 @@ pub fn takes_trip(agent_id: AgentId, cycle_n: u64) -> bool {
 /// waypoint? Used by `idle_pose` AND by the snapshot example to find
 /// agent_ids whose cycle deterministically lands at a target waypoint.
 pub fn is_aimless_cycle(agent_id: AgentId, cycle_n: u64) -> bool {
-    let p = personality_for(agent_id);
+    is_aimless_cycle_with_behavior(agent_id, cycle_n, DEFAULT_IDLE_BEHAVIOR)
+}
+
+pub(crate) fn is_aimless_cycle_with_behavior(
+    agent_id: AgentId,
+    cycle_n: u64,
+    behavior: IdleBehavior,
+) -> bool {
+    let p = personality_for_with_behavior(agent_id, behavior);
     let type_mix = agent_id.raw() ^ cycle_n.wrapping_mul(0xbf58_476d_1ce4_e5b9);
     (type_mix % 100) < p.aimless_pref_pct as u64
 }
@@ -221,6 +287,15 @@ pub enum Pose {
 ///      SeatedIdle / Walking / AtWaypoint / AimlessAt based on the
 ///      wander state machine).
 pub fn derive(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) -> Option<Pose> {
+    derive_with_idle_behavior(slot, now, layout, DEFAULT_IDLE_BEHAVIOR)
+}
+
+pub(crate) fn derive_with_idle_behavior(
+    slot: &AgentSlot,
+    now: SystemTime,
+    layout: &SceneLayout,
+    idle_behavior: IdleBehavior,
+) -> Option<Pose> {
     let desk = layout.home_desk(slot.desk_index.single_floor_local())?;
 
     // Exit takes priority — once SessionEnd fires we always walk to the
@@ -254,7 +329,7 @@ pub fn derive(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) -> Option
         }
     }
 
-    state_driven_pose(slot, desk, layout, now)
+    state_driven_pose(slot, desk, layout, now, idle_behavior)
 }
 
 /// The shared `Walking` pose for the stateless entry/exit overrides: a
@@ -283,6 +358,7 @@ fn state_driven_pose(
     desk: Point,
     layout: &SceneLayout,
     now: SystemTime,
+    idle_behavior: IdleBehavior,
 ) -> Option<Pose> {
     let elapsed = now
         .duration_since(slot.state_started_at)
@@ -304,7 +380,7 @@ fn state_driven_pose(
             if was_active && since_last_event < THINKING_WINDOW_SECS {
                 Some(Pose::SeatedThinking)
             } else {
-                Some(idle_pose(slot, desk, layout, elapsed))
+                Some(idle_pose(slot, desk, layout, elapsed, idle_behavior))
             }
         }
     }
@@ -324,7 +400,7 @@ fn state_driven_pose(
 /// Returns `None` when `slot.desk_index` is out of range for `layout`.
 pub fn derive_state_only(slot: &AgentSlot, now: SystemTime, layout: &SceneLayout) -> Option<Pose> {
     let desk = layout.home_desk(slot.desk_index.single_floor_local())?;
-    state_driven_pose(slot, desk, layout, now)
+    state_driven_pose(slot, desk, layout, now, DEFAULT_IDLE_BEHAVIOR)
 }
 
 /// Per-(agent, cycle) seed for `pick_aimless_dest`. Shared by the stateless
@@ -454,17 +530,28 @@ fn thinking_hold_ms(slot: &AgentSlot) -> u64 {
 /// fully-blocked obstacle) yields `approach_point == wp.pos`, the "no valid
 /// approach" sentinel — this ambles aimlessly that cycle instead of routing into
 /// the furniture.
+#[cfg(test)]
 pub(crate) fn resolve_wander_target(
     id: AgentId,
     cycle_n: u64,
     layout: &SceneLayout,
     origin: Point,
 ) -> WanderTarget {
+    resolve_wander_target_with_behavior(id, cycle_n, layout, origin, DEFAULT_IDLE_BEHAVIOR)
+}
+
+pub(crate) fn resolve_wander_target_with_behavior(
+    id: AgentId,
+    cycle_n: u64,
+    layout: &SceneLayout,
+    origin: Point,
+    idle_behavior: IdleBehavior,
+) -> WanderTarget {
     let amble = || WanderTarget {
         dest: pick_aimless_dest(layout, aimless_wander_seed(id, cycle_n), origin),
         kind: WanderKind::Aimless,
     };
-    if is_aimless_cycle(id, cycle_n) {
+    if is_aimless_cycle_with_behavior(id, cycle_n, idle_behavior) {
         return amble();
     }
     let wp_idx = waypoint_index_for_cycle(id, cycle_n, layout.waypoints.len());
@@ -497,12 +584,20 @@ pub(crate) fn resolve_wander_target(
     }
 }
 
-fn idle_pose(slot: &AgentSlot, desk: Point, layout: &SceneLayout, elapsed_ms: u64) -> Pose {
+fn idle_pose(
+    slot: &AgentSlot,
+    desk: Point,
+    layout: &SceneLayout,
+    elapsed_ms: u64,
+    idle_behavior: IdleBehavior,
+) -> Pose {
     let cycle_ms = est_wander_cycle_ms(slot.agent_id);
     let cycle_n = elapsed_ms / cycle_ms;
     let phase_t = elapsed_ms % cycle_ms;
 
-    if !takes_trip(slot.agent_id, cycle_n) || layout.waypoints.is_empty() {
+    if !takes_trip_with_behavior(slot.agent_id, cycle_n, idle_behavior)
+        || layout.waypoints.is_empty()
+    {
         return Pose::SeatedIdle;
     }
 
@@ -535,7 +630,8 @@ fn idle_pose(slot: &AgentSlot, desk: Point, layout: &SceneLayout, elapsed_ms: u6
     // pick, the reachable-approach selection, and the no-reachable-side amble
     // fallback all live in that resolver so the stateless overlay here and the
     // stateful render can't drift.
-    let target = resolve_wander_target(slot.agent_id, cycle_n, layout, desk);
+    let target =
+        resolve_wander_target_with_behavior(slot.agent_id, cycle_n, layout, desk, idle_behavior);
     let dest = target.dest;
     let at_dest_pose: Pose = match target.kind {
         WanderKind::Named { wp_idx, kind, .. } => Pose::AtWaypoint { wp: wp_idx, kind },

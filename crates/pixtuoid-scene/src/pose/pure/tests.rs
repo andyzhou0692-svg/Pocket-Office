@@ -70,6 +70,41 @@ fn first_trip_cycle(agent_id: AgentId) -> u64 {
 }
 
 #[test]
+fn idle_behavior_controls_trip_and_aimless_decisions_at_probability_boundaries() {
+    let id = AgentId::from_transcript_path("/p/policy.jsonl");
+    let never = IdleBehavior::fixed(0, 0);
+    let always = IdleBehavior::fixed(100, 100);
+
+    for cycle in 0..100 {
+        assert!(!takes_trip_with_behavior(id, cycle, never));
+        assert!(!is_aimless_cycle_with_behavior(id, cycle, never));
+        assert!(takes_trip_with_behavior(id, cycle, always));
+        assert!(is_aimless_cycle_with_behavior(id, cycle, always));
+    }
+}
+
+#[test]
+fn default_idle_behavior_preserves_existing_personality_decisions() {
+    for i in 0..100 {
+        let id = AgentId::from_transcript_path(&format!("/p/default/{i}.jsonl"));
+        assert_eq!(
+            personality_for_with_behavior(id, DEFAULT_IDLE_BEHAVIOR),
+            personality_for(id)
+        );
+        for cycle in 0..10 {
+            assert_eq!(
+                takes_trip_with_behavior(id, cycle, DEFAULT_IDLE_BEHAVIOR),
+                takes_trip(id, cycle)
+            );
+            assert_eq!(
+                is_aimless_cycle_with_behavior(id, cycle, DEFAULT_IDLE_BEHAVIOR),
+                is_aimless_cycle(id, cycle)
+            );
+        }
+    }
+}
+
+#[test]
 fn active_state_is_seated_typing_with_cycling_frame() {
     let (s, now) = slot(typing(), 0);
     let l = layout();

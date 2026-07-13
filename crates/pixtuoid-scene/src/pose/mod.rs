@@ -18,8 +18,8 @@ use pixtuoid_core::state::AgentSlot;
 use pixtuoid_core::AgentId;
 
 use crate::motion::{
-    advance_wander, measured_leg_len, walking_position, MotionState, WalkLeg, WalkPathSnapshot,
-    WanderKind, WanderPhase,
+    advance_wander_with_behavior, measured_leg_len, walking_position, MotionState, WalkLeg,
+    WalkPathSnapshot, WanderKind, WanderPhase,
 };
 use crate::physics::{walk_arrived, walk_profile, walk_progress, WalkIntent};
 use pixtuoid_core::walkable::{OccupancyOverlay, WalkableMask};
@@ -33,7 +33,12 @@ pub use pure::{
 };
 // `resolve_wander_target` stays crate-internal (the motion authority delegates to
 // it); a `pub use` would try to widen its `pub(crate)` visibility.
+#[cfg(test)]
 pub(crate) use pure::resolve_wander_target;
+pub(crate) use pure::{
+    derive_with_idle_behavior, resolve_wander_target_with_behavior, takes_trip_with_behavior,
+    IdleBehavior, DEFAULT_IDLE_BEHAVIOR,
+};
 
 use crate::layout::{desk_walk_anchor, Layout, Point, WaypointKind};
 use crate::pathfind::Router;
@@ -192,6 +197,16 @@ pub fn derive_with_routing(
     now: SystemTime,
     layout: &Layout,
     rctx: &mut RouteCtx<'_>,
+) -> Option<Pose> {
+    derive_with_routing_and_behavior(slot, now, layout, rctx, DEFAULT_IDLE_BEHAVIOR)
+}
+
+pub(crate) fn derive_with_routing_and_behavior(
+    slot: &AgentSlot,
+    now: SystemTime,
+    layout: &Layout,
+    rctx: &mut RouteCtx<'_>,
+    idle_behavior: IdleBehavior,
 ) -> Option<Pose> {
     // The four engine borrows stay behind `rctx`: direct `rctx.router` /
     // `rctx.overlay` / `rctx.history` / `rctx.motion` accesses are disjoint
@@ -417,8 +432,15 @@ pub fn derive_with_routing(
             return Some(Pose::SeatedThinking);
         }
 
-        let (wander_phase, t_phys) =
-            advance_wander(slot, now, layout, rctx.router, rctx.overlay, rctx.motion);
+        let (wander_phase, t_phys) = advance_wander_with_behavior(
+            slot,
+            now,
+            layout,
+            rctx.router,
+            rctx.overlay,
+            rctx.motion,
+            idle_behavior,
+        );
 
         match wander_phase {
             WanderPhase::WalkingOut => {

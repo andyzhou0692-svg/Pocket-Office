@@ -11,6 +11,20 @@ use std::time::SystemTime;
 use pixtuoid_core::AgentId;
 
 use crate::layout::{Point, WaypointKind};
+use crate::pose::{IdleBehavior, DEFAULT_IDLE_BEHAVIOR};
+
+/// Maximum dialogue length that remains legible in the half-block speech
+/// bubble. Every built-in pack is pinned to this bound by tests.
+#[cfg(test)]
+const MAX_DIALOGUE_CHARS: usize = 12;
+
+/// Static, zero-token avatar behavior selected by the visible office theme.
+/// Motion mechanics remain in `pose`/`motion`; this pack contains only their
+/// deterministic idle policy plus the dialogue data chitchat consumes.
+pub(crate) struct BehaviorPack {
+    pub(crate) idle: IdleBehavior,
+    dialogue: &'static [&'static str],
+}
 
 /// Total duration of a single chitchat exchange — the speaking turns fill it
 /// exactly (`= TURNS × TURN_MS` = 6 s). There is NO separate trailing silent gap:
@@ -84,6 +98,52 @@ pub const CHITCHAT_LINES: &[&str] = &[
     "ship friday",
 ];
 
+const GOLDMAN_DIALOGUE: &[&str] = &[
+    "pls fix",
+    "add logo",
+    "more logos?",
+    "circle back",
+    "per my last",
+    "thoughts?",
+    "pls advise",
+    "run the acc",
+    "need comps",
+    "upside case",
+    "downside?",
+    "send model",
+    "tighten it",
+    "make it pop",
+    "quick turn",
+    "pls update",
+    "see attached",
+    "bump EBITDA",
+    "buyer list?",
+    "font bigger",
+    "align logos",
+];
+
+pub(crate) static DEFAULT_BEHAVIOR: BehaviorPack = BehaviorPack {
+    idle: DEFAULT_IDLE_BEHAVIOR,
+    dialogue: CHITCHAT_LINES,
+};
+
+/// A future Goldman visual theme can opt into this pack simply by using the
+/// authoritative theme name `goldman`; no layout or color-model field is
+/// required. The more social idle policy is deterministic and display-only.
+pub(crate) static GOLDMAN_BEHAVIOR: BehaviorPack = BehaviorPack {
+    idle: IdleBehavior::fixed(70, 10),
+    dialogue: GOLDMAN_DIALOGUE,
+};
+
+pub(crate) const GOLDMAN_THEME_NAME: &str = "goldman";
+
+pub(crate) fn behavior_pack_for_theme(theme_name: &str) -> &'static BehaviorPack {
+    match theme_name {
+        GOLDMAN_THEME_NAME => &GOLDMAN_BEHAVIOR,
+        _ => &DEFAULT_BEHAVIOR,
+    }
+}
+
 /// A social venue that hosts at most one conversation at a time. Meeting-room
 /// slots all map to the same `Room` so the room hosts a single group chat;
 /// every other social waypoint is its own `Waypoint` venue.
@@ -152,6 +212,14 @@ impl ActiveChitchat {
     /// gap / once expired / if nobody is present. The speaker rotates
     /// round-robin through `participants`.
     pub fn current_bubble(&self, now: SystemTime) -> Option<(AgentId, &'static str)> {
+        self.current_bubble_with_dialogue(now, DEFAULT_BEHAVIOR.dialogue)
+    }
+
+    fn current_bubble_with_dialogue(
+        &self,
+        now: SystemTime,
+        dialogue: &'static [&'static str],
+    ) -> Option<(AgentId, &'static str)> {
         let elapsed = self.elapsed_ms(now);
         if elapsed >= CHITCHAT_TOTAL_MS {
             return None;
@@ -161,8 +229,8 @@ impl ActiveChitchat {
             return None;
         }
         let speaker = self.participants[(turn as usize) % self.participants.len()];
-        let line_idx = (self.seed.wrapping_add(turn) as usize) % CHITCHAT_LINES.len();
-        Some((speaker, CHITCHAT_LINES[line_idx]))
+        let line_idx = (self.seed.wrapping_add(turn) as usize) % dialogue.len();
+        Some((speaker, dialogue[line_idx]))
     }
 }
 
@@ -232,6 +300,16 @@ pub fn update_and_collect(
     visitors: &[Visitor],
     now: SystemTime,
 ) -> Vec<ChitchatBubble> {
+    update_and_collect_with_behavior(state, floor_idx, visitors, now, &DEFAULT_BEHAVIOR)
+}
+
+pub(crate) fn update_and_collect_with_behavior(
+    state: &mut HashMap<VenueKey, ActiveChitchat>,
+    floor_idx: usize,
+    visitors: &[Visitor],
+    now: SystemTime,
+    behavior: &'static BehaviorPack,
+) -> Vec<ChitchatBubble> {
     // Expire old conversations.
     state.retain(|_, chat| !chat.is_expired(now));
 
@@ -264,7 +342,8 @@ pub fn update_and_collect(
         // Refresh the rotation so joiners/leavers are tracked.
         chat.set_participants(present);
 
-        if let Some((speaker_id, text)) = chat.current_bubble(now) {
+        if let Some((speaker_id, text)) = chat.current_bubble_with_dialogue(now, behavior.dialogue)
+        {
             if let Some((_, anchor)) = agents.iter().find(|(id, _)| *id == speaker_id) {
                 bubbles.push(ChitchatBubble {
                     text,
@@ -288,6 +367,63 @@ mod tests {
 
     fn aid(s: &str) -> AgentId {
         AgentId::from_transcript_path(s)
+    }
+
+    #[test]
+    fn behavior_pack_selection_is_theme_named_and_defaults_safely() {
+        assert!(std::ptr::eq(
+            behavior_pack_for_theme(GOLDMAN_THEME_NAME),
+            &GOLDMAN_BEHAVIOR
+        ));
+        assert!(std::ptr::eq(
+            behavior_pack_for_theme("normal"),
+            &DEFAULT_BEHAVIOR
+        ));
+        assert!(std::ptr::eq(
+            behavior_pack_for_theme("future-unknown"),
+            &DEFAULT_BEHAVIOR
+        ));
+    }
+
+    #[test]
+    fn every_dialogue_pack_is_nonempty_and_fits_the_bubble() {
+        for pack in [&DEFAULT_BEHAVIOR, &GOLDMAN_BEHAVIOR] {
+            assert!(!pack.dialogue.is_empty());
+            for line in pack.dialogue {
+                assert!(
+                    line.chars().count() <= MAX_DIALOGUE_CHARS,
+                    "dialogue line exceeds the half-block bubble width: {line:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn goldman_dialogue_is_distinct_from_default_office_chitchat() {
+        assert_ne!(GOLDMAN_BEHAVIOR.dialogue, DEFAULT_BEHAVIOR.dialogue);
+        assert!(GOLDMAN_BEHAVIOR.dialogue.contains(&"pls fix"));
+        assert!(GOLDMAN_BEHAVIOR.dialogue.contains(&"add logo"));
+    }
+
+    #[test]
+    fn selected_pack_drives_the_emitted_dialogue() {
+        let now = base_time();
+        let visitors = vec![vis(0, "/a", None), vis(0, "/b", None)];
+        let mut state = HashMap::new();
+        let bubbles =
+            update_and_collect_with_behavior(&mut state, 0, &visitors, now, &GOLDMAN_BEHAVIOR);
+        assert_eq!(bubbles.len(), 1);
+        assert!(GOLDMAN_BEHAVIOR.dialogue.contains(&bubbles[0].text));
+        assert!(!DEFAULT_BEHAVIOR.dialogue.contains(&bubbles[0].text));
+    }
+
+    #[test]
+    fn goldman_pack_changes_idle_trip_decisions_without_agent_metadata() {
+        let id = aid("/visual-only");
+        assert!((0..100).any(|cycle| {
+            crate::pose::takes_trip_with_behavior(id, cycle, DEFAULT_BEHAVIOR.idle)
+                != crate::pose::takes_trip_with_behavior(id, cycle, GOLDMAN_BEHAVIOR.idle)
+        }));
     }
 
     fn vk(wp: usize) -> VenueKey {

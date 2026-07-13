@@ -20,8 +20,8 @@ use crate::layout::{Layout, Point, WaypointKind};
 use crate::pathfind::Router;
 use crate::pose::{desk_leg_endpoint, octile_distance, route_jittered};
 use crate::pose::{
-    dwell_ms, est_wander_cycle_ms, seated_dwell_ms, stale_resume_gap_ms, takes_trip,
-    WANDER_DWELL_EST_MS,
+    dwell_ms, est_wander_cycle_ms, seated_dwell_ms, stale_resume_gap_ms, takes_trip_with_behavior,
+    IdleBehavior, DEFAULT_IDLE_BEHAVIOR, WANDER_DWELL_EST_MS,
 };
 
 /// Frozen A* polyline for one in-flight walk leg.
@@ -238,6 +238,26 @@ pub fn advance_wander(
     overlay: &OccupancyOverlay,
     motion: &mut HashMap<AgentId, MotionState>,
 ) -> (WanderPhase, u16) {
+    advance_wander_with_behavior(
+        slot,
+        now,
+        layout,
+        router,
+        overlay,
+        motion,
+        DEFAULT_IDLE_BEHAVIOR,
+    )
+}
+
+pub(crate) fn advance_wander_with_behavior(
+    slot: &AgentSlot,
+    now: SystemTime,
+    layout: &Layout,
+    router: &mut dyn Router,
+    overlay: &OccupancyOverlay,
+    motion: &mut HashMap<AgentId, MotionState>,
+    idle_behavior: IdleBehavior,
+) -> (WanderPhase, u16) {
     let id = slot.agent_id;
     let ms = motion.entry(id).or_insert_with(|| MotionState::new(id));
 
@@ -318,7 +338,9 @@ pub fn advance_wander(
         WanderPhase::Seated => {
             if may_transition && elapsed_phase >= seated_dur {
                 // Check whether this cycle is a trip.
-                if !takes_trip(id, ms.wander.cycle_n) || layout.waypoints.is_empty() {
+                if !takes_trip_with_behavior(id, ms.wander.cycle_n, idle_behavior)
+                    || layout.waypoints.is_empty()
+                {
                     // Non-trip: skip forward one cycle in Seated.
                     ms.wander.cycle_n += 1;
                     ms.wander.phase_started_at = ms
@@ -333,7 +355,13 @@ pub fn advance_wander(
                     // stateless/stateful destinations stay in lockstep).
                     let desk_pt = layout.home_desk(slot.desk_index.single_floor_local());
                     let origin = desk_pt.unwrap_or(Point { x: 0, y: 0 });
-                    let target = pick_wander_dest(id, ms.wander.cycle_n, layout, origin);
+                    let target = pick_wander_dest_with_behavior(
+                        id,
+                        ms.wander.cycle_n,
+                        layout,
+                        origin,
+                        idle_behavior,
+                    );
                     ms.wander.target = target;
                     let dest = target.dest;
                     let seat = target.kind.seat();
@@ -531,8 +559,19 @@ fn advance_phase_clock(ms: &mut MotionState, walk_total: u64, now: SystemTime) {
 /// stateless overlay can never drift to different destinations for the same
 /// `(agent, cycle)`. `origin` is the agent's home desk (the stand-side
 /// tiebreaker), kept identical to `idle_pose`'s `desk`.
+#[cfg(test)]
 fn pick_wander_dest(id: AgentId, cycle_n: u64, layout: &Layout, origin: Point) -> WanderTarget {
     crate::pose::resolve_wander_target(id, cycle_n, layout, origin)
+}
+
+fn pick_wander_dest_with_behavior(
+    id: AgentId,
+    cycle_n: u64,
+    layout: &Layout,
+    origin: Point,
+    idle_behavior: IdleBehavior,
+) -> WanderTarget {
+    crate::pose::resolve_wander_target_with_behavior(id, cycle_n, layout, origin, idle_behavior)
 }
 
 /// Snapshot the WanderBack `WalkProfile`: route `wander.target.dest → desk

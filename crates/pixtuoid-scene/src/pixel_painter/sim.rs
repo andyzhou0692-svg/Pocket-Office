@@ -27,7 +27,9 @@ use pixtuoid_core::state::{ActivityState, FloorLocalDeskIndex};
 use pixtuoid_core::walkable::OccupancyOverlay;
 use pixtuoid_core::{AgentId, AgentSlot, SceneState};
 
-use crate::chitchat::{self, ActiveChitchat, ChitchatBubble, VenueKey};
+use crate::chitchat::{
+    self, ActiveChitchat, BehaviorPack, ChitchatBubble, VenueKey, DEFAULT_BEHAVIOR,
+};
 use crate::floor::LightingState;
 use crate::layout::{Layout, Point, WALKING_Y_OFF};
 use crate::motion::{walking_position, MotionState};
@@ -51,6 +53,16 @@ pub(crate) struct SimStores<'a> {
     pub motion: &'a mut HashMap<AgentId, MotionState>,
     pub light: &'a mut LightingState,
     pub chitchat: &'a mut HashMap<VenueKey, ActiveChitchat>,
+}
+
+pub(crate) struct SimInputs<'a> {
+    pub scene: &'a SceneState,
+    pub layout: &'a Layout,
+    pub pack: &'a Pack,
+    pub coffee: &'a HashMap<AgentId, SystemTime>,
+    pub floor_idx: usize,
+    pub now: SystemTime,
+    pub behavior: &'static BehaviorPack,
 }
 
 /// A theme-free glow decision for a character sprite. Sim decides WHETHER a
@@ -131,6 +143,33 @@ pub(crate) fn sim_step(
     floor_idx: usize,
     now: SystemTime,
 ) -> SimFrame {
+    sim_step_with_behavior(
+        stores,
+        SimInputs {
+            scene,
+            layout,
+            pack,
+            coffee,
+            floor_idx,
+            now,
+            behavior: &DEFAULT_BEHAVIOR,
+        },
+    )
+}
+
+pub(crate) fn sim_step_with_behavior(
+    stores: &mut SimStores<'_>,
+    inputs: SimInputs<'_>,
+) -> SimFrame {
+    let SimInputs {
+        scene,
+        layout,
+        pack,
+        coffee,
+        floor_idx,
+        now,
+        behavior,
+    } = inputs;
     let agents: Vec<AgentSlot> = scene.agents.values().cloned().collect();
 
     // Per-floor lighting: tick the fade state with the current occupancy.
@@ -150,7 +189,7 @@ pub(crate) fn sim_step(
     // the seated map / ambient), so it's safe up here.
     stores.overlay.clear();
     for agent in &agents {
-        let Some(pose) = pose::derive(agent, now, layout) else {
+        let Some(pose) = pose::derive_with_idle_behavior(agent, now, layout, behavior.idle) else {
             continue;
         };
         if let Pose::AtWaypoint { wp, .. } = pose {
@@ -194,7 +233,7 @@ pub(crate) fn sim_step(
                 .is_some()
         })
         .map(|a| {
-            let p = pose::derive_with_routing(
+            let p = pose::derive_with_routing_and_behavior(
                 a,
                 now,
                 layout,
@@ -204,6 +243,7 @@ pub(crate) fn sim_step(
                     history: &mut *stores.history,
                     motion: &mut *stores.motion,
                 },
+                behavior.idle,
             );
             (a.agent_id, p)
         })
@@ -234,8 +274,13 @@ pub(crate) fn sim_step(
     let (characters, waypoint_visitors, new_coffee_carriers) =
         resolve_characters(&agents, &poses, layout, pack, coffee, now);
 
-    let chitchat_bubbles =
-        chitchat::update_and_collect(stores.chitchat, floor_idx, &waypoint_visitors, now);
+    let chitchat_bubbles = chitchat::update_and_collect_with_behavior(
+        stores.chitchat,
+        floor_idx,
+        &waypoint_visitors,
+        now,
+        behavior,
+    );
 
     SimFrame {
         agents,

@@ -95,7 +95,7 @@ pub use palette::tool_glow_for_kind;
 // `floor::FloorSession::observe` caller reads go pub WITH the facade;
 // `sim_step` + `SimStores` (the per-call borrow-set) stay crate-internal —
 // the session is the public entry to the sim tick.
-pub(crate) use sim::{sim_step, SimStores};
+pub(crate) use sim::{sim_step, sim_step_with_behavior, SimInputs, SimStores};
 // The flame-crown/ember colors, for render tests (floor.rs) to assert the
 // REAL painted values (effects itself stays a private submodule) — test-only,
 // hence the cfg: the lib target has no consumer.
@@ -287,7 +287,7 @@ struct PaintCtx<'a> {
 pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
     // Phase 1 — SIM: advance the world (motion/poses/lighting/chitchat),
     // producing no pixels. See `sim::sim_step`.
-    let frame = sim_step(
+    let frame = sim_step_with_behavior(
         &mut SimStores {
             router: &mut ctx.store.router,
             overlay: &mut ctx.store.overlay,
@@ -296,12 +296,15 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
             light: &mut ctx.store.light,
             chitchat: &mut *ctx.chitchat_state,
         },
-        ctx.scene,
-        ctx.layout,
-        ctx.pack,
-        ctx.coffee,
-        ctx.floor.floor_idx,
-        ctx.now,
+        SimInputs {
+            scene: ctx.scene,
+            layout: ctx.layout,
+            pack: ctx.pack,
+            coffee: ctx.coffee,
+            floor_idx: ctx.floor.floor_idx,
+            now: ctx.now,
+            behavior: crate::chitchat::behavior_pack_for_theme(ctx.theme.name),
+        },
     );
     // Phase 2 — PAINT: an immutable read of the SimFrame that mutates only
     // the buffer + the recolor cache. Painting the same frame twice is
