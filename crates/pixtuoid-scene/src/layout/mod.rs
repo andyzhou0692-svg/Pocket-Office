@@ -232,17 +232,17 @@ pub const DESK_H: u16 = 5;
 /// `pub(crate)`: no cross-crate consumer (unlike `DESK_W`/`DESK_H`, which the
 /// binary's hit-test reads) — least-privilege on the semver surface.
 pub(crate) const DESK_FOOT_H: u16 = 2;
-/// Default character sprite width (px). The bundled pack is 8×12; this is the
+/// Default character sprite width (px). The bundled pack is 12×12; this is the
 /// ONE authority every out-of-pixel_painter consumer centers/hit-tests on
 /// (anchors' LABEL fallback, `layout::decor::DESK_WALK_X_OFF`, the tui hit-test
-/// pin box, the floating label centering) — a bare `8` copied into those sites
+/// pin box, the floating label centering) — a bare width copied into those sites
 /// drifts from the painted sprite the moment the pack width changes. The sprite
 /// BLIT sites still pass the pack's REAL `frame.width` (a custom pack may be
 /// wider, e.g. the robot pack's 10); this const is the width-unknown fallback.
 /// Lives in `layout` (not `pixel_painter`) so `layout::decor` can read it
 /// without a module cycle. Pinned to the embedded pack by
 /// `character_sprite_w_matches_the_embedded_pack`.
-pub const CHARACTER_SPRITE_W: u16 = 8;
+pub const CHARACTER_SPRITE_W: u16 = 12;
 /// Default character sprite height in terminal CELLS (the 12 px sprite is 6
 /// half-block rows). Used by the tui hit-test pin box (cell space); the pixel
 /// pose offsets (8/12/7 px) are a SEPARATE vertical-anchor concern, NOT this.

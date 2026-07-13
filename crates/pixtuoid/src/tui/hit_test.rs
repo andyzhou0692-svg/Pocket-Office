@@ -14,7 +14,7 @@ use pixtuoid_scene::pose;
 /// Returns the agent under `(mx, my)` (in terminal cell coordinates), or
 /// `None` if no agent occupies that cell.
 ///
-/// The character sprite is 8×12 pixels, which in cell space is 8 cells
+/// The character sprite is 12×12 pixels, which in cell space is 12 cells
 /// wide × 6 cells tall (one cell = 2 vertical pixels). We test against
 /// that exact bounding box anchored on the agent's `character_anchor`.
 pub(crate) fn hit_test_agent(
@@ -71,12 +71,15 @@ pub fn hit_test_from_tui(scene: &SceneState, layout: &Layout, mx: u16, my: u16) 
             continue;
         };
         // The painter's seated anchor (pixtuoid_scene pixel_painter::anchors::
-        // seated_anchor): the 8px sprite centered on DESK_W, 8px above the desk.
+        // seated_anchor): the sprite centered on DESK_W, 8px above the desk.
         // Derived from the SAME DESK_W the painter centers on — the pairing is
         // pinned against `character_anchor` by
         // `from_tui_pin_box_matches_the_painted_seated_anchor`, so the pin box
         // can't drift from the hover/blit geometry again.
-        let ax = desk.x + pixtuoid_scene::layout::DESK_W.saturating_sub(SPRITE_W) / 2;
+        let ax = desk
+            .x
+            .saturating_add(pixtuoid_scene::layout::DESK_W / 2)
+            .saturating_sub(SPRITE_W / 2);
         let ay = desk.y.saturating_sub(8);
         let cell_x = ax;
         let cell_y = ay / 2;
@@ -582,12 +585,11 @@ mod tests {
         let (scene, id) = scene_with_agent_at_desk(0);
         let d = layout.home_desks[0];
         // Computed FROM the painter's seated-anchor geometry (DESK_W-centered
-        // 8px sprite, 8px above the desk) — NOT a mirror of the impl's own
+        // sprite, 8px above the desk) — NOT a mirror of the impl's own
         // literals, so a drift from the painted sprite reddens here.
-        let cx = d.x
-            + pixtuoid_scene::layout::DESK_W
-                .saturating_sub(pixtuoid_scene::layout::CHARACTER_SPRITE_W)
-                / 2;
+        let cx =
+            d.x.saturating_add(pixtuoid_scene::layout::DESK_W / 2)
+                .saturating_sub(pixtuoid_scene::layout::CHARACTER_SPRITE_W / 2);
         let cy = d.y.saturating_sub(8) / 2;
         assert_eq!(hit_test_from_tui(&scene, &layout, cx, cy), Some(id));
     }
@@ -621,7 +623,7 @@ mod tests {
             .expect("a seated agent has a painted anchor");
 
         let (ax, ay) = (anchor.x, anchor.y / 2);
-        // Every cell of the painted 8x6 sprite box pins…
+        // Every cell of the painted 12x6 sprite box pins…
         for dx in 0..pixtuoid_scene::layout::CHARACTER_SPRITE_W {
             for dy in 0..pixtuoid_scene::layout::CHARACTER_SPRITE_H_CELLS {
                 assert_eq!(

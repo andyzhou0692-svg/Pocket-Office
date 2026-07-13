@@ -50,6 +50,14 @@ pub struct AppConfig {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub sources: BTreeMap<String, bool>,
+    /// Optional visual aliases from Pixtuoid's raw agent label to the name
+    /// shown in the office. Unknown labels remain unchanged.
+    #[serde(
+        rename = "agent-names",
+        default,
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub agent_names: BTreeMap<String, String>,
     /// `pixtuoid floating` desktop-window geometry — a single `[floating]` table
     /// (size/position/opacity). Absent ⇒ defaults from [`resolve_floating`]. Keep
     /// BEFORE `pets`: it's a `[table]`, and the `[[pets]]` array-of-tables must
@@ -1248,6 +1256,18 @@ mod tests {
             ..Default::default()
         };
         assert!(!toml::to_string(&c).unwrap().contains("[sources]"));
+    }
+
+    #[test]
+    fn agent_names_table_parses_visual_aliases() {
+        let cfg: AppConfig =
+            toml::from_str("[agent-names]\n\"cx·secondbrain-os\" = \"Vivian\"\ntom = \"Tom\"\n")
+                .unwrap();
+        assert_eq!(
+            cfg.agent_names.get("cx·secondbrain-os").map(String::as_str),
+            Some("Vivian")
+        );
+        assert_eq!(cfg.agent_names.get("tom").map(String::as_str), Some("Tom"));
     }
 
     #[test]

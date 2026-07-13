@@ -12,6 +12,11 @@ theme = "cyberpunk"
 max-desks = 8
 pack-dir = "~/.config/pixtuoid/packs/robot"
 
+# Display-only aliases. The key is Pixtuoid's current raw label.
+[agent-names]
+"cx·secondbrain-os" = "Vivian"
+tom = "Tom"
+
 # One stanza per pet. Omit the whole section to show all pets with default
 # names; use `pets = []` to disable all pets. `name` is optional (shown in
 # the pet's hover tooltip). Keep [[pets]] last — it's a table section.
@@ -30,6 +35,7 @@ kind = "dog"        # name omitted → "Office Dog"
 | `theme` | `"normal"` | Color theme — `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox`. |
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
+| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid agent label to the name shown in the terminal and floating office. Unknown labels remain unchanged. |
 | `[[pets]]` | all kinds, default names | One stanza per pet. `kind` (`"cat"`/`"dog"`) is required; `name` is optional (the hover-tooltip label, default `Office Cat`/`Office Dog`). Omit the section for all pets; `pets = []` for none; an unknown `kind` is skipped without affecting other settings. Keep it last (it's a table section). |
 
 ## System-managed (don't edit — pixtuoid writes these for you)

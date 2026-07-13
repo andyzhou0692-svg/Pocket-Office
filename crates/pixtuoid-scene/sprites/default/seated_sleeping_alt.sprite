@@ -1,15 +1,12 @@
-# 8x10 slumped right — "dozed off leaning sideways". Hair dome shifted
-# right, body tilted. Asymmetric silhouette distinguishes from the
-# centered head-on-desk variant while staying equally "short" (2 empty
-# top rows). No face visible — head is face-down tilted.
+# 12x10 slumped right sleeping pose.
 @frame 0
-. . . . . . . .
-. . . . . . . .
-. . . . H H . .
-. . . n H H n .
-. . . H H H H .
-. . B H H H B .
-. B B B B B B .
-B B B B B B B B
-P P B B B B P P
-. . . . . . . .
+. . . . . . . . . . . .
+. . . . . . . . . . . .
+. . . . . . H H H . . .
+. . . . . n H H H n . .
+. . . . H H H H H H . .
+. . . B H H H H H B . .
+. . B B B B B B B B B .
+B B B B B B B B B B B B
+P P B B B B B B B B P P
+. . . . . . . . . . . .

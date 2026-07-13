@@ -33,8 +33,8 @@ use pixtuoid_core::{AgentEvent, Reducer, SceneState, TaggedReceiver, Transport};
 use tokio::sync::{mpsc, watch};
 
 use super::{
-    boot_capacities_for, cap_boot_capacities, summarize, ConnectedSources, RunConfig, SceneRx,
-    FALLBACK_DESKS,
+    apply_agent_names, boot_capacities_for, cap_boot_capacities, summarize, ConnectedSources,
+    RunConfig, SceneRx, FALLBACK_DESKS,
 };
 
 pub fn run(cfg: RunConfig) -> Result<()> {
@@ -55,6 +55,7 @@ async fn run_async(cfg: RunConfig) -> Result<()> {
         config_path,
         theme,
         pets,
+        agent_names,
         connected,
         log_path,
         first_run,
@@ -111,6 +112,7 @@ async fn run_async(cfg: RunConfig) -> Result<()> {
         scene_tx,
         Arc::clone(&floor_caps),
         connected.clone(),
+        agent_names,
         presence_rx,
         presence_exit_watch,
     ));
@@ -226,6 +228,7 @@ pub(crate) async fn reducer_task(
     scene_tx: watch::Sender<Arc<SceneState>>,
     floor_caps: Arc<[AtomicUsize; MAX_FLOORS]>,
     connected: ConnectedSources,
+    agent_names: std::collections::BTreeMap<String, String>,
     mut presence_rx: tokio::sync::mpsc::UnboundedReceiver<PresenceMsg>,
     presence_exit_watch: Option<daemon::PresenceExitWatch>,
 ) {
@@ -257,6 +260,7 @@ pub(crate) async fn reducer_task(
                 }
                 tracing::debug!(?transport, ?ev, "event");
                 reducer.apply(&mut scene, ev, now, transport);
+                apply_agent_names(&mut scene, &agent_names);
                 if scene_tx.send(Arc::new(scene.clone())).is_err() {
                     tracing::warn!("scene channel closed — renderer dropped");
                     break;

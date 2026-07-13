@@ -56,6 +56,7 @@ pub fn run(cfg: RunConfig) -> Result<()> {
         pack_dir,
         theme,
         pets,
+        agent_names,
         connected,
         config_path,
         ..
@@ -101,6 +102,7 @@ pub fn run(cfg: RunConfig) -> Result<()> {
         scene_tx,
         Arc::clone(&floor_caps),
         connected.clone(),
+        agent_names,
         presence_rx,
         presence_exit_watch,
     ));

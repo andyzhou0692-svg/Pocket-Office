@@ -29,14 +29,20 @@ pub(super) use crate::layout::CHARACTER_SPRITE_W;
 // stay fixed. Passing the real width keeps a non-8-wide pack centered.
 pub(super) fn seated_anchor(desk: Point, sprite_w: u16) -> Point {
     Point {
-        x: desk.x + DESK_W.saturating_sub(sprite_w) / 2,
+        x: desk
+            .x
+            .saturating_add(DESK_W / 2)
+            .saturating_sub(sprite_w / 2),
         y: desk.y.saturating_sub(8),
     }
 }
 
 pub(super) fn standing_at_desk_anchor(desk: Point, sprite_w: u16) -> Point {
     Point {
-        x: desk.x + DESK_W.saturating_sub(sprite_w) / 2,
+        x: desk
+            .x
+            .saturating_add(DESK_W / 2)
+            .saturating_sub(sprite_w / 2),
         y: desk.y.saturating_sub(12),
     }
 }

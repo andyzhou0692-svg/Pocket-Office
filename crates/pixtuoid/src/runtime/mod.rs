@@ -8,7 +8,7 @@ pub(crate) mod driver;
 
 pub use driver::run;
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -48,6 +48,9 @@ pub struct RunConfig {
     pub config_path: PathBuf,
     pub theme: &'static pixtuoid_scene::theme::Theme,
     pub pets: Vec<pixtuoid_scene::pet::Pet>,
+    /// Display-only aliases keyed by the raw label produced by the source
+    /// reducer. They do not affect agent identity, routing or lifecycle.
+    pub agent_names: BTreeMap<String, String>,
     /// The resolved set of CONNECTED source ids (registry names). Seeded at boot
     /// from `config::resolve_connected`; the runtime wraps it in a shared
     /// [`ConnectedSources`] the reducer gate reads and the Sources panel
@@ -70,6 +73,14 @@ pub struct RunConfig {
 /// panic, so the data is always valid — losing it would mass-evict the office).
 #[derive(Clone, Default)]
 pub struct ConnectedSources(Arc<Mutex<HashSet<String>>>);
+
+fn apply_agent_names(scene: &mut SceneState, names: &BTreeMap<String, String>) {
+    for slot in scene.agents.values_mut() {
+        if let Some(display_name) = names.get(slot.label.as_ref()).cloned() {
+            slot.label = display_name.into();
+        }
+    }
+}
 
 impl ConnectedSources {
     pub fn new(initial: HashSet<String>) -> Self {
@@ -210,6 +221,50 @@ mod tests {
     // structurally couldn't catch the impl diverging from `floor_seed`.
     fn floor_seed(i: usize) -> u64 {
         pixtuoid_scene::floor::floor_seed(i)
+    }
+
+    #[test]
+    fn apply_agent_names_replaces_known_labels_and_keeps_unknown_labels() {
+        let now = SystemTime::now();
+        let mut scene = SceneState::uniform(8);
+        let mut reducer = Reducer::new();
+        reducer.apply(
+            &mut scene,
+            pixtuoid_core::AgentEvent::SessionStart {
+                agent_id: pixtuoid_core::AgentId::from_parts("codex", "vivian-session"),
+                source: "codex".into(),
+                session_id: "vivian-session".into(),
+                cwd: PathBuf::from("/tmp/secondbrain-os"),
+                parent_id: None,
+            },
+            now,
+            Transport::Jsonl,
+        );
+        reducer.apply(
+            &mut scene,
+            pixtuoid_core::AgentEvent::SessionStart {
+                agent_id: pixtuoid_core::AgentId::from_parts("codex", "other-session"),
+                source: "codex".into(),
+                session_id: "other-session".into(),
+                cwd: PathBuf::from("/tmp/other-project"),
+                parent_id: None,
+            },
+            now,
+            Transport::Jsonl,
+        );
+
+        let names = std::collections::BTreeMap::from([(
+            "cx·secondbrain-os".to_string(),
+            "Vivian".to_string(),
+        )]);
+        apply_agent_names(&mut scene, &names);
+
+        let labels: Vec<String> = scene.agents.values().map(|a| a.label.to_string()).collect();
+        assert!(labels.iter().any(|label| label == "Vivian"), "{labels:?}");
+        assert!(
+            labels.iter().any(|label| label == "cx·other-project"),
+            "{labels:?}"
+        );
     }
 
     #[test]

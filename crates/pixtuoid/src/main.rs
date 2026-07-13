@@ -197,6 +197,7 @@ fn build_run_config(
     // true flags only (absent = disconnected; the install-state migrate
     // inference was dropped in 0.12.0).
     let connected = config::resolve_connected(&cfg);
+    let agent_names = cfg.agent_names.clone();
     if !headless {
         // Config problems must reach the user's eyes, not only the log file (#87):
         // stderr BEFORE any alternate screen / window. Headless already has a
@@ -216,6 +217,7 @@ fn build_run_config(
         config_path: cfg_path,
         theme,
         pets,
+        agent_names,
         connected,
         log_path: Some(logging::log_file_path()),
         first_run,

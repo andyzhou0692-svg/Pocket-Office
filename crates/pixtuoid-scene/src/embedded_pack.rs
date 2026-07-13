@@ -473,6 +473,10 @@ mod tests {
             .expect("embedded pack carries a standing pose");
         let (w, h) = (frame.width(), frame.height());
         assert_eq!(
+            w, 12,
+            "AI Office characters should use the 12px detail grid"
+        );
+        assert_eq!(
             w,
             crate::layout::CHARACTER_SPRITE_W,
             "embedded 'standing' sprite is {w}px wide but CHARACTER_SPRITE_W is {} — \
@@ -489,6 +493,26 @@ mod tests {
             crate::layout::CHARACTER_SPRITE_H_CELLS,
             crate::layout::CHARACTER_SPRITE_H_CELLS * 2
         );
+        for animation_name in [
+            "seated",
+            "typing",
+            "standing",
+            "walking",
+            "walking_back",
+            "walking_coffee",
+            "back_couch",
+            "seated_sleeping",
+            "seated_sleeping_alt",
+            "holding_coffee",
+        ] {
+            let animation = pack
+                .animation(animation_name)
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            assert!(
+                animation.frames.iter().all(|frame| frame.width() == 12),
+                "{animation_name} must keep every frame on the 12px detail grid"
+            );
+        }
     }
 
     // The desk sprite's row width is a THIRD copy of `DESK_W + 4` (baked into the
