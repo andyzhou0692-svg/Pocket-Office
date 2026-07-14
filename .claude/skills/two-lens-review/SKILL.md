@@ -11,7 +11,7 @@ metadata:
 ONE protocol, two SCOPES over the SAME factors:
 
 - **Diff scope** — the repo's **mandatory** merge gate ("Don't merge a PR without
-  the two-lens review" — workspace `CLAUDE.md`, "Things NOT to do"; PR #23 merged
+  the two-lens review" — workspace `AGENTS.md`, "Things NOT to do"; PR #23 merged
   unreviewed with a critical path-traversal). 2+ differentiated-lens agents on the
   diff, disposition in the PR thread.
 - **Whole-codebase scope** — the periodic / pre-release AUDIT. A diff review and
@@ -66,7 +66,7 @@ silently dropped).
    caught a real AA failure). Then for every MEDIUM+ finding, **verify the
    premise yourself before coding a fix** — reviewers have incomplete design
    context; check the crate's sharp edges first, and if a finding is deliberate
-   design, REFUTE it by citing (or ADDING) the relevant `CLAUDE.md` sharp edge.
+   design, REFUTE it by citing (or ADDING) the relevant `AGENTS.md` sharp edge.
 4. **Fold** accepted findings into ONE review-round commit; record any
    reviewer-flagged plan-misses as `plan-miss:` lines in its message.
 5. **Disposition sweep** (shared, below).
@@ -103,7 +103,7 @@ lens); defer only genuinely big/refactor work to issues.
 ## Disposition sweep (both scopes)
 
 Drive every reviewer/finder/bot finding to **exactly one terminal state**:
-**FIXED** · **REFUTED-with-trace** (cite or ADD the relevant per-crate `CLAUDE.md`
+**FIXED** · **REFUTED-with-trace** (cite or ADD the relevant per-crate `AGENTS.md`
 sharp edge — that keeps the next agent's context accurate) · **ISSUE-FILED**
 (no-deferral rule: only big/refactor defers). "Acknowledged, no action" is NOT a
 state — #40's ignored finding became a 0.4.1 blocker (#46). Diff scope: in the PR

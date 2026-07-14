@@ -1,0 +1,4 @@
+interface:
+  display_name: "Design AI Office"
+  short_description: "Turn office ideas into scoped visual changes"
+  default_prompt: "Use $design-ai-office to turn this AIoffice design request into a scoped, verified change."

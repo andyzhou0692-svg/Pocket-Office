@@ -21,7 +21,7 @@ suites — so an agent that stops at "it compiles" ships a red PR.
 
 ## The authoritative checklist
 
-The complete, current step list lives in **[`crates/pixtuoid-core/CLAUDE.md`](../../../crates/pixtuoid-core/CLAUDE.md)**
+The complete, current step list lives in **[`crates/pixtuoid-core/AGENTS.md`](../../../crates/pixtuoid-core/AGENTS.md)**
 ("multi-source decoding" / "Adding a new agent CLI") — read it first; it is the
 source of truth and stays current. The Copilot-format summary is
 [`.github/prompts/add-source.prompt.md`](../../../.github/prompts/add-source.prompt.md).
@@ -35,18 +35,18 @@ the runtime wiring + `Source` impl, and ships a `hook.custom` decoder + an
 These are the ones with a failing test attached — do NOT stop before them:
 
 - **`site/src/sources.json` row** — a manifest bridge test fails until it exists;
-  then `just gen-readme` to sync the README. (CLAUDE.md step 5.)
+  then `just gen-readme` to sync the README. (AGENTS.md step 5.)
 - **Per-source badge hue** — a `Theme::source` (`SourceColors`) field in EVERY
   theme file + a `dashboard_line` match arm; two guard tests fail otherwise.
-  (CLAUDE.md step 7.)
+  (AGENTS.md step 7.)
 - **`pub fn <cli>_home()`** if the CLI has a custom config root — one fn honoring
   its `*_HOME` precedence, called from BOTH the watcher's `default_paths()` AND the
-  installer's `default_config_path()` so they can't disagree. (CLAUDE.md step 6.)
+  installer's `default_config_path()` so they can't disagree. (AGENTS.md step 6.)
 - **A captured fixture** under `tests/sources/fixtures/<name>/<scenario>/`
   exercising the **SessionStart hook** — the conformance test forces one, and its
   one-AgentId assertion guards against the reason-field ghost.
 
-(The exact test names + full step list are in `crates/pixtuoid-core/CLAUDE.md`
+(The exact test names + full step list are in `crates/pixtuoid-core/AGENTS.md`
 "Adding a new agent CLI" and `add-source.prompt.md` — this skill headlines the
 teeth, those own the specifics.)
 
@@ -59,7 +59,7 @@ teeth, those own the specifics.)
   catches the miss — don't make it wait that long.
 - Capture the real wire shape and set `verified_version` (`"unknown"` until a
   byte-real capture anchors it). Drift-watch it (see the add-a-CLI list's
-  drift-watch note in `crates/pixtuoid-core/CLAUDE.md`).
+  drift-watch note in `crates/pixtuoid-core/AGENTS.md`).
 - `just gen-contract` only if you touched the `--json`/`SourceStatus`/`OutcomeRow`
   SHAPE (adding a row doesn't).
 - `just preflight` before the PR, then run the **two-lens-review** skill.
