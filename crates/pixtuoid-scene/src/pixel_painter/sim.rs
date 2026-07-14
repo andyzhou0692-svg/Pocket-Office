@@ -94,6 +94,7 @@ pub struct CharacterPlacement {
     pub sleep_z_seed: Option<u64>,
     pub waiting_bubble: bool,
     pub walking_dust_frame: Option<usize>,
+    pub(crate) habit: crate::habits::CharacterHabit,
 }
 
 /// The immutable outcome of one [`sim_step`]: the world advanced, observed.
@@ -272,7 +273,7 @@ pub(crate) fn sim_step_with_behavior(
         .collect();
 
     let (characters, waypoint_visitors, new_coffee_carriers) =
-        resolve_characters(&agents, &poses, layout, pack, coffee, now);
+        resolve_characters(&agents, &poses, layout, pack, coffee, now, behavior);
 
     let chitchat_bubbles = chitchat::update_and_collect_with_behavior(
         stores.chitchat,
@@ -306,6 +307,7 @@ fn resolve_characters(
     pack: &Pack,
     coffee: &HashMap<AgentId, SystemTime>,
     now: SystemTime,
+    behavior: &BehaviorPack,
 ) -> (
     Vec<CharacterPlacement>,
     Vec<chitchat::Visitor>,
@@ -362,21 +364,29 @@ fn resolve_characters(
                 sleep_z_seed,
                 waiting_bubble: false,
                 walking_dust_frame: None,
+                habit: crate::habits::CharacterHabit::None,
             }
         };
         match p {
             Pose::SeatedIdle => {
+                use crate::habits::CharacterHabit;
                 let sleep_variant = if agent.agent_id.raw() % 2 == 0 {
                     "seated_sleeping"
                 } else {
                     "seated_sleeping_alt"
                 };
-                placements.push(seated(
-                    sleep_variant,
-                    0,
-                    CharacterGlow::None,
-                    Some(agent.agent_id.raw()),
-                ));
+                let habit =
+                    crate::habits::phase_for_label(&agent.label, behavior.character_habits, now);
+                let (anim_name, frame_idx, flip_x, sleep_z_seed) = match habit {
+                    CharacterHabit::None => (sleep_variant, 0, false, Some(agent.agent_id.raw())),
+                    CharacterHabit::LookLeft => ("walking", 0, true, None),
+                    CharacterHabit::LookRight => ("walking", 1, false, None),
+                    CharacterHabit::Swig => ("holding_coffee", 0, false, None),
+                };
+                let mut placement = seated(anim_name, frame_idx, CharacterGlow::None, sleep_z_seed);
+                placement.flip_x = flip_x;
+                placement.habit = habit;
+                placements.push(placement);
             }
             Pose::SeatedThinking => {
                 placements.push(seated("seated", 0, CharacterGlow::Thinking, None));
@@ -402,6 +412,7 @@ fn resolve_characters(
                     sleep_z_seed: None,
                     waiting_bubble: is_waiting,
                     walking_dust_frame: None,
+                    habit: crate::habits::CharacterHabit::None,
                 });
             }
             Pose::AtWaypoint { wp, kind } => {
@@ -464,6 +475,7 @@ fn resolve_characters(
                             agent_id: agent.agent_id,
                             anchor: anchor_no_breath,
                             room_id: wp_obj.room_id,
+                            dialogue_role: chitchat::DialogueRole::for_label(&agent.label),
                         });
                     }
                     let anchor = with_breath(anchor_no_breath, agent.agent_id, now);
@@ -501,6 +513,7 @@ fn resolve_characters(
                         sleep_z_seed: None,
                         waiting_bubble: false,
                         walking_dust_frame: None,
+                        habit: crate::habits::CharacterHabit::None,
                     });
                 }
             }
@@ -520,6 +533,7 @@ fn resolve_characters(
                     sleep_z_seed: None,
                     waiting_bubble: false,
                     walking_dust_frame: None,
+                    habit: crate::habits::CharacterHabit::None,
                 });
             }
             Pose::Walking {
@@ -588,6 +602,7 @@ fn resolve_characters(
                     sleep_z_seed: None,
                     waiting_bubble: false,
                     walking_dust_frame: Some(frame),
+                    habit: crate::habits::CharacterHabit::None,
                 });
             }
         }

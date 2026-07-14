@@ -18,7 +18,40 @@ use crate::pose::{IdleBehavior, DEFAULT_IDLE_BEHAVIOR};
 /// deterministic idle policy plus the dialogue data chitchat consumes.
 pub(crate) struct BehaviorPack {
     pub(crate) idle: IdleBehavior,
+    pub(crate) character_habits: bool,
     dialogue: &'static [&'static str],
+    nepo_dialogue: Option<&'static [&'static str]>,
+}
+
+impl BehaviorPack {
+    #[cfg(test)]
+    fn dialogue_for_label(&self, label: &str) -> &'static [&'static str] {
+        self.dialogue_for_role(DialogueRole::for_label(label))
+    }
+
+    fn dialogue_for_role(&self, role: DialogueRole) -> &'static [&'static str] {
+        if role == DialogueRole::Nepo {
+            self.nepo_dialogue.unwrap_or(self.dialogue)
+        } else {
+            self.dialogue
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DialogueRole {
+    Standard,
+    Nepo,
+}
+
+impl DialogueRole {
+    pub(crate) fn for_label(label: &str) -> Self {
+        if label == NEPO_ANALYST_NAME {
+            Self::Nepo
+        } else {
+            Self::Standard
+        }
+    }
 }
 
 /// Total duration of a single chitchat exchange — the speaking turns fill it
@@ -141,9 +174,18 @@ const GOLDMAN_DIALOGUE: &[&str] = &[
     "I’ll socialize it with the board.",
 ];
 
+const NEPO_ANALYST_NAME: &str = "Tristan Pembroke";
+const NEPO_DIALOGUE: &[&str] = &[
+    "My father will hear of this..",
+    "My dad said doing an internship at Goldman is good for me",
+    "Yeah my dad is MD at another bank",
+];
+
 pub(crate) static DEFAULT_BEHAVIOR: BehaviorPack = BehaviorPack {
     idle: DEFAULT_IDLE_BEHAVIOR,
+    character_habits: false,
     dialogue: CHITCHAT_LINES,
+    nepo_dialogue: None,
 };
 
 /// The 200West visual theme opts into this pack through its canonical theme
@@ -151,7 +193,9 @@ pub(crate) static DEFAULT_BEHAVIOR: BehaviorPack = BehaviorPack {
 /// policy is deterministic and display-only.
 pub(crate) static GOLDMAN_BEHAVIOR: BehaviorPack = BehaviorPack {
     idle: IdleBehavior::fixed(70, 10),
+    character_habits: true,
     dialogue: GOLDMAN_DIALOGUE,
+    nepo_dialogue: Some(NEPO_DIALOGUE),
 };
 
 use crate::theme::GOLDMAN_THEME_NAME;
@@ -234,20 +278,23 @@ impl ActiveChitchat {
         self.current_bubble_with_dialogue(now, DEFAULT_BEHAVIOR.dialogue)
     }
 
+    fn current_speaker(&self, now: SystemTime) -> Option<AgentId> {
+        let elapsed = self.elapsed_ms(now);
+        let turn = elapsed / TURN_MS;
+        if elapsed >= CHITCHAT_TOTAL_MS || turn >= TURNS || self.participants.is_empty() {
+            return None;
+        }
+        Some(self.participants[(turn as usize) % self.participants.len()])
+    }
+
     fn current_bubble_with_dialogue(
         &self,
         now: SystemTime,
         dialogue: &'static [&'static str],
     ) -> Option<(AgentId, &'static str)> {
         let elapsed = self.elapsed_ms(now);
-        if elapsed >= CHITCHAT_TOTAL_MS {
-            return None;
-        }
         let turn = elapsed / TURN_MS;
-        if turn >= TURNS || self.participants.is_empty() {
-            return None;
-        }
-        let speaker = self.participants[(turn as usize) % self.participants.len()];
+        let speaker = self.current_speaker(now)?;
         let line_idx = (self.seed.wrapping_add(turn) as usize) % dialogue.len();
         Some((speaker, dialogue[line_idx]))
     }
@@ -309,6 +356,7 @@ pub struct Visitor {
     pub agent_id: AgentId,
     pub anchor: Point,
     pub room_id: Option<usize>,
+    pub(crate) dialogue_role: DialogueRole,
 }
 
 /// Expire old conversations, start/refresh one per venue that has ≥2 agents,
@@ -333,7 +381,7 @@ pub(crate) fn update_and_collect_with_behavior(
     state.retain(|_, chat| !chat.is_expired(now));
 
     // Group visitors by venue (meeting slots → their room, others → the point).
-    let mut by_venue: HashMap<VenueKey, Vec<(AgentId, Point)>> = HashMap::new();
+    let mut by_venue: HashMap<VenueKey, Vec<(AgentId, Point, DialogueRole)>> = HashMap::new();
     for v in visitors {
         let venue = match v.room_id {
             Some(room_id) => VenueKey::Room { floor_idx, room_id },
@@ -345,7 +393,7 @@ pub(crate) fn update_and_collect_with_behavior(
         by_venue
             .entry(venue)
             .or_default()
-            .push((v.agent_id, v.anchor));
+            .push((v.agent_id, v.anchor, v.dialogue_role));
     }
 
     let mut bubbles = Vec::new();
@@ -353,7 +401,7 @@ pub(crate) fn update_and_collect_with_behavior(
         if agents.len() < 2 {
             continue;
         }
-        let present: Vec<AgentId> = agents.iter().map(|(id, _)| *id).collect();
+        let present: Vec<AgentId> = agents.iter().map(|(id, _, _)| *id).collect();
 
         let chat = state
             .entry(*venue)
@@ -361,9 +409,11 @@ pub(crate) fn update_and_collect_with_behavior(
         // Refresh the rotation so joiners/leavers are tracked.
         chat.set_participants(present);
 
-        if let Some((speaker_id, text)) = chat.current_bubble_with_dialogue(now, behavior.dialogue)
-        {
-            if let Some((_, anchor)) = agents.iter().find(|(id, _)| *id == speaker_id) {
+        if let Some(speaker_id) = chat.current_speaker(now) {
+            if let Some((_, anchor, role)) = agents.iter().find(|(id, _, _)| *id == speaker_id) {
+                let (_, text) = chat
+                    .current_bubble_with_dialogue(now, behavior.dialogue_for_role(*role))
+                    .expect("current speaker guarantees a current bubble");
                 bubbles.push(ChitchatBubble {
                     text,
                     anchor: *anchor,
@@ -436,6 +486,28 @@ mod tests {
     }
 
     #[test]
+    fn only_tristan_pembroke_receives_the_nepo_dialogue_in_two_hundred_west() {
+        const NEPO_LINES: &[&str] = &[
+            "My father will hear of this..",
+            "My dad said doing an internship at Goldman is good for me",
+            "Yeah my dad is MD at another bank",
+        ];
+
+        assert_eq!(
+            GOLDMAN_BEHAVIOR.dialogue_for_label("Tristan Pembroke"),
+            NEPO_LINES
+        );
+        assert_eq!(
+            GOLDMAN_BEHAVIOR.dialogue_for_label("Alex"),
+            GOLDMAN_DIALOGUE
+        );
+        assert_eq!(
+            DEFAULT_BEHAVIOR.dialogue_for_label("Tristan Pembroke"),
+            CHITCHAT_LINES
+        );
+    }
+
+    #[test]
     fn goldman_original_research_list_remains_archived() {
         let numbered_entries = GOLDMAN_ORIGINAL_LIST
             .lines()
@@ -457,6 +529,40 @@ mod tests {
         assert_eq!(bubbles.len(), 1);
         assert!(GOLDMAN_BEHAVIOR.dialogue.contains(&bubbles[0].text));
         assert!(!DEFAULT_BEHAVIOR.dialogue.contains(&bubbles[0].text));
+    }
+
+    #[test]
+    fn emitted_two_hundred_west_dialogue_uses_the_speakers_visual_role() {
+        let now = base_time();
+        let nepo = vis_with_role(0, "/nepo", None, DialogueRole::Nepo);
+        let mut standard = vis_with_role(0, "/standard", None, DialogueRole::Standard);
+        standard.anchor.x += 4;
+        let visitors = vec![nepo, standard];
+        let mut state = HashMap::new();
+        let mut saw_nepo = false;
+        let mut saw_standard = false;
+
+        for turn in 0..TURNS {
+            let bubbles = update_and_collect_with_behavior(
+                &mut state,
+                0,
+                &visitors,
+                now + Duration::from_millis(turn * TURN_MS),
+                &GOLDMAN_BEHAVIOR,
+            );
+            let bubble = &bubbles[0];
+            if bubble.anchor == nepo.anchor {
+                saw_nepo = true;
+                assert!(NEPO_DIALOGUE.contains(&bubble.text));
+            } else {
+                saw_standard = true;
+                assert_eq!(bubble.anchor, standard.anchor);
+                assert!(GOLDMAN_DIALOGUE.contains(&bubble.text));
+                assert!(!NEPO_DIALOGUE.contains(&bubble.text));
+            }
+        }
+
+        assert!(saw_nepo && saw_standard);
     }
 
     #[test]
@@ -484,6 +590,19 @@ mod tests {
                 y: 20,
             },
             room_id,
+            dialogue_role: DialogueRole::Standard,
+        }
+    }
+
+    fn vis_with_role(
+        wp_idx: usize,
+        id: &str,
+        room_id: Option<usize>,
+        dialogue_role: DialogueRole,
+    ) -> Visitor {
+        Visitor {
+            dialogue_role,
+            ..vis(wp_idx, id, room_id)
         }
     }
 

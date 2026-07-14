@@ -24,8 +24,8 @@ use pixtuoid_core::state::{DaemonLiveness, DaemonPresence, DaemonState, FloorLoc
 use pixtuoid_core::AgentSlot;
 
 use super::effects::{
-    paint_coffee_steam, paint_pet_hearts, paint_screen_glow, paint_sleep_z, paint_waiting_bubble,
-    paint_walking_dust,
+    paint_coffee_steam, paint_liquor_bottle, paint_pet_hearts, paint_screen_glow, paint_sleep_z,
+    paint_suspicious_glance, paint_waiting_bubble, paint_walking_dust,
 };
 use super::epoch_ms;
 use super::frame_at;
@@ -77,6 +77,7 @@ pub(super) enum DrawableKind<'a> {
         sleep_z_seed: Option<u64>,
         waiting_bubble: bool,
         walking_dust_frame: Option<usize>,
+        habit: crate::habits::CharacterHabit,
     },
     /// Lounge couch (mirror_vertical'd — back at bottom, seat at top).
     WaypointCouch {
@@ -698,6 +699,7 @@ pub(super) fn paint_drawable(
             sleep_z_seed,
             waiting_bubble,
             walking_dust_frame,
+            habit,
         } => {
             if let Some(dust_frame) = walking_dust_frame {
                 paint_walking_dust(buf, *anchor, *dust_frame, theme);
@@ -706,11 +708,15 @@ pub(super) fn paint_drawable(
                 buf, anim_name, *frame_idx, *anchor, agent, pack, theme, *flip_x, *glow_tint,
                 cache, now,
             );
+            paint_suspicious_glance(buf, *anchor, *habit);
             if let Some(seed) = sleep_z_seed {
                 paint_sleep_z(buf, *anchor, now, *seed, theme);
             }
             if *waiting_bubble {
                 paint_waiting_bubble(buf, *anchor, theme);
+            }
+            if *habit == crate::habits::CharacterHabit::Swig {
+                paint_liquor_bottle(buf, *anchor);
             }
         }
         DrawableKind::WaypointCouch { pos } => {

@@ -2308,6 +2308,169 @@ fn sim_rig() -> (SceneState, Layout, pixtuoid_core::AgentId, SystemTime, Pack) {
     (scene, layout, id, now0, pack)
 }
 
+fn idle_alex_frame(now_ms: u64, behavior: &'static crate::chitchat::BehaviorPack) -> SimFrame {
+    let pack = crate::embedded_pack::test_default_pack();
+    let layout = Layout::compute_with_seed(160, 96, None, 0).expect("160x96 lays out");
+    let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(now_ms);
+    let id = pixtuoid_core::AgentId::from_transcript_path("/p/alex-liquor.jsonl");
+    let mut slot = make_slot(id, ActivityState::Idle);
+    slot.label = "Alex".into();
+    slot.created_at = SystemTime::UNIX_EPOCH;
+    slot.last_event_at = SystemTime::UNIX_EPOCH;
+    slot.state_started_at = now;
+    let mut scene = SceneState::uniform(16);
+    scene.agents.insert(id, slot);
+
+    let mut router = crate::pathfind::AStarRouter::new();
+    let mut overlay = OccupancyOverlay::new();
+    let mut history = pose::PoseHistory::new();
+    let mut motion = HashMap::new();
+    let mut light = LightingState::new();
+    let mut chitchat = HashMap::new();
+    sim_step_with_behavior(
+        &mut SimStores {
+            router: &mut router,
+            overlay: &mut overlay,
+            history: &mut history,
+            motion: &mut motion,
+            light: &mut light,
+            chitchat: &mut chitchat,
+        },
+        SimInputs {
+            scene: &scene,
+            layout: &layout,
+            pack: &pack,
+            coffee: &HashMap::new(),
+            floor_idx: 0,
+            now,
+            behavior,
+        },
+    )
+}
+
+#[test]
+fn two_hundred_west_maps_alex_liquor_phases_to_visible_character_placements() {
+    use crate::habits::CharacterHabit;
+
+    let left = idle_alex_frame(50_000, &crate::chitchat::GOLDMAN_BEHAVIOR);
+    assert_eq!(left.characters[0].habit, CharacterHabit::LookLeft);
+    assert_eq!(left.characters[0].anim_name, "walking");
+    assert!(left.characters[0].flip_x);
+
+    let right = idle_alex_frame(51_200, &crate::chitchat::GOLDMAN_BEHAVIOR);
+    assert_eq!(right.characters[0].habit, CharacterHabit::LookRight);
+    assert_eq!(right.characters[0].anim_name, "walking");
+    assert!(!right.characters[0].flip_x);
+
+    let swig = idle_alex_frame(52_400, &crate::chitchat::GOLDMAN_BEHAVIOR);
+    assert_eq!(swig.characters[0].habit, CharacterHabit::Swig);
+    assert_eq!(swig.characters[0].anim_name, "holding_coffee");
+
+    let normal = idle_alex_frame(52_400, &crate::chitchat::DEFAULT_BEHAVIOR);
+    assert_eq!(normal.characters[0].habit, CharacterHabit::None);
+    assert_ne!(normal.characters[0].anim_name, "holding_coffee");
+}
+
+#[test]
+fn swig_character_drawable_paints_the_liquor_bottle_inline() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let mut agent = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "alex-bottle"),
+        ActivityState::Idle,
+    );
+    agent.label = "Alex".into();
+    let anchor = Point { x: 8, y: 8 };
+    let drawable = Drawable {
+        anchor_y: anchor.y,
+        kind: DrawableKind::Character {
+            agent: &agent,
+            anim_name: "holding_coffee",
+            frame_idx: 0,
+            anchor,
+            flip_x: false,
+            glow_tint: None,
+            sleep_z_seed: None,
+            waiting_bubble: false,
+            walking_dust_frame: None,
+            habit: crate::habits::CharacterHabit::Swig,
+        },
+    };
+    let background = Rgb { r: 1, g: 2, b: 3 };
+    let mut buf = RgbBuffer::filled(32, 32, background);
+
+    paint_drawable(
+        &drawable,
+        &mut buf,
+        &pack,
+        &mut FrameCache::new(),
+        SystemTime::UNIX_EPOCH,
+        crate::theme::theme_by_name("200West").expect("200West theme"),
+    );
+
+    assert_eq!(
+        buf.get(anchor.x + 11, anchor.y + 6),
+        Rgb {
+            r: 204,
+            g: 124,
+            b: 34,
+        }
+    );
+}
+
+#[test]
+fn suspicious_glance_moves_alexs_eyes_left_then_right() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let mut agent = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "alex-glance"),
+        ActivityState::Idle,
+    );
+    agent.label = "Alex".into();
+    let anchor = Point { x: 8, y: 8 };
+    let background = Rgb { r: 1, g: 2, b: 3 };
+    let render = |habit| {
+        let drawable = Drawable {
+            anchor_y: anchor.y,
+            kind: DrawableKind::Character {
+                agent: &agent,
+                anim_name: "walking",
+                frame_idx: 0,
+                anchor,
+                flip_x: false,
+                glow_tint: None,
+                sleep_z_seed: None,
+                waiting_bubble: false,
+                walking_dust_frame: None,
+                habit,
+            },
+        };
+        let mut buf = RgbBuffer::filled(32, 32, background);
+        paint_drawable(
+            &drawable,
+            &mut buf,
+            &pack,
+            &mut FrameCache::new(),
+            SystemTime::UNIX_EPOCH,
+            crate::theme::theme_by_name("200West").expect("200West theme"),
+        );
+        buf
+    };
+
+    let baseline = render(crate::habits::CharacterHabit::None);
+    let eye = baseline.get(anchor.x + 4, anchor.y + 3);
+    let skin = baseline.get(anchor.x + 5, anchor.y + 3);
+    let left = render(crate::habits::CharacterHabit::LookLeft);
+    assert_eq!(left.get(anchor.x + 3, anchor.y + 3), eye);
+    assert_eq!(left.get(anchor.x + 6, anchor.y + 3), eye);
+    assert_eq!(left.get(anchor.x + 4, anchor.y + 3), skin);
+    assert_eq!(left.get(anchor.x + 7, anchor.y + 3), skin);
+
+    let right = render(crate::habits::CharacterHabit::LookRight);
+    assert_eq!(right.get(anchor.x + 5, anchor.y + 3), eye);
+    assert_eq!(right.get(anchor.x + 8, anchor.y + 3), eye);
+    assert_eq!(right.get(anchor.x + 4, anchor.y + 3), skin);
+    assert_eq!(right.get(anchor.x + 7, anchor.y + 3), skin);
+}
+
 #[test]
 fn sim_step_advances_motion_without_painting() {
     // The whole point of the split: the world advances with NO pixel buffer

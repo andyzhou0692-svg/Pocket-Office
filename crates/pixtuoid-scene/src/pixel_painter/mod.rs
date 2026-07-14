@@ -782,6 +782,7 @@ fn enqueue_characters<'a>(
                 sleep_z_seed: p.sleep_z_seed,
                 waiting_bubble: p.waiting_bubble,
                 walking_dust_frame: p.walking_dust_frame,
+                habit: p.habit,
             },
         });
     }

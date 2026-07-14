@@ -36,9 +36,30 @@ pub type SceneRx = watch::Receiver<Arc<SceneState>>;
 pub(crate) const FALLBACK_DESKS: usize = 16;
 
 const RECURRING_AGENT_NAMES: [&str; 24] = [
-    "Alex", "Maya", "Daniel", "Sophie", "Ethan", "Nina", "Leo", "Grace", "Marcus", "Chloe", "Ryan",
-    "Isabel", "Noah", "Priya", "Owen", "Zoe", "Julian", "Elena", "Miles", "Camille", "Theo", "Ava",
-    "Simon", "Lena",
+    "Alex",
+    "Tristan Pembroke",
+    "Maya",
+    "Daniel",
+    "Sophie",
+    "Ethan",
+    "Nina",
+    "Leo",
+    "Grace",
+    "Marcus",
+    "Chloe",
+    "Ryan",
+    "Isabel",
+    "Noah",
+    "Priya",
+    "Owen",
+    "Zoe",
+    "Julian",
+    "Elena",
+    "Miles",
+    "Camille",
+    "Theo",
+    "Ava",
+    "Simon",
 ];
 
 /// The startup inputs shared by `run` + `run_async`. Bundled so a new boot
@@ -413,7 +434,7 @@ mod tests {
         assert_eq!(vivians, 1, "only the primary agent may be Vivian");
         assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
         assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
-        assert_eq!(scene.agents[&sibling].label.as_ref(), "Maya");
+        assert_eq!(scene.agents[&sibling].label.as_ref(), "Tristan Pembroke");
         assert_eq!(
             first_labels,
             scene

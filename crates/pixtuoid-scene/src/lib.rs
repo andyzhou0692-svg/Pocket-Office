@@ -33,6 +33,7 @@ pub mod burn;
 pub mod chitchat;
 pub mod embedded_pack;
 pub mod floor;
+mod habits;
 // Per-agent recolored-sprite cache owned by each painter's `FloorCtx` — an
 // in-workspace render internal, not a stable engine API.
 #[doc(hidden)]

@@ -201,6 +201,75 @@ pub(super) fn paint_waiting_bubble(buf: &mut RgbBuffer, anchor: Point, theme: &T
     }
 }
 
+const LIQUOR_BOTTLE_CAP: Rgb = Rgb {
+    r: 48,
+    g: 38,
+    b: 30,
+};
+const LIQUOR_BOTTLE_GLASS: Rgb = Rgb {
+    r: 112,
+    g: 62,
+    b: 18,
+};
+const LIQUOR_BOTTLE_AMBER: Rgb = Rgb {
+    r: 204,
+    g: 124,
+    b: 34,
+};
+const LIQUOR_BOTTLE_LABEL: Rgb = Rgb {
+    r: 238,
+    g: 218,
+    b: 170,
+};
+
+pub(super) fn paint_liquor_bottle(buf: &mut RgbBuffer, anchor: Point) {
+    const PIXELS: &[(u16, u16, Rgb)] = &[
+        (10, 4, LIQUOR_BOTTLE_CAP),
+        (10, 5, LIQUOR_BOTTLE_GLASS),
+        (11, 5, LIQUOR_BOTTLE_GLASS),
+        (10, 6, LIQUOR_BOTTLE_GLASS),
+        (11, 6, LIQUOR_BOTTLE_AMBER),
+        (10, 7, LIQUOR_BOTTLE_LABEL),
+        (11, 7, LIQUOR_BOTTLE_LABEL),
+        (10, 8, LIQUOR_BOTTLE_GLASS),
+        (11, 8, LIQUOR_BOTTLE_AMBER),
+    ];
+    for &(dx, dy, color) in PIXELS {
+        let px = anchor.x + dx;
+        let py = anchor.y + dy;
+        if px < buf.width() && py < buf.height() {
+            buf.put(px, py, color);
+        }
+    }
+}
+
+pub(super) fn paint_suspicious_glance(
+    buf: &mut RgbBuffer,
+    anchor: Point,
+    habit: crate::habits::CharacterHabit,
+) {
+    use crate::habits::CharacterHabit;
+    if !matches!(habit, CharacterHabit::LookLeft | CharacterHabit::LookRight)
+        || anchor.x + 8 >= buf.width()
+        || anchor.y + 3 >= buf.height()
+    {
+        return;
+    }
+    let eye = buf.get(anchor.x + 4, anchor.y + 3);
+    let skin = buf.get(anchor.x + 5, anchor.y + 3);
+    for x in [4, 7] {
+        buf.put(anchor.x + x, anchor.y + 3, skin);
+    }
+    let shifted = match habit {
+        CharacterHabit::LookLeft => [3, 6],
+        CharacterHabit::LookRight => [5, 8],
+        _ => return,
+    };
+    for x in shifted {
+        buf.put(anchor.x + x, anchor.y + 3, eye);
+    }
+}
+
 /// The Top-tier flame crown (`burn::BurnTier::Top`) — a 2-frame flicker above
 /// the sprite's hair, painted AFTER the character blit so it rides every pose
 /// (seated/walking/standing) through the one `paint_character_at` seam. The
@@ -346,5 +415,20 @@ mod tests {
                 assert_eq!(resting.get(x, y), bg, "no z during the rest gap");
             }
         }
+    }
+
+    #[test]
+    fn liquor_bottle_reads_as_a_raised_amber_bottle_beside_the_face() {
+        let bg = Rgb { r: 1, g: 2, b: 3 };
+        let anchor = Point { x: 8, y: 8 };
+        let mut buf = RgbBuffer::filled(32, 32, bg);
+
+        paint_liquor_bottle(&mut buf, anchor);
+
+        assert_eq!(buf.get(anchor.x + 10, anchor.y + 4), LIQUOR_BOTTLE_CAP);
+        assert_eq!(buf.get(anchor.x + 10, anchor.y + 5), LIQUOR_BOTTLE_GLASS);
+        assert_eq!(buf.get(anchor.x + 11, anchor.y + 6), LIQUOR_BOTTLE_AMBER);
+        assert_eq!(buf.get(anchor.x + 10, anchor.y + 7), LIQUOR_BOTTLE_LABEL);
+        assert_eq!(buf.get(anchor.x + 9, anchor.y + 8), bg);
     }
 }
