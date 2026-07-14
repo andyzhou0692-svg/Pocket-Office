@@ -663,7 +663,14 @@ pub(super) fn paint_drawable(
                     }
                 }
             }
-            if let Some(frame) = pack.animation("desk").and_then(|a| a.frames.first()) {
+            let desk_animation = match theme.visual_profile() {
+                crate::theme::VisualProfile::Standard => "desk",
+                crate::theme::VisualProfile::Goldman => "goldman_desk",
+            };
+            if let Some(frame) = pack
+                .animation(desk_animation)
+                .and_then(|a| a.frames.first())
+            {
                 // The desk sprite's top row is the monitor's raised bezel (1px
                 // above the desk back), so blit 1px higher — the surface/keyboard
                 // rows still land at their original desk.y-relative positions.
@@ -696,7 +703,8 @@ pub(super) fn paint_drawable(
                 paint_walking_dust(buf, *anchor, *dust_frame, theme);
             }
             paint_character_at(
-                buf, anim_name, *frame_idx, *anchor, agent, pack, *flip_x, *glow_tint, cache, now,
+                buf, anim_name, *frame_idx, *anchor, agent, pack, theme, *flip_x, *glow_tint,
+                cache, now,
             );
             if let Some(seed) = sleep_z_seed {
                 paint_sleep_z(buf, *anchor, now, *seed, theme);

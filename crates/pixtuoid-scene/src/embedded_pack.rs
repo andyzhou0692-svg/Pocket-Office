@@ -159,6 +159,7 @@ fn load_embedded_pack() -> Result<Pack> {
             "walking_coffee_0.sprite",
             "walking_coffee_1.sprite",
             "desk.sprite",
+            "goldman_desk.sprite",
             "plant.sprite",
             "plant_tall.sprite",
             "plant_flower.sprite",
@@ -511,6 +512,35 @@ mod tests {
             assert!(
                 animation.frames.iter().all(|frame| frame.width() == 12),
                 "{animation_name} must keep every frame on the 12px detail grid"
+            );
+        }
+    }
+
+    #[test]
+    fn goldman_desk_preserves_geometry_and_carries_bank_floor_cues() {
+        let pack = test_default_pack();
+        let frame = pack
+            .animation("goldman_desk")
+            .and_then(|a| a.frames.first())
+            .expect("embedded pack carries the Goldman desk");
+        let standard = pack
+            .animation("desk")
+            .and_then(|a| a.frames.first())
+            .expect("embedded pack carries the standard desk");
+        assert_eq!(
+            (frame.width(), frame.height()),
+            (standard.width(), standard.height()),
+            "Goldman swaps art without changing the current desk sprite geometry"
+        );
+        for key in ['p', 'I', 'U', 'w', 'q'] {
+            let color = pack
+                .palette
+                .get(key)
+                .flatten()
+                .unwrap_or_else(|| panic!("Goldman desk palette key {key:?} exists"));
+            assert!(
+                frame.as_slice().contains(&Some(color)),
+                "Goldman desk must paint cue {key:?}"
             );
         }
     }

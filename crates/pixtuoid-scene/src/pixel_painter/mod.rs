@@ -161,7 +161,11 @@ use glass::{
     paint_door_frame_v, paint_door_jamb_h, paint_glass_wall_h, paint_glass_wall_v,
     stitch_vertical_wall, DOOR_JAMB_PX, WALL_THICK_H_PX,
 };
-use palette::{agent_palette, outfit_seed_for, recolor_frame};
+#[cfg(test)]
+use palette::GOLDMAN_SHIRT;
+use palette::{
+    agent_palette, apply_goldman_shirt_inset, goldman_agent_palette, outfit_seed_for, recolor_frame,
+};
 use seat::paint_character_at;
 
 /// The weather names accepted by [`force_weather`], canonical order — for

@@ -249,6 +249,68 @@ const OUTFITS: &[Outfit; 16] = &[
     },
 ];
 
+/// Goldman keeps the existing Team Palette identity but narrows its outfit
+/// vocabulary to banking suits. The same cwd seed selects a complete jacket
+/// and trouser pairing, so teammates remain visually grouped.
+const GOLDMAN_SUITS: &[Outfit; 4] = &[
+    Outfit {
+        shirt: Rgb {
+            r: 24,
+            g: 36,
+            b: 62,
+        },
+        pants: Rgb {
+            r: 20,
+            g: 28,
+            b: 44,
+        },
+    },
+    Outfit {
+        shirt: Rgb {
+            r: 42,
+            g: 47,
+            b: 55,
+        },
+        pants: Rgb {
+            r: 28,
+            g: 31,
+            b: 37,
+        },
+    },
+    Outfit {
+        shirt: Rgb {
+            r: 16,
+            g: 22,
+            b: 30,
+        },
+        pants: Rgb {
+            r: 18,
+            g: 22,
+            b: 28,
+        },
+    },
+    Outfit {
+        shirt: Rgb {
+            r: 35,
+            g: 48,
+            b: 72,
+        },
+        pants: Rgb {
+            r: 24,
+            g: 31,
+            b: 45,
+        },
+    },
+];
+
+/// Pale shirt inset used by front-facing Goldman poses. One half-block cell of
+/// contrast is enough to separate a jacket from the casual solid-shirt read.
+pub(super) const GOLDMAN_SHIRT: Rgb = Rgb {
+    r: 235,
+    g: 238,
+    b: 234,
+};
+
 /// 8 hair colors — was 5. Added silver/grey for older-coded agents,
 /// ginger / strawberry blonde / jet black for more silhouette variety.
 const HAIR_PRESETS: &[Rgb] = &[
@@ -395,6 +457,59 @@ pub(super) fn agent_palette(
         .with_override('H', Some(hair))
         .with_override('S', Some(final_skin))
         .with_override('P', Some(outfit.pants))
+}
+
+pub(super) fn goldman_agent_palette(
+    base: &Palette,
+    agent: &AgentSlot,
+    glow_tint: Option<Rgb>,
+    burn: crate::burn::BurnTier,
+) -> Palette {
+    let palette = agent_palette(base, agent, glow_tint, burn);
+    let suit = GOLDMAN_SUITS[outfit_seed_for(agent) as usize % GOLDMAN_SUITS.len()];
+    palette
+        .with_override('B', Some(suit.shirt))
+        .with_override('P', Some(suit.pants))
+}
+
+/// Add a two-pixel pale shirt inset to the first two jacket rows of a
+/// front-facing pose. Back views remain solid jackets. The base frame identifies
+/// jacket pixels, so geometry and every non-outfit pixel remain byte-for-byte.
+pub(super) fn apply_goldman_shirt_inset(
+    base_frame: &Frame,
+    recolored: Frame,
+    base_palette: &Palette,
+    anim_name: &str,
+) -> Frame {
+    if matches!(anim_name, "walking_back" | "back_couch") {
+        return recolored;
+    }
+    let Some(jacket_key) = base_palette.get('B').flatten() else {
+        return recolored;
+    };
+    let center_left = base_frame.width() / 2 - 1;
+    let center_right = base_frame.width() / 2;
+    let mut jacket_rows = Vec::new();
+    for y in 0..base_frame.height() {
+        if (0..base_frame.width()).any(|x| {
+            base_frame.as_slice()[(y * base_frame.width() + x) as usize] == Some(jacket_key)
+        }) {
+            jacket_rows.push(y);
+            if jacket_rows.len() == 2 {
+                break;
+            }
+        }
+    }
+    let mut pixels = recolored.as_slice().to_vec();
+    for y in jacket_rows {
+        for x in [center_left, center_right] {
+            let idx = (y * base_frame.width() + x) as usize;
+            if base_frame.as_slice()[idx] == Some(jacket_key) {
+                pixels[idx] = Some(GOLDMAN_SHIRT);
+            }
+        }
+    }
+    Frame::from_pixels(recolored.width(), recolored.height(), pixels)
 }
 
 /// The monitor glow color for a specific tool kind — the exhaustive

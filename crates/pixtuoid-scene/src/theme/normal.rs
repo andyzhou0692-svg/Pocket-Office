@@ -2,7 +2,7 @@ use pixtuoid_core::sprite::Rgb;
 
 use super::*;
 
-pub static NORMAL: Theme = Theme {
+pub(super) const NORMAL_THEME: Theme = Theme {
     name: "normal",
     kind: ThemeKind::Light,
     surface: SurfaceColors {
@@ -522,3 +522,5 @@ pub static NORMAL: Theme = Theme {
         }, // omp lime (brand-constant; clears antigravity-green + codewhale-teal + claude-amber on every theme)
     },
 };
+
+pub static NORMAL: Theme = NORMAL_THEME;

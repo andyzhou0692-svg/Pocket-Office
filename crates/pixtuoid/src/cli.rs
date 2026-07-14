@@ -20,7 +20,7 @@ pub struct Cli {
     #[arg(long, global = true, value_enum, default_value = "info")]
     pub log_level: LogLevel,
 
-    /// Color theme: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox.
+    /// Color theme: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox, goldman.
     #[arg(long, global = true)]
     pub theme: Option<String>,
 }

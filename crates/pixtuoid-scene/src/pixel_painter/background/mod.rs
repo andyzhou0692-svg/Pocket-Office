@@ -64,6 +64,18 @@ const WINDOW_GAP: u16 = 3;
 /// `DEPTH` constant inside `paint_window_light_spill`.
 const SPILL_DEPTH: u16 = 12;
 
+const GOLDMAN_RIVER: Rgb = Rgb {
+    r: 52,
+    g: 108,
+    b: 154,
+};
+const GOLDMAN_RIVER_REFLECTION: Rgb = Rgb {
+    r: 105,
+    g: 164,
+    b: 202,
+};
+const GOLDMAN_HUDSON_HORIZON_PERCENT: u16 = 52;
+
 /// Lightning strike cadence (Storm only): a flash fires on average every
 /// `LIGHTNING_PERIOD_MS` (~15 s; a much faster cadence would read as a
 /// hyperactive storm), lasting `LIGHTNING_FLASH_MS`. The flash shape is a two-pulse flicker
@@ -373,6 +385,7 @@ pub(super) fn paint_floor_and_walls(
                 &sky_row,
                 win_disc,
                 star_strength,
+                theme.visual_profile(),
             );
             // look.spill_strength already includes atmospheric attenuation
             // (time_of_day_look multiplies by atmo.intensity), so heavy
@@ -659,6 +672,7 @@ fn paint_floor_to_ceiling_window(
     sky_row: &[Rgb],
     disc: Option<Disc>,
     star_strength: f32,
+    visual_profile: crate::theme::VisualProfile,
 ) {
     // Skyline silhouette as a 0..15 PATTERN; the actual pixel height is
     // computed per-window so the skyline auto-scales with the glass
@@ -691,11 +705,40 @@ fn paint_floor_to_ceiling_window(
             let glass_dy = dy - 1;
             let pat_idx = ((glass_dx + window_idx * 3) % SKYLINE_PATTERN.len() as u16) as usize;
             let pat = SKYLINE_PATTERN[pat_idx] as u16;
-            let building_h = min_bh + (pat * bh_range) / PATTERN_MAX;
-            let in_building = glass_dy >= glass_h.saturating_sub(building_h);
+            let default_building_h = min_bh + (pat * bh_range) / PATTERN_MAX;
+            let (in_building, bldg_y, in_river) = match visual_profile {
+                crate::theme::VisualProfile::Standard => {
+                    let top = glass_h.saturating_sub(default_building_h);
+                    (glass_dy >= top, glass_dy.saturating_sub(top), false)
+                }
+                crate::theme::VisualProfile::Goldman => {
+                    const JERSEY_MIN_HEIGHT: u16 = 2;
+                    let horizon = glass_h * GOLDMAN_HUDSON_HORIZON_PERCENT / 100;
+                    let jersey_h = (glass_h / 8 + pat % 3).max(JERSEY_MIN_HEIGHT);
+                    let top = horizon.saturating_sub(jersey_h);
+                    (
+                        glass_dy >= top && glass_dy < horizon,
+                        glass_dy.saturating_sub(top),
+                        glass_dy >= horizon,
+                    )
+                }
+            };
 
-            if in_building {
-                let bldg_y = glass_dy - (glass_h - building_h);
+            if in_river {
+                let horizon = glass_h * GOLDMAN_HUDSON_HORIZON_PERCENT / 100;
+                let water_y = glass_dy.saturating_sub(horizon);
+                let reflection =
+                    water_y % 4 == 1 && (glass_dx + window_idx.wrapping_mul(3)) % 7 < 4;
+                buf.put(
+                    px,
+                    py,
+                    if reflection {
+                        GOLDMAN_RIVER_REFLECTION
+                    } else {
+                        GOLDMAN_RIVER
+                    },
+                );
+            } else if in_building {
                 // Lit-window dots arranged on a 2-px grid (every other
                 // column + every other row of the building). Per-dot
                 // lit/unlit decision is hashed from (col, row, win_idx)
@@ -1200,6 +1243,7 @@ mod tests {
                 &sky_row,
                 None,
                 0.0,
+                theme.visual_profile(),
             );
             // Sum luminance over the glass interior (inside the 1px frame).
             let mut sum = 0u64;
@@ -1252,6 +1296,46 @@ mod tests {
             buf.get(0, 0),
             Rgb { r: 5, g: 5, b: 5 },
             "the wall band should still paint in the in-bounds rows"
+        );
+    }
+
+    #[test]
+    fn goldman_window_has_hudson_water_reflections_and_a_low_skyline() {
+        let theme = crate::theme::theme_by_name("goldman").expect("goldman theme");
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12 * 3600);
+        let look = time_of_day_look(now, theme);
+        let (lit_colors, building, sky_row) = window_glass_invariants(30, &look, theme);
+        let mut buf = RgbBuffer::filled(40, 40, Rgb { r: 8, g: 8, b: 10 });
+        paint_floor_to_ceiling_window(
+            &mut buf,
+            0,
+            0,
+            WINDOW_W,
+            30,
+            theme.surface.window_frame,
+            0,
+            now,
+            Weather::Clear,
+            0.0,
+            &lit_colors,
+            building,
+            &sky_row,
+            None,
+            0.0,
+            theme.visual_profile(),
+        );
+        let river_pixels = (1..29)
+            .flat_map(|y| (1..(WINDOW_W - 1)).map(move |x| (x, y)))
+            .filter(|&(x, y)| buf.get(x, y) == GOLDMAN_RIVER)
+            .count();
+        let reflection_pixels = (1..29)
+            .flat_map(|y| (1..(WINDOW_W - 1)).map(move |x| (x, y)))
+            .filter(|&(x, y)| buf.get(x, y) == GOLDMAN_RIVER_REFLECTION)
+            .count();
+        assert!(river_pixels >= 20, "Hudson needs visible vertical depth");
+        assert!(
+            reflection_pixels >= 3,
+            "horizontal reflections distinguish water from sky"
         );
     }
 

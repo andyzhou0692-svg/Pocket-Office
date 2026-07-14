@@ -154,7 +154,7 @@ pub(crate) static GOLDMAN_BEHAVIOR: BehaviorPack = BehaviorPack {
     dialogue: GOLDMAN_DIALOGUE,
 };
 
-pub(crate) const GOLDMAN_THEME_NAME: &str = "goldman";
+use crate::theme::GOLDMAN_THEME_NAME;
 
 pub(crate) fn behavior_pack_for_theme(theme_name: &str) -> &'static BehaviorPack {
     match theme_name {
@@ -403,6 +403,16 @@ mod tests {
         assert!(std::ptr::eq(
             behavior_pack_for_theme("future-unknown"),
             &DEFAULT_BEHAVIOR
+        ));
+    }
+
+    #[test]
+    fn selectable_goldman_theme_activates_the_existing_goldman_behavior() {
+        let theme = crate::theme::theme_by_name(GOLDMAN_THEME_NAME)
+            .expect("goldman visual theme is registered");
+        assert!(std::ptr::eq(
+            behavior_pack_for_theme(theme.name),
+            &GOLDMAN_BEHAVIOR
         ));
     }
 

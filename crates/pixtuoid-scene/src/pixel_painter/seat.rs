@@ -18,6 +18,7 @@ pub(super) fn paint_character_at(
     anchor: Point,
     agent: &AgentSlot,
     pack: &Pack,
+    theme: &crate::theme::Theme,
     flip_x: bool,
     glow_tint: Option<Rgb>,
     cache: &mut FrameCache,
@@ -46,8 +47,21 @@ pub(super) fn paint_character_at(
             burn,
         },
         || {
-            let pal = agent_palette(&pack.palette, agent, glow_tint, burn);
+            let pal = match theme.visual_profile() {
+                crate::theme::VisualProfile::Standard => {
+                    agent_palette(&pack.palette, agent, glow_tint, burn)
+                }
+                crate::theme::VisualProfile::Goldman => {
+                    goldman_agent_palette(&pack.palette, agent, glow_tint, burn)
+                }
+            };
             let recolored = recolor_frame(frame, &pal, &pack.palette);
+            let recolored = match theme.visual_profile() {
+                crate::theme::VisualProfile::Standard => recolored,
+                crate::theme::VisualProfile::Goldman => {
+                    apply_goldman_shirt_inset(frame, recolored, &pack.palette, anim_name)
+                }
+            };
             if flip_x {
                 recolored.mirror_horizontal()
             } else {

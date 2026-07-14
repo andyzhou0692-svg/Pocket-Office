@@ -1,6 +1,7 @@
 mod catppuccin;
 mod cyberpunk;
 mod dracula;
+mod goldman;
 mod gruvbox;
 mod normal;
 mod tokyo_night;
@@ -10,9 +11,12 @@ use pixtuoid_core::sprite::Rgb;
 pub use catppuccin::CATPPUCCIN;
 pub use cyberpunk::CYBERPUNK;
 pub use dracula::DRACULA;
+pub use goldman::GOLDMAN;
 pub use gruvbox::GRUVBOX;
 pub use normal::NORMAL;
 pub use tokyo_night::TOKYO_NIGHT;
+
+pub(crate) const GOLDMAN_THEME_NAME: &str = "goldman";
 
 /// Light vs Dark classification — drives effects that only look right on
 /// one or the other (e.g. ceiling halos read as soft glow on dark themes
@@ -21,6 +25,15 @@ pub use tokyo_night::TOKYO_NIGHT;
 pub enum ThemeKind {
     Light,
     Dark,
+}
+
+/// Narrow visual routing for the one location theme that needs more than
+/// palette substitution. Geometry stays shared; the profile only selects
+/// same-footprint character, desk, and window treatments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VisualProfile {
+    Standard,
+    Goldman,
 }
 
 #[derive(Debug, Clone)]
@@ -36,6 +49,15 @@ pub struct Theme {
     pub tool_glow: ToolGlowColors,
     pub appliance: ApplianceColors,
     pub source: SourceColors,
+}
+
+impl Theme {
+    pub(crate) fn visual_profile(&self) -> VisualProfile {
+        match self.name {
+            GOLDMAN_THEME_NAME => VisualProfile::Goldman,
+            _ => VisualProfile::Standard,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -244,6 +266,7 @@ pub static ALL_THEMES: &[&Theme] = &[
     &TOKYO_NIGHT,
     &CATPPUCCIN,
     &GRUVBOX,
+    &GOLDMAN,
 ];
 
 pub fn theme_by_name(name: &str) -> Option<&'static Theme> {
@@ -268,6 +291,13 @@ mod tests {
     #[test]
     fn unknown_theme_returns_none() {
         assert!(theme_by_name("doesnotexist").is_none());
+    }
+
+    #[test]
+    fn goldman_is_a_selectable_light_theme_with_its_visual_profile() {
+        let goldman = theme_by_name("goldman").expect("goldman theme resolves");
+        assert_eq!(goldman.kind, ThemeKind::Light);
+        assert_eq!(goldman.visual_profile(), VisualProfile::Goldman);
     }
 
     #[test]
@@ -314,6 +344,7 @@ mod tests {
     #[test]
     fn light_themes_marked_light() {
         assert_eq!(NORMAL.kind, ThemeKind::Light);
+        assert_eq!(GOLDMAN.kind, ThemeKind::Light);
     }
 
     // The window-wall celestial disc (Task 7) must read as a WARM sun and a

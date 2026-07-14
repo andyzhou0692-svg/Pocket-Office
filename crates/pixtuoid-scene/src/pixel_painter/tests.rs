@@ -542,6 +542,45 @@ fn recolor_frame_handles_palette_with_no_overrides() {
     assert_eq!(out.as_slice(), frame.as_slice());
 }
 
+#[test]
+fn goldman_palette_limits_outfits_to_dark_professional_suits() {
+    let base = base_palette();
+    for id in 0..32 {
+        let slot = make_slot(
+            pixtuoid_core::AgentId::from_parts("codex", &format!("goldman-{id}")),
+            ActivityState::Idle,
+        );
+        let palette = goldman_agent_palette(&base, &slot, None, crate::burn::BurnTier::Normal);
+        let jacket = palette.get('B').flatten().expect("jacket color");
+        let trousers = palette.get('P').flatten().expect("trouser color");
+        assert!(jacket.b >= jacket.r, "jacket stays navy or neutral");
+        assert!(jacket.r < 80 && jacket.g < 90 && jacket.b < 120);
+        assert!(trousers.r < 70 && trousers.g < 80 && trousers.b < 100);
+    }
+}
+
+#[test]
+fn goldman_front_pose_gets_a_pale_shirt_but_back_pose_does_not() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "goldman-suit"),
+        ActivityState::Idle,
+    );
+    let palette = goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let render = |anim_name| {
+        let frame = pack
+            .animation(anim_name)
+            .and_then(|a| a.frames.first())
+            .expect("pose exists");
+        let recolored = recolor_frame(frame, &palette, &pack.palette);
+        apply_goldman_shirt_inset(frame, recolored, &pack.palette, anim_name)
+    };
+    assert!(render("standing").as_slice().contains(&Some(GOLDMAN_SHIRT)));
+    assert!(!render("walking_back")
+        .as_slice()
+        .contains(&Some(GOLDMAN_SHIRT)));
+}
+
 /// Helper — build a minimal Drawable for sort-order tests. Uses the
 /// MeetingTable variant since it carries no borrowed data.
 fn drawable(anchor_y: u16) -> Drawable<'static> {
@@ -1559,6 +1598,7 @@ fn top_tier_slot_paints_ember_hair_and_a_flame_crown() {
             anchor,
             slot,
             &pack,
+            crate::theme::theme_by_name("normal").expect("normal theme"),
             false,
             None,
             &mut FrameCache::new(),
@@ -1621,6 +1661,7 @@ fn paint_character_at_missing_anim_is_a_noop() {
         Point { x: 20, y: 20 },
         &slot,
         &pack,
+        crate::theme::theme_by_name("normal").expect("normal theme"),
         false,
         None,
         &mut cache,
@@ -1969,6 +2010,7 @@ fn cwd_backfill_invalidates_cached_outfit_frames() {
         anchor,
         &unknown,
         &pack,
+        crate::theme::theme_by_name("normal").expect("normal theme"),
         false,
         None,
         &mut cache,
@@ -1984,6 +2026,7 @@ fn cwd_backfill_invalidates_cached_outfit_frames() {
         anchor,
         &healed,
         &pack,
+        crate::theme::theme_by_name("normal").expect("normal theme"),
         false,
         None,
         &mut cache,
@@ -1999,6 +2042,7 @@ fn cwd_backfill_invalidates_cached_outfit_frames() {
         anchor,
         &healed,
         &pack,
+        crate::theme::theme_by_name("normal").expect("normal theme"),
         false,
         None,
         &mut FrameCache::new(),

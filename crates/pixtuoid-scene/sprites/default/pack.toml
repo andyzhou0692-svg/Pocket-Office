@@ -47,6 +47,10 @@ version = "1"
 "Q" = "#f0895a"   # lobster highlight (orange carapace)
 "A" = "#e85540"   # lobster claw (lit)
 "a" = "#c83828"   # lobster antenna
+"p" = "#dabe91"   # Goldman pale maple desk surface
+"v" = "#a48459"   # Goldman maple desk trim
+"I" = "#2f73bf"   # Goldman blue monitor screen
+"U" = "#111820"   # Goldman desk phone
 
 [animations.seated]
 frames   = ["seated.sprite"]
@@ -74,6 +78,10 @@ frame_ms = 220
 
 [animations.desk]
 frames   = ["desk.sprite"]
+frame_ms = 600
+
+[animations.goldman_desk]
+frames   = ["goldman_desk.sprite"]
 frame_ms = 600
 
 [animations.plant]

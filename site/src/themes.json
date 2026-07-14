@@ -41,5 +41,12 @@
     "blurb": "Retro amber",
     "accent": "#fabd2f",
     "accent2": "#fe8019"
+  },
+  {
+    "id": "goldman",
+    "name": "Goldman",
+    "blurb": "Bright banking floor",
+    "accent": "#4376a9",
+    "accent2": "#dabe91"
   }
 ]
