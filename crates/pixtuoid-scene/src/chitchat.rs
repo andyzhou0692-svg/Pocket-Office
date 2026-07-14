@@ -55,15 +55,15 @@ impl DialogueRole {
 }
 
 /// Total duration of a single chitchat exchange — the speaking turns fill it
-/// exactly (`= TURNS × TURN_MS` = 6 s). There is NO separate trailing silent gap:
+/// exactly (`= TURNS × TURN_MS` = 12 s). There is NO separate trailing silent gap:
 /// `current_bubble`'s `turn >= TURNS` guard is a defensive bound that only bites
 /// if these constants are later changed to make `CHITCHAT_TOTAL_MS` exceed the
 /// speaking turns; at the current values the `elapsed >= CHITCHAT_TOTAL_MS` guard
 /// ends the exchange first.
 pub const CHITCHAT_TOTAL_MS: u64 = TURNS * TURN_MS;
 
-/// Each speaker gets 1.5 s per turn.
-const TURN_MS: u64 = 1_500;
+/// Each speaker gets 3 s per turn.
+const TURN_MS: u64 = 3_000;
 
 /// Number of speaking turns.
 const TURNS: u64 = 4;
@@ -610,14 +610,36 @@ mod tests {
     fn test_expires_after_total_ms() {
         let start = base_time();
         let chat = ActiveChitchat::new(vk(0), vec![aid("/a"), aid("/b")], start);
-        assert!(chat.is_expired(start + Duration::from_millis(7_000)));
+        assert!(chat.is_expired(start + Duration::from_millis(12_000)));
     }
 
     #[test]
     fn test_not_expired_before_total_ms() {
         let start = base_time();
         let chat = ActiveChitchat::new(vk(0), vec![aid("/a"), aid("/b")], start);
-        assert!(!chat.is_expired(start + Duration::from_millis(3_000)));
+        assert!(!chat.is_expired(start + Duration::from_millis(11_999)));
+    }
+
+    #[test]
+    fn each_quote_remains_visible_for_three_seconds() {
+        let start = base_time();
+        let chat = ActiveChitchat::new(vk(0), vec![aid("/a"), aid("/b")], start);
+        let first_speaker = chat.current_bubble(start).unwrap().0;
+
+        assert_eq!(TURN_MS, 3_000);
+        assert_eq!(CHITCHAT_TOTAL_MS, 12_000);
+        assert_eq!(
+            chat.current_bubble(start + Duration::from_millis(2_999))
+                .unwrap()
+                .0,
+            first_speaker
+        );
+        assert_ne!(
+            chat.current_bubble(start + Duration::from_millis(3_000))
+                .unwrap()
+                .0,
+            first_speaker
+        );
     }
 
     #[test]
@@ -630,13 +652,13 @@ mod tests {
         let p1 = chat.participants[1];
         assert_eq!(chat.current_bubble(start).unwrap().0, p0);
         assert_eq!(
-            chat.current_bubble(start + Duration::from_millis(1_500))
+            chat.current_bubble(start + Duration::from_millis(3_000))
                 .unwrap()
                 .0,
             p1
         );
         assert_eq!(
-            chat.current_bubble(start + Duration::from_millis(3_000))
+            chat.current_bubble(start + Duration::from_millis(6_000))
                 .unwrap()
                 .0,
             p0
@@ -651,7 +673,7 @@ mod tests {
         // Four turns, four participants → every participant speaks exactly once.
         let mut speakers = std::collections::HashSet::new();
         for turn in 0..4u64 {
-            let t = start + Duration::from_millis(turn * 1_500);
+            let t = start + Duration::from_millis(turn * 3_000);
             speakers.insert(chat.current_bubble(t).unwrap().0);
         }
         assert_eq!(speakers.len(), 4, "all four should get a turn");
@@ -667,7 +689,7 @@ mod tests {
         let p = chat.participants.clone();
         // turns 0,1,2,3 → p0,p1,p2,p0
         let speaker = |turn: u64| {
-            chat.current_bubble(start + Duration::from_millis(turn * 1_500))
+            chat.current_bubble(start + Duration::from_millis(turn * 3_000))
                 .unwrap()
                 .0
         };
@@ -691,7 +713,7 @@ mod tests {
         let start = base_time();
         let chat = ActiveChitchat::new(vk(0), vec![aid("/a"), aid("/b")], start);
         assert!(chat
-            .current_bubble(start + Duration::from_millis(6_000))
+            .current_bubble(start + Duration::from_millis(12_000))
             .is_none());
     }
 
