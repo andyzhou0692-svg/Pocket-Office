@@ -964,12 +964,12 @@ fn settle_seat_view_recognizes_the_home_desk() {
 #[test]
 fn desk_settle_z_key_matches_the_seated_arm() {
     // The desk's settle z-key (desk.y + DESK_SEAT_Z_OFF) must equal the z-key
-    // the seated desk arms use (anchor_no_breath.y + 12 with anchor =
+    // the seated desk arms use (anchor_no_breath.y + sprite height with anchor =
     // seated_anchor) so the glide and the settled render sort identically —
     // and both stay below the desk furniture z-key (desk.y + 8).
     for desk in [Point { x: 40, y: 30 }, Point { x: 100, y: 60 }] {
         for w in [CHARACTER_SPRITE_W, 10] {
-            let seated_arm_z = seated_anchor(desk, w).y + 12;
+            let seated_arm_z = seated_anchor(desk, w).y + crate::layout::CHARACTER_SPRITE_H;
             assert_eq!(
                 desk.y + DESK_SEAT_Z_OFF,
                 seated_arm_z,
@@ -1009,13 +1009,19 @@ fn sit_arc_z_key_is_stable_and_on_the_right_side_of_its_furniture() {
 
         // (1) Behavior-preserving: equals the historical seated AtWaypoint key.
         let historical = match view {
-            // back_couch_anchor.y + sprite_h(9) = (pos.y - 7) + 9
-            SeatView::Front | SeatView::Back => back_couch_anchor(w.pos, CHARACTER_SPRITE_W).y + 9,
-            // waypoint_anchor.y + sprite_h(12) + 3 = (pos.y - 12) + 12 + 3
-            SeatView::Side { .. } => waypoint_anchor(w.pos, CHARACTER_SPRITE_W).y + 12 + 3,
-            // waypoint_anchor.y + sprite_h(12) = pos.y — the AtWaypoint
+            // back_couch_anchor.y + sprite_h = pos.y + 2
+            SeatView::Front | SeatView::Back => {
+                back_couch_anchor(w.pos, CHARACTER_SPRITE_W).y + crate::layout::CHARACTER_SPRITE_H
+            }
+            // waypoint_anchor.y + sprite_h + 3 = pos.y + 3
+            SeatView::Side { .. } => {
+                waypoint_anchor(w.pos, CHARACTER_SPRITE_W).y + crate::layout::CHARACTER_SPRITE_H + 3
+            }
+            // waypoint_anchor.y + sprite_h = pos.y — the AtWaypoint
             // default a plain stander historically used.
-            SeatView::Stander { .. } => waypoint_anchor(w.pos, CHARACTER_SPRITE_W).y + 12,
+            SeatView::Stander { .. } => {
+                waypoint_anchor(w.pos, CHARACTER_SPRITE_W).y + crate::layout::CHARACTER_SPRITE_H
+            }
         };
         assert_eq!(
             z, historical,
@@ -1085,9 +1091,9 @@ fn desk_occupant_always_sorts_behind_its_desk() {
         for w in [CHARACTER_SPRITE_W, 10] {
             let desk_furniture_z = desk.y + visual_h;
             // SeatedIdle / SeatedThinking / SeatedTyping z-key.
-            let seated_z = seated_anchor(desk, w).y + 12;
+            let seated_z = seated_anchor(desk, w).y + crate::layout::CHARACTER_SPRITE_H;
             // StandingAtDesk z-key.
-            let standing_z = standing_at_desk_anchor(desk, w).y + 12;
+            let standing_z = standing_at_desk_anchor(desk, w).y + crate::layout::CHARACTER_SPRITE_H;
             assert!(
                 seated_z < desk_furniture_z,
                 "seated desk occupant z {seated_z} must be BEHIND the desk {desk_furniture_z}"
@@ -1167,12 +1173,12 @@ fn back_view_seats_sort_over_their_sitter() {
 
 #[test]
 fn character_anchor_y_exceeds_desk_when_south_of_it() {
-    // The bug-fix invariant: a character whose feet (anchor.y + 12)
+    // The bug-fix invariant: a character whose feet land one sprite height below its anchor
     // land BELOW the desk's bottom row (desk.y + 8) must sort AFTER
     // the desk and therefore paint on top.
     let desk_y: u16 = 20;
     let desk_anchor_y = desk_y + 8;
-    let char_feet_anchor = (desk_y + 10) + 12; // walker south of desk
+    let char_feet_anchor = (desk_y + 10) + crate::layout::CHARACTER_SPRITE_H;
     assert!(
         char_feet_anchor > desk_anchor_y,
         "walker south of desk must sort after it: char={char_feet_anchor}, desk={desk_anchor_y}"
@@ -1187,7 +1193,7 @@ fn character_anchor_y_below_desk_when_seated_at_it() {
     // desk occludes their lower body in top-down view.
     let desk_y: u16 = 20;
     let seated_anchor = seated_anchor(Point { x: 0, y: desk_y }, CHARACTER_SPRITE_W);
-    let char_feet_anchor = seated_anchor.y + 12;
+    let char_feet_anchor = seated_anchor.y + crate::layout::CHARACTER_SPRITE_H;
     let desk_anchor_y = desk_y + 8;
     assert!(
         char_feet_anchor < desk_anchor_y,

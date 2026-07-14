@@ -75,6 +75,131 @@ const GOLDMAN_RIVER_REFLECTION: Rgb = Rgb {
     b: 202,
 };
 const GOLDMAN_HUDSON_HORIZON_PERCENT: u16 = 52;
+const HUDSON_TRAFFIC_CYCLE_MS: u64 = 20_000;
+const HUDSON_YACHT_WHITE: Rgb = Rgb {
+    r: 246,
+    g: 244,
+    b: 232,
+};
+const HUDSON_PADDLEBOARD_ORANGE: Rgb = Rgb {
+    r: 214,
+    g: 143,
+    b: 74,
+};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HudsonTraffic {
+    Yacht,
+    Paddleboarder,
+}
+
+/// Pick at most one Hudson detail per 20-second cycle. This is deterministic
+/// local animation, not agent state: yachts occupy roughly 1 in 8 cycles and
+/// the suited paddleboard commuter roughly 1 in 24.
+fn hudson_traffic(window_idx: u16, elapsed_ms: u64) -> Option<HudsonTraffic> {
+    let cycle = elapsed_ms / HUDSON_TRAFFIC_CYCLE_MS;
+    let h = pixtuoid_core::id::splitmix64(cycle ^ 0x4855_4453_4f4e_3230);
+    let target_window = ((h >> 16) % 6) as u16;
+    if window_idx != target_window {
+        return None;
+    }
+    match h % 24 {
+        0..=2 => Some(HudsonTraffic::Yacht),
+        3 => Some(HudsonTraffic::Paddleboarder),
+        _ => None,
+    }
+}
+
+fn paint_hudson_traffic(
+    buf: &mut RgbBuffer,
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+    window_idx: u16,
+    elapsed_ms: u64,
+) {
+    let Some(traffic) = hudson_traffic(window_idx, elapsed_ms) else {
+        return;
+    };
+    let glass_h = h.saturating_sub(2);
+    let horizon = glass_h * GOLDMAN_HUDSON_HORIZON_PERCENT / 100;
+    let base_y = (horizon + 4).min(glass_h.saturating_sub(2)) as i16 + 1;
+    let phase_ms = elapsed_ms % HUDSON_TRAFFIC_CYCLE_MS;
+    let travel = w as u64 + 7;
+    let mut left = (phase_ms * travel / HUDSON_TRAFFIC_CYCLE_MS) as i16 - 6;
+    if (elapsed_ms / HUDSON_TRAFFIC_CYCLE_MS) % 2 == 1 {
+        left = w as i16 - left - 6;
+    }
+
+    let mut put = |local_x: i16, local_y: i16, color: Rgb| {
+        if local_x <= 0
+            || local_y <= 0
+            || local_x >= w as i16 - 1
+            || local_y >= h as i16 - 1
+            || local_x == (w / 2) as i16
+            || local_y == (h * 7 / 10) as i16
+        {
+            return;
+        }
+        let px = x + local_x as u16;
+        let py = y + local_y as u16;
+        if px < buf.width() && py < buf.height() {
+            buf.put(px, py, color);
+        }
+    };
+
+    match traffic {
+        HudsonTraffic::Yacht => {
+            let cabin_blue = Rgb {
+                r: 142,
+                g: 190,
+                b: 216,
+            };
+            let wake = Rgb {
+                r: 184,
+                g: 219,
+                b: 234,
+            };
+            put(left + 2, base_y - 2, HUDSON_YACHT_WHITE);
+            for dx in 1..=4 {
+                put(left + dx, base_y - 1, HUDSON_YACHT_WHITE);
+            }
+            put(left + 3, base_y - 1, cabin_blue);
+            for dx in 0..=5 {
+                put(left + dx, base_y, HUDSON_YACHT_WHITE);
+            }
+            put(left - 1, base_y + 1, wake);
+            put(left, base_y + 1, wake);
+        }
+        HudsonTraffic::Paddleboarder => {
+            let suit = Rgb {
+                r: 28,
+                g: 36,
+                b: 48,
+            };
+            let skin = Rgb {
+                r: 202,
+                g: 155,
+                b: 122,
+            };
+            let paddle = Rgb {
+                r: 226,
+                g: 209,
+                b: 174,
+            };
+            for dx in 0..=4 {
+                put(left + dx, base_y, HUDSON_PADDLEBOARD_ORANGE);
+            }
+            put(left + 2, base_y - 3, skin);
+            put(left + 2, base_y - 2, suit);
+            put(left + 2, base_y - 1, suit);
+            put(left + 3, base_y - 2, paddle);
+            put(left + 4, base_y - 1, paddle);
+            put(left + 5, base_y, paddle);
+        }
+    }
+}
 
 /// Lightning strike cadence (Storm only): a flash fires on average every
 /// `LIGHTNING_PERIOD_MS` (~15 s; a much faster cadence would read as a
@@ -802,6 +927,10 @@ fn paint_floor_to_ceiling_window(
         }
     }
 
+    if visual_profile == crate::theme::VisualProfile::Goldman {
+        paint_hudson_traffic(buf, x, y, w, h, window_idx, epoch_ms(now));
+    }
+
     // Skyline haze: fog/rain/storm/smog obscure the city behind the glass.
     // Blend the glass interior toward the weather haze BEFORE the streak/flash
     // effects, so rain/snow/lightning still read on top of the murk.
@@ -1300,8 +1429,8 @@ mod tests {
     }
 
     #[test]
-    fn goldman_window_has_hudson_water_reflections_and_a_low_skyline() {
-        let theme = crate::theme::theme_by_name("goldman").expect("goldman theme");
+    fn two_hundred_west_window_has_hudson_water_reflections_and_a_low_skyline() {
+        let theme = &crate::theme::GOLDMAN;
         let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12 * 3600);
         let look = time_of_day_look(now, theme);
         let (lit_colors, building, sky_row) = window_glass_invariants(30, &look, theme);
@@ -1336,6 +1465,35 @@ mod tests {
         assert!(
             reflection_pixels >= 3,
             "horizontal reflections distinguish water from sky"
+        );
+    }
+
+    #[test]
+    fn two_hundred_west_hudson_eventually_paints_yachts_and_the_suited_paddleboarder() {
+        let mut saw_yacht = false;
+        let mut saw_paddleboarder = false;
+
+        // Sample many deterministic traffic cycles. The details are occasional,
+        // but both must remain reachable and paint without random state, local
+        // timezone assumptions, or model calls.
+        for cycle in 0..240u64 {
+            let elapsed_ms = cycle * HUDSON_TRAFFIC_CYCLE_MS + HUDSON_TRAFFIC_CYCLE_MS / 2;
+            for window_idx in 0..6 {
+                let mut buf = RgbBuffer::filled(40, 40, Rgb { r: 8, g: 8, b: 10 });
+                paint_hudson_traffic(&mut buf, 0, 0, WINDOW_W, 30, window_idx, elapsed_ms);
+                for y in 1..29 {
+                    for x in 1..(WINDOW_W - 1) {
+                        saw_yacht |= buf.get(x, y) == HUDSON_YACHT_WHITE;
+                        saw_paddleboarder |= buf.get(x, y) == HUDSON_PADDLEBOARD_ORANGE;
+                    }
+                }
+            }
+        }
+
+        assert!(saw_yacht, "an occasional yacht must cross the Hudson");
+        assert!(
+            saw_paddleboarder,
+            "the suited paddleboard commuter easter egg must remain reachable"
         );
     }
 

@@ -146,9 +146,9 @@ pub(crate) static DEFAULT_BEHAVIOR: BehaviorPack = BehaviorPack {
     dialogue: CHITCHAT_LINES,
 };
 
-/// A future Goldman visual theme can opt into this pack simply by using the
-/// authoritative theme name `goldman`; no layout or color-model field is
-/// required. The more social idle policy is deterministic and display-only.
+/// The 200West visual theme opts into this pack through its canonical theme
+/// name; no layout or color-model field is required. The more social idle
+/// policy is deterministic and display-only.
 pub(crate) static GOLDMAN_BEHAVIOR: BehaviorPack = BehaviorPack {
     idle: IdleBehavior::fixed(70, 10),
     dialogue: GOLDMAN_DIALOGUE,
@@ -407,9 +407,9 @@ mod tests {
     }
 
     #[test]
-    fn selectable_goldman_theme_activates_the_existing_goldman_behavior() {
+    fn selectable_two_hundred_west_theme_activates_the_existing_goldman_behavior() {
         let theme = crate::theme::theme_by_name(GOLDMAN_THEME_NAME)
-            .expect("goldman visual theme is registered");
+            .expect("200West visual theme is registered");
         assert!(std::ptr::eq(
             behavior_pack_for_theme(theme.name),
             &GOLDMAN_BEHAVIOR

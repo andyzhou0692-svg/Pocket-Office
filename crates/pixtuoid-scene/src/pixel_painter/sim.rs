@@ -319,7 +319,7 @@ fn resolve_characters(
     // on the first couch's index) so the couch hosts a single group
     // conversation like the meeting room — without overloading the
     // meeting-only `room_id` field (which indexes `meeting_rooms`).
-    // The pack's character sprite width (8 for the bundled pack, 10 for the
+    // The pack's character sprite width (12 for the bundled pack, 10 for the
     // robot pack). All character poses share one width, so resolve it ONCE from
     // a reference pose and center every anchor on it — a non-8-wide pack would
     // otherwise blit ~1px off (the anchors hardcoded 8). Fallback to the bundled
@@ -423,25 +423,22 @@ fn resolve_characters(
                         wp_obj.facing,
                         &layout.reachable,
                     );
-                    let (anim_name, anchor_base, sprite_h, flip_x) = match kind {
-                        WaypointKind::Pantry => (
-                            "holding_coffee",
-                            waypoint_anchor(stand, char_w),
-                            12u16,
-                            false,
-                        ),
+                    let (anim_name, anchor_base, flip_x) = match kind {
+                        WaypointKind::Pantry => {
+                            ("holding_coffee", waypoint_anchor(stand, char_w), false)
+                        }
                         // Lounge couch + meeting sofa: the sprite follows the
                         // SEATED facing (couch always North/window → back_couch;
                         // the sofa's two seats face each other across the table).
                         // Both reuse the 16×7-sofa anchor.
                         WaypointKind::Couch | WaypointKind::MeetingSofa => {
                             let (anim, flip) = seat_sprite(kind, wp_obj.facing);
-                            (anim, back_couch_anchor(stand, char_w), 9u16, flip)
+                            (anim, back_couch_anchor(stand, char_w), flip)
                         }
                         // Meeting stand: beside the table, facing inward.
                         WaypointKind::MeetingStand | WaypointKind::Island => {
                             let (anim, flip) = seat_sprite(kind, wp_obj.facing);
-                            (anim, waypoint_anchor(stand, char_w), 12u16, flip)
+                            (anim, waypoint_anchor(stand, char_w), flip)
                         }
                         // PhoneBooth + StandingDesk → agent just stands at the
                         // decor. waypoint_anchor positions them directly above
@@ -452,7 +449,7 @@ fn resolve_characters(
                         | WaypointKind::VendingMachine
                         | WaypointKind::Printer
                         | WaypointKind::SnackShelf => {
-                            ("standing", waypoint_anchor(stand, char_w), 12u16, false)
+                            ("standing", waypoint_anchor(stand, char_w), false)
                         }
                     };
                     let anchor_no_breath = Point {
@@ -494,7 +491,7 @@ fn resolve_characters(
                             | WaypointKind::Island => {
                                 SeatView::of(kind, wp_obj.facing).z_key_for_seat(stand)
                             }
-                            _ => anchor_no_breath.y + sprite_h,
+                            _ => anchor_no_breath.y + WALKING_Y_OFF,
                         },
                         anim_name,
                         frame_idx: 0,

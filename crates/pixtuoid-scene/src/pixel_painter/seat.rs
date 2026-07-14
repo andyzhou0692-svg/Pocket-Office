@@ -245,7 +245,7 @@ pub(super) fn settle_seat_view(cell: Point, layout: &Layout) -> Option<(SeatView
         .or_else(|| {
             layout.home_desks.iter().find_map(|&desk| {
                 (seated_foot_cell(Furniture::Desk, desk) == Some(cell))
-                    // == the seated arms' `anchor_no_breath.y + 12` (= desk.y+4);
+                    // == the seated arms' `anchor_no_breath.y + sprite_h` (= desk.y+4);
                     // pinned by `desk_settle_z_key_matches_the_seated_arm`.
                     .then_some((SeatView::Front, desk.y + DESK_SEAT_Z_OFF))
             })
@@ -253,6 +253,6 @@ pub(super) fn settle_seat_view(cell: Point, layout: &Layout) -> Option<(SeatView
 }
 
 /// The home-desk sitter's z-key offset south of `desk`: `seated_anchor.y(=desk.y
-/// − 8) + sprite_h(12) = desk.y + 4`. Below the desk furniture key (`desk.y + 8`)
+/// − 12) + sprite_h(16) = desk.y + 4`. Below the desk furniture key (`desk.y + 8`)
 /// so the sitter and its sit-down glide always sort behind the desk monitor.
 pub(super) const DESK_SEAT_Z_OFF: u16 = 4;

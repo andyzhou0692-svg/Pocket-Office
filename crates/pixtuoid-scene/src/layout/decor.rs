@@ -2,7 +2,7 @@
 //! piece of furniture and waypoint kind in the office. Kept separate from
 //! geometry so adding a new sprite kind doesn't churn the layout math.
 
-use super::{Point, Size, DESK_FOOT_H, DESK_H, DESK_W};
+use super::{Point, Size, CHARACTER_SPRITE_H, DESK_FOOT_H, DESK_H, DESK_W};
 
 /// Wander destinations the Idle state machine can pick. Each kind controls
 /// the pose + sprite an arriving agent takes. Plants/lamps are decor, not
@@ -774,16 +774,16 @@ pub const fn desk_furniture_def() -> FurnitureDef {
 }
 
 /// Vertical offset baked into the walking / waypoint sprite anchor
-/// (`p.y - WALKING_Y_OFF`) — the 12-px standing/walking sprite height. Owned
+/// (`p.y - WALKING_Y_OFF`) — the standing/walking sprite height. Owned
 /// here in `pixtuoid-scene` (not duplicated as a painter literal) so
 /// `seated_foot_cell` and the anchor reference ONE value: the "invert the render
 /// anchor to the settle cell" identity then holds by construction, not by two
 /// modules keeping a literal in sync. See [`seated_foot_cell`].
-pub const WALKING_Y_OFF: u16 = 12;
+pub const WALKING_Y_OFF: u16 = CHARACTER_SPRITE_H;
 /// Vertical offset of the back-view seat sprite anchor (`pos.y - SEAT_RENDER_Y_OFF`).
-/// The seat's settle cell is `WALKING_Y_OFF - SEAT_RENDER_Y_OFF = 5` px south of
+/// The seat's settle cell is `WALKING_Y_OFF - SEAT_RENDER_Y_OFF = 2` px south of
 /// `pos` (where `walking_anchor` lands exactly on `back_couch_anchor`).
-pub const SEAT_RENDER_Y_OFF: u16 = 7;
+pub const SEAT_RENDER_Y_OFF: u16 = CHARACTER_SPRITE_H - 2;
 
 /// Offsets from a home desk's top-left to the agent's WALK anchor (the cell the
 /// agent walks to/from for its desk). Chosen so the `walking_anchor` of this

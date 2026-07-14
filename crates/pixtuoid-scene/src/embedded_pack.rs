@@ -478,6 +478,10 @@ mod tests {
             "AI Office characters should use the 12px detail grid"
         );
         assert_eq!(
+            h, 16,
+            "AI Office characters should use the approved 12x16 proportion"
+        );
+        assert_eq!(
             w,
             crate::layout::CHARACTER_SPRITE_W,
             "embedded 'standing' sprite is {w}px wide but CHARACTER_SPRITE_W is {} — \
@@ -512,6 +516,10 @@ mod tests {
             assert!(
                 animation.frames.iter().all(|frame| frame.width() == 12),
                 "{animation_name} must keep every frame on the 12px detail grid"
+            );
+            assert!(
+                animation.frames.iter().all(|frame| frame.height() == 16),
+                "{animation_name} must keep every frame on the 16px-tall detail grid"
             );
         }
     }

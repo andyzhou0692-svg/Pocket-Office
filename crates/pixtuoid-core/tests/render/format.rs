@@ -155,11 +155,11 @@ fn default_pack_loads_with_required_animations() {
     }
     let seated = pack.animation("seated").unwrap();
     assert_eq!(seated.frames[0].width(), 12);
-    assert_eq!(seated.frames[0].height(), 10);
+    assert_eq!(seated.frames[0].height(), 16);
 
     let standing = pack.animation("standing").unwrap();
     assert_eq!(standing.frames[0].width(), 12);
-    assert_eq!(standing.frames[0].height(), 12);
+    assert_eq!(standing.frames[0].height(), 16);
 
     let walking = pack.animation("walking").unwrap();
     assert_eq!(walking.frames.len(), 2);
@@ -195,6 +195,35 @@ fn robot_pack_passes_validation() {
         "insufficient frames: {:?}",
         report.insufficient_frames
     );
+}
+
+#[test]
+fn bundled_custom_character_poses_keep_the_shared_16px_canvas() {
+    for (pack_name, path) in [
+        ("robot", "../pixtuoid/sprites/robot"),
+        ("skeleton", "../pixtuoid/sprites/skeleton"),
+    ] {
+        let pack = load_pack(Path::new(path)).unwrap();
+        for name in [
+            "seated",
+            "typing",
+            "standing",
+            "walking",
+            "walking_back",
+            "holding_coffee",
+            "back_couch",
+            "seated_sleeping",
+            "seated_sleeping_alt",
+        ] {
+            let animation = pack
+                .animation(name)
+                .unwrap_or_else(|| panic!("{pack_name} pack carries {name}"));
+            assert!(
+                animation.frames.iter().all(|frame| frame.height() == 16),
+                "{pack_name} {name} frames must stay on the shared 16px character canvas"
+            );
+        }
+    }
 }
 
 #[test]

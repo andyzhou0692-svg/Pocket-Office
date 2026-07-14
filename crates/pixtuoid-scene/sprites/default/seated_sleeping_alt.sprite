@@ -1,5 +1,8 @@
-# 12x10 slumped right sleeping pose.
+# 12x16 slumped-right sleeping pose.
 @frame 0
+. . . . . . . . . . . .
+. . . . . . . . . . . .
+. . . . . . . . . . . .
 . . . . . . . . . . . .
 . . . . . . . . . . . .
 . . . . . . H H H . . .
@@ -7,6 +10,9 @@
 . . . . H H H H H H . .
 . . . B H H H H H B . .
 . . B B B B B B B B B .
+. B B B B B B B B B B B
+B B B B B B B B B B B B
 B B B B B B B B B B B B
 P P B B B B B B B B P P
+. . B B B B B B B B . .
 . . . . . . . . . . . .

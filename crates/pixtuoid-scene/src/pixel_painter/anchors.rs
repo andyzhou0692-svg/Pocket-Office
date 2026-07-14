@@ -11,7 +11,7 @@ use crate::layout::{SEAT_RENDER_Y_OFF, WALKING_Y_OFF};
 use pixtuoid_core::AgentSlot;
 
 use super::epoch_ms;
-use crate::layout::{Point, WaypointKind, DESK_W};
+use crate::layout::{Point, WaypointKind, CHARACTER_SPRITE_H, DESK_SEATED_Y_OFF, DESK_W};
 // Walk-leg lerp lives on the sim side (`motion` — pose history records with
 // it); re-imported here for the painter's blit/anchor call-sites.
 pub(crate) use crate::motion::walking_position;
@@ -23,17 +23,16 @@ use crate::pose::{self, Pose};
 /// and ±1px doesn't matter; the sprite BLIT sites pass the real `frame.width`.
 pub(super) use crate::layout::CHARACTER_SPRITE_W;
 
-// All anchor fns center the sprite horizontally on `sprite_w` — the pack's
-// character width (8 for the bundled pack, 10 for the robot pack). The vertical
-// pose offsets (8/12/7) are NOT sprite height: both packs are 12px tall, so they
-// stay fixed. Passing the real width keeps a non-8-wide pack centered.
+// All anchor fns center the sprite horizontally on `sprite_w`. The default
+// human pack is 12×16; custom packs still pass their real width while keeping
+// the shared foot positions used by layout and hit testing.
 pub(super) fn seated_anchor(desk: Point, sprite_w: u16) -> Point {
     Point {
         x: desk
             .x
             .saturating_add(DESK_W / 2)
             .saturating_sub(sprite_w / 2),
-        y: desk.y.saturating_sub(8),
+        y: desk.y.saturating_sub(DESK_SEATED_Y_OFF),
     }
 }
 
@@ -43,7 +42,7 @@ pub(super) fn standing_at_desk_anchor(desk: Point, sprite_w: u16) -> Point {
             .x
             .saturating_add(DESK_W / 2)
             .saturating_sub(sprite_w / 2),
-        y: desk.y.saturating_sub(12),
+        y: desk.y.saturating_sub(CHARACTER_SPRITE_H),
     }
 }
 

@@ -234,7 +234,7 @@ pub const DESK_H: u16 = 5;
 /// `pub(crate)`: no cross-crate consumer (unlike `DESK_W`/`DESK_H`, which the
 /// binary's hit-test reads) — least-privilege on the semver surface.
 pub(crate) const DESK_FOOT_H: u16 = 2;
-/// Default character sprite width (px). The bundled pack is 12×12; this is the
+/// Default character sprite width (px). The bundled pack is 12×16; this is the
 /// ONE authority every out-of-pixel_painter consumer centers/hit-tests on
 /// (anchors' LABEL fallback, `layout::decor::DESK_WALK_X_OFF`, the tui hit-test
 /// pin box, the floating label centering) — a bare width copied into those sites
@@ -245,10 +245,16 @@ pub(crate) const DESK_FOOT_H: u16 = 2;
 /// without a module cycle. Pinned to the embedded pack by
 /// `character_sprite_w_matches_the_embedded_pack`.
 pub const CHARACTER_SPRITE_W: u16 = 12;
-/// Default character sprite height in terminal CELLS (the 12 px sprite is 6
-/// half-block rows). Used by the tui hit-test pin box (cell space); the pixel
-/// pose offsets (8/12/7 px) are a SEPARATE vertical-anchor concern, NOT this.
-pub const CHARACTER_SPRITE_H_CELLS: u16 = 6;
+/// Default character sprite height in terminal CELLS (the 16 px sprite is 8
+/// half-block rows). Used by the tui hit-test pin box (cell space).
+pub const CHARACTER_SPRITE_H_CELLS: u16 = 8;
+/// Default character sprite height in buffer pixels. Character anchors and
+/// z-keys use the same value so a future proportion change cannot stretch the
+/// hit box away from the painted pose.
+pub const CHARACTER_SPRITE_H: u16 = CHARACTER_SPRITE_H_CELLS * 2;
+/// Vertical distance from a home desk's top row to the seated sprite's top.
+/// Shared by the painter and the TUI's lightweight click-to-pin hit test.
+pub const DESK_SEATED_Y_OFF: u16 = CHARACTER_SPRITE_H - 4;
 /// Elevator-door sprite size in buffer px — the single source for the door's
 /// width (the layout slots the sprite into the back wall and the renderer skips
 /// the window glass it covers) and height (the z-sort anchor row). Both the

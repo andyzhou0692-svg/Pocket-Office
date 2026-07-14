@@ -16,7 +16,7 @@ pub use gruvbox::GRUVBOX;
 pub use normal::NORMAL;
 pub use tokyo_night::TOKYO_NIGHT;
 
-pub(crate) const GOLDMAN_THEME_NAME: &str = "goldman";
+pub(crate) const GOLDMAN_THEME_NAME: &str = "200West";
 
 /// Light vs Dark classification — drives effects that only look right on
 /// one or the other (e.g. ceiling halos read as soft glow on dark themes
@@ -270,7 +270,11 @@ pub static ALL_THEMES: &[&Theme] = &[
 ];
 
 pub fn theme_by_name(name: &str) -> Option<&'static Theme> {
-    ALL_THEMES.iter().find(|t| t.name == name).copied()
+    ALL_THEMES
+        .iter()
+        .find(|t| t.name == name)
+        .copied()
+        .or_else(|| (name == "goldman").then_some(&GOLDMAN))
 }
 
 #[cfg(test)]
@@ -294,10 +298,15 @@ mod tests {
     }
 
     #[test]
-    fn goldman_is_a_selectable_light_theme_with_its_visual_profile() {
-        let goldman = theme_by_name("goldman").expect("goldman theme resolves");
-        assert_eq!(goldman.kind, ThemeKind::Light);
-        assert_eq!(goldman.visual_profile(), VisualProfile::Goldman);
+    fn two_hundred_west_is_canonical_and_keeps_the_old_launch_alias() {
+        let two_hundred_west = theme_by_name("200West").expect("200West theme resolves");
+        assert_eq!(two_hundred_west.name, "200West");
+        assert_eq!(two_hundred_west.kind, ThemeKind::Light);
+        assert_eq!(two_hundred_west.visual_profile(), VisualProfile::Goldman);
+        assert!(std::ptr::eq(
+            two_hundred_west,
+            theme_by_name("goldman").expect("old theme name remains a launch alias")
+        ));
     }
 
     #[test]
