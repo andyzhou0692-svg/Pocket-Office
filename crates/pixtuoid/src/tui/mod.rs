@@ -554,7 +554,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
         &mut Vec::new(),
     ));
     let pack = embedded_pack::load_sprite_pack(pack_dir)?;
-    let visual_coworkers = crate::runtime::VisualCoworkers::new(visual_coworker_names);
+    let mut visual_coworkers = crate::runtime::VisualCoworkers::new(visual_coworker_names);
     let term = setup_terminal()?;
     let mut renderer = TuiRenderer::new(term, theme, pets);
     renderer.set_layout_overrides(layout_overrides);

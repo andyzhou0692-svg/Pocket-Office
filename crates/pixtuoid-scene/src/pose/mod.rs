@@ -214,6 +214,14 @@ pub(crate) fn derive_with_routing_and_behavior(
     // `route_walking_pose` call — no per-branch `RouteCtx { .. }` rebuild.
     let desk = layout.home_desk(slot.desk_index.single_floor_local())?;
 
+    if slot.exiting_at.is_none() {
+        if let Some(mstate) = rctx.motion.get_mut(&slot.agent_id) {
+            if mstate.exit.take().is_some() {
+                mstate.walk_path = None;
+            }
+        }
+    }
+
     // ---- EXIT branch -------------------------------------------------------
     // Takes priority over entry and state-driven poses.
     if let Some(exit_time) = slot.exiting_at {
@@ -238,8 +246,16 @@ pub(crate) fn derive_with_routing_and_behavior(
             .entry(slot.agent_id)
             .or_insert_with(|| MotionState::new(slot.agent_id));
 
-        // Snapshot the exit profile on first sighting.
-        if mstate.exit.is_none() {
+        // Snapshot the exit profile on first sighting of each departure.
+        // The same render-only agent id can cancel an exit and depart again,
+        // so a changed timestamp starts a fresh episode instead of resuming
+        // the cached path and timing from the previous walk.
+        if mstate
+            .exit
+            .as_ref()
+            .is_none_or(|leg| leg.started_at != exit_time)
+        {
+            mstate.walk_path = None;
             // Start the exit from wherever the agent actually is: its current
             // wander position if it was out on a trip (fresh history), else the
             // desk anchor (the common case — exiting from a seated state).

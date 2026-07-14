@@ -2447,6 +2447,84 @@ fn exit_while_wandering_does_not_teleport_to_desk() {
 }
 
 #[test]
+fn cancelled_exit_resnapshots_when_the_agent_departs_again() {
+    use crate::pathfind::AStarRouter;
+    use crate::pixel_painter::character_anchor;
+
+    let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+    let l = layout();
+    let mut slot = entry_slot(now - Duration::from_secs(120));
+    let first_exit = now;
+    slot.exiting_at = Some(first_exit);
+
+    let mut router = AStarRouter::new();
+    router.set_preferred_zone(l.corridor);
+    let overlay = pixtuoid_core::walkable::OccupancyOverlay::new();
+    let mut history = PoseHistory::new();
+    let mut motion: HashMap<AgentId, MotionState> = HashMap::new();
+
+    let _ = character_anchor(
+        &slot,
+        &l,
+        first_exit + Duration::from_millis(1),
+        &mut crate::pose::RouteCtx {
+            router: &mut router,
+            overlay: &overlay,
+            history: &mut history,
+            motion: &mut motion,
+        },
+    )
+    .expect("first exit pose");
+    assert_eq!(
+        motion[&slot.agent_id].exit.as_ref().unwrap().started_at,
+        first_exit
+    );
+
+    slot.exiting_at = None;
+    let _ = character_anchor(
+        &slot,
+        &l,
+        now + Duration::from_millis(100),
+        &mut crate::pose::RouteCtx {
+            router: &mut router,
+            overlay: &overlay,
+            history: &mut history,
+            motion: &mut motion,
+        },
+    )
+    .expect("cancelled exit returns to a normal pose");
+    assert!(
+        motion[&slot.agent_id].exit.is_none(),
+        "cancelling a departure must clear its cached exit episode"
+    );
+    assert!(
+        motion[&slot.agent_id].walk_path.is_none(),
+        "cancelling a departure must clear its frozen exit route"
+    );
+
+    let second_exit = first_exit;
+    slot.exiting_at = Some(second_exit);
+    let _ = character_anchor(
+        &slot,
+        &l,
+        second_exit + Duration::from_millis(1),
+        &mut crate::pose::RouteCtx {
+            router: &mut router,
+            overlay: &overlay,
+            history: &mut history,
+            motion: &mut motion,
+        },
+    )
+    .expect("second exit pose");
+
+    assert_eq!(
+        motion[&slot.agent_id].exit.as_ref().unwrap().started_at,
+        second_exit,
+        "a second departure must not reuse the cancelled exit timeline"
+    );
+}
+
+#[test]
 fn wander_continuous_across_layouts_and_agents() {
     // "All routing scenarios": verify no teleport across a spread of office
     // GEOMETRIES (different decoration seeds + terminal sizes ⇒ different

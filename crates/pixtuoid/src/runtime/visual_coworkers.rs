@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -14,6 +14,12 @@ const RESIDENTS: [(&str, &str); 3] = [
     ("jess", "Jess (Head of Strategy)"),
 ];
 
+#[derive(Clone, Copy)]
+enum IdleDeparture {
+    Departing { started_at: SystemTime },
+    Hidden,
+}
+
 fn counts_toward_idle_cap(slot: &AgentSlot) -> bool {
     matches!(slot.state, ActivityState::Idle) && slot.exiting_at.is_none()
 }
@@ -24,6 +30,7 @@ fn counts_toward_idle_cap(slot: &AgentSlot) -> bool {
 pub(crate) struct VisualCoworkers {
     names: BTreeMap<String, String>,
     started_at: SystemTime,
+    departing_idle: HashMap<AgentId, IdleDeparture>,
 }
 
 impl VisualCoworkers {
@@ -31,10 +38,11 @@ impl VisualCoworkers {
         Self {
             names,
             started_at: SystemTime::now(),
+            departing_idle: HashMap::new(),
         }
     }
 
-    pub(crate) fn render_scene(&self, scene: &SceneState, now: SystemTime) -> SceneState {
+    pub(crate) fn render_scene(&mut self, scene: &SceneState, now: SystemTime) -> SceneState {
         let mut rendered = scene.clone();
         let vivian = scene
             .agents
@@ -124,9 +132,36 @@ impl VisualCoworkers {
             .rev()
             .take(MAX_VISIBLE_IDLE_AGENTS)
             .collect();
-        rendered
+        let excess_idle: HashSet<_> = rendered
             .agents
-            .retain(|id, slot| !counts_toward_idle_cap(slot) || visible_idle.contains(id));
+            .iter()
+            .filter(|(id, slot)| counts_toward_idle_cap(slot) && !visible_idle.contains(id))
+            .map(|(id, _)| *id)
+            .collect();
+        self.departing_idle.retain(|id, _| excess_idle.contains(id));
+
+        for id in excess_idle {
+            let departure = self
+                .departing_idle
+                .entry(id)
+                .or_insert(IdleDeparture::Departing { started_at: now });
+            match *departure {
+                IdleDeparture::Departing { started_at } => {
+                    let exit_finished = now.duration_since(started_at).is_ok_and(|elapsed| {
+                        elapsed > pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW
+                    });
+                    if exit_finished {
+                        *departure = IdleDeparture::Hidden;
+                        rendered.agents.remove(&id);
+                    } else if let Some(slot) = rendered.agents.get_mut(&id) {
+                        slot.exiting_at = Some(started_at);
+                    }
+                }
+                IdleDeparture::Hidden => {
+                    rendered.agents.remove(&id);
+                }
+            }
+        }
 
         rendered
     }
@@ -183,7 +218,7 @@ mod tests {
 
     #[test]
     fn active_vivian_rotates_exactly_one_active_resident() {
-        let coworkers = VisualCoworkers::new(BTreeMap::new());
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
         for (tool_call_count, expected) in [
             (1, "Tom (Head of IBD)"),
             (2, "Amy (Head of IR)"),
@@ -328,7 +363,7 @@ mod tests {
         let visible_idle = rendered
             .agents
             .values()
-            .filter(|slot| matches!(slot.state, ActivityState::Idle))
+            .filter(|slot| counts_toward_idle_cap(slot))
             .count();
 
         assert_eq!(visible_idle, 7);
@@ -377,11 +412,17 @@ mod tests {
         let visible_residents = rendered
             .agents
             .values()
-            .filter(|slot| slot.source.as_ref() == SOURCE)
+            .filter(|slot| slot.source.as_ref() == SOURCE && slot.exiting_at.is_none())
+            .count();
+        let departing_residents = rendered
+            .agents
+            .values()
+            .filter(|slot| slot.source.as_ref() == SOURCE && slot.exiting_at.is_some())
             .count();
 
         assert_eq!(visible_real, 5);
         assert_eq!(visible_residents, 2);
+        assert_eq!(departing_residents, 1);
     }
 
     #[test]
@@ -418,6 +459,124 @@ mod tests {
         assert!(
             rendered.agents.contains_key(&exiting),
             "an existing walk-out must finish even when the idle office is full"
+        );
+    }
+
+    #[test]
+    fn newly_excess_idle_agent_walks_out_before_becoming_hidden() {
+        let mut capacities = [0; MAX_FLOORS];
+        capacities[0] = 16;
+        let mut scene = SceneState::new(capacities);
+        let vivian = AgentId::from_parts("codex", "root");
+        scene.agents.insert(
+            vivian,
+            slot(vivian, "Vivian", 0, None, ActivityState::Idle, 0),
+        );
+        for desk in 1..=6 {
+            let id = AgentId::from_parts("codex", &format!("idle-{desk}"));
+            let mut idle = slot(
+                id,
+                &format!("Idle {desk}"),
+                desk,
+                Some(vivian),
+                ActivityState::Idle,
+                0,
+            );
+            idle.last_event_at = SystemTime::UNIX_EPOCH + Duration::from_secs(desk as u64);
+            scene.agents.insert(id, idle);
+        }
+        let overflow = AgentId::from_parts("codex", "overflow");
+        scene.agents.insert(
+            overflow,
+            slot(
+                overflow,
+                "Overflow",
+                7,
+                Some(vivian),
+                ActivityState::Active {
+                    tool_use_id: None,
+                    detail: None,
+                    kind: ToolKind::Other,
+                },
+                1,
+            ),
+        );
+
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
+        let active_frame = coworkers.render_scene(&scene, SystemTime::UNIX_EPOCH);
+        assert!(active_frame.agents.contains_key(&overflow));
+
+        let exit_started = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        scene.agents.get_mut(&overflow).unwrap().state = ActivityState::Idle;
+        let departure_frame = coworkers.render_scene(&scene, exit_started);
+        let departing = departure_frame
+            .agents
+            .get(&overflow)
+            .expect("an excess idle agent must remain rendered while walking to the door");
+        assert_eq!(departing.exiting_at, Some(exit_started));
+
+        let grace = pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW;
+        let almost_finished = exit_started + grace - Duration::from_millis(1);
+        let final_departure_frame = coworkers.render_scene(&scene, almost_finished);
+        assert_eq!(
+            final_departure_frame.agents[&overflow].exiting_at,
+            Some(exit_started),
+            "the departure timestamp must remain stable for the full walk-out window"
+        );
+
+        let after_departure = exit_started + grace + Duration::from_millis(1);
+        let hidden_frame = coworkers.render_scene(&scene, after_departure);
+        assert!(!hidden_frame.agents.contains_key(&overflow));
+    }
+
+    #[test]
+    fn completed_idle_departure_stays_hidden_after_clock_regression() {
+        let mut capacities = [0; MAX_FLOORS];
+        capacities[0] = 16;
+        let mut scene = SceneState::new(capacities);
+        let vivian = AgentId::from_parts("codex", "root");
+        scene.agents.insert(
+            vivian,
+            slot(vivian, "Vivian", 0, None, ActivityState::Idle, 0),
+        );
+        for desk in 1..=7 {
+            let id = AgentId::from_parts("codex", &format!("idle-{desk}"));
+            let mut idle = slot(
+                id,
+                &format!("Idle {desk}"),
+                desk,
+                Some(vivian),
+                ActivityState::Idle,
+                0,
+            );
+            idle.last_event_at = SystemTime::UNIX_EPOCH + Duration::from_secs(desk as u64);
+            scene.agents.insert(id, idle);
+        }
+
+        let overflow = AgentId::from_parts("codex", "idle-1");
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
+        let exit_started = SystemTime::UNIX_EPOCH + Duration::from_secs(10);
+        let departure_frame = coworkers.render_scene(&scene, exit_started);
+        assert_eq!(
+            departure_frame.agents[&overflow].exiting_at,
+            Some(exit_started)
+        );
+
+        let after_departure = exit_started
+            + pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW
+            + Duration::from_millis(1);
+        assert!(!coworkers
+            .render_scene(&scene, after_departure)
+            .agents
+            .contains_key(&overflow));
+
+        let regressed_clock = exit_started + Duration::from_millis(1);
+        assert!(
+            !coworkers
+                .render_scene(&scene, regressed_clock)
+                .agents
+                .contains_key(&overflow),
+            "a completed departure must stay hidden until the agent becomes visible again"
         );
     }
 }
