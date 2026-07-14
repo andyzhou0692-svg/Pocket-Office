@@ -1,16 +1,15 @@
-# 14x12 wall-mounted meeting screen — large widescreen TV.
-# Thin bezel (M), screen shows a slide deck: title bar (c), body text
-# lines (q), bar chart area (b/g accents), stand/soundbar at bottom (n).
+# 14x12 meeting-room presentation screen. The dark double-value bezel holds
+# a cyan-titled slide plane; a centered neck and broad foot read as support.
 @frame 0
-. . M M M M M M M M M M . .
-M M M M M M M M M M M M M M
+. M M M M M M M M M M M M .
+M n n n n n n n n n n n n M
 M j j j j j j j j j j j j M
 M j c c c c c c c c c c j M
 M j j j j j j j j j j j j M
-M j q q q q j j j j j j j M
-M j q q q j j j b b b b j M
+M j q q q q q q j j j j j M
+M j q q q q j j b b b b j M
 M j j j j j j j b g b g j M
 M j q q q q j j b b b b j M
-M j q q q j j j b g b g j M
-M M M M M M M M M M M M M M
+. M M M M M M M M M M M M .
+. . . . . . n n . . . . . .
 . . . . n n n n n n . . . .

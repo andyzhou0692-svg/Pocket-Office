@@ -1,9 +1,10 @@
-# 6x7 top-down potted plant. `l` = leaf, `L` = leaf shadow, `g` = pot.
+# 6x7 broad potted plant with open leaf clusters, two foliage values and a
+# dark pot rim. Pot position and silhouette remain 2x2.
 @frame 0
-. l l l l .
-l L l L l l
-l l L l l l
-. l L l l .
-. . g g . .
+. l . L l .
+l L l . L l
+. l L l . .
+. . L l . .
+. . n n . .
 . . g g . .
 . . . . . .

@@ -1,23 +1,14 @@
-# 32x10 office pantry — three legible appliances with strong colour
-# identity:
-#
-#   cols 0-7   : SOLID WHITE fridge (w everywhere except handles/divider).
-#                Chrome (E) door-pull columns on outer doors. Bright
-#                chrome (K) divider between freezer/fridge. Cyan + blue
-#                dispenser icons at row 7. Reads as a big white box —
-#                unmistakably an office fridge.
-#   cols 10-19 : Dark espresso machine (M body) with cyan LCD,
-#                chrome portafilter spouts, steam wand pokes up.
-#   cols 22-31 : Dark microwave (M body) with q glass, flanked by
-#                yellow chip-bag and red candy-bar on the counter.
+# 32x10 office pantry — asymmetric refrigerator | chrome coffee station |
+# glass-front microwave and snacks. The two-column gaps keep all three zones
+# distinct after half-block compression.
 @frame 0
-w w w w w w w w . . D D D D D D D D D D . . D D D D D D D D D D
-w E w w w w E w . . . n . . . . . . n . . . . n . . . . . . n .
-w E w w w w E w . . . . . . . . . . . . . . . . . . . . . . . .
-w E w w w w E w . . . . . . K . . . . . . . . . . . . . . . . .
-w K K K K K K w . . K K K K K K K K K K . . K K K K K K K K K K
-w E w w w w E w . . . M M M M M M M M . . y . M M M M M M . r .
-w E w w w w E w . . . M c c c c c c M . . y . M q q q q M . r .
-w E w c b w E w . . . M K K M M K K M . . y . M M M M M M . r .
-w w w w w w w w . . D D D D D D D D D D . . D D D D D D D D D D
+n w w w w w E n . . . . . n K n . . . . . . D D D D D D D D D D
+n w w w w w E n . . . n K K K K K n . . . . . n n n n n n n n .
+n w w w w w E n . . . n M M c M M n . . . . . n K K K K K K n .
+n w w w w w E n . . . n M K K K M n . . . . . n M q q q q K n .
+n K K K K K E n . . D D M M M M M M D D . . D D M q c q q K D D
+n w w w w w E n . . d d M c c c c M d d . . D y M q q q q K r D
+n w w w w w E n . . d d M K q q K M d d . . d y M K K K K K r d
+n w c c w w K n . . d d M M M M M M d d . . d b M M M M M M b d
+E E E E E E E E . . D D D D D D D D D D . . D D D D D D D D D D
 n n n n n n n n . . n n n n n n n n n n . . n n n n n n n n n n

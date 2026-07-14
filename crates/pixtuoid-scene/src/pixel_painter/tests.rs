@@ -2040,6 +2040,26 @@ fn furniture_corner_clip_does_not_panic() {
 }
 
 #[test]
+fn meeting_and_side_tables_have_inset_supports() {
+    use super::furniture::{paint_meeting_table, paint_side_table};
+    let theme = crate::theme::theme_by_name("normal").expect("theme");
+    let bg = Rgb { r: 1, g: 2, b: 3 };
+
+    let mut meeting = RgbBuffer::filled(30, 30, bg);
+    paint_meeting_table(&mut meeting, 15, 15, 11, 5, theme);
+    assert_eq!(meeting.get(15, 13), theme.furniture.wood_top);
+    assert_eq!(meeting.get(15, 15), theme.furniture.wood_trim);
+    assert_eq!(meeting.get(15, 16), theme.furniture.chair_trim);
+    assert_eq!(meeting.get(10, 16), bg, "the support is inset from the top");
+
+    let mut side = RgbBuffer::filled(30, 30, bg);
+    paint_side_table(&mut side, 15, 15, theme);
+    assert_eq!(side.get(12, 15), bg, "the side-table base is inset");
+    assert_eq!(side.get(15, 15), theme.furniture.chair_trim);
+    assert_eq!(side.get(15, 16), theme.furniture.wood_trim);
+}
+
+#[test]
 fn force_weather_sets_known_clears_none_and_errs_on_unknown() {
     // The public `--weather` override entry point. Three arms:
     //   Some(known, case-insensitive) → Ok + override SET (observable through

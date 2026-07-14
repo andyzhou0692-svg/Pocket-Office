@@ -1,8 +1,8 @@
-# 10x6 corkboard with scattered Post-it squares (red/yellow/blue/green).
+# 10x6 wood-framed corkboard with a warm inset and grouped pinned notes.
 @frame 0
-n n n n n n n n n n
-n r r y y . b b . n
-n r r y y . b b . n
-n . . l l y y . . n
-n . . l l y y . . n
+D D D D D D D D D D
+D d d d d d d d d D
+D d y y d r r d d D
+D d y y d r r b b D
+D d d l l d d b b D
 n n n n n n n n n n

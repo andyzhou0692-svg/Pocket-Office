@@ -30,7 +30,7 @@ use super::effects::{
 use super::epoch_ms;
 use super::frame_at;
 use super::furniture::{
-    paint_area_rug, paint_kitchen_island, paint_meeting_table, paint_side_table,
+    paint_area_rug, paint_desk_props, paint_kitchen_island, paint_meeting_table, paint_side_table,
 };
 use super::paint_character_at;
 use crate::frame_cache::FrameCache;
@@ -677,6 +677,7 @@ pub(super) fn paint_drawable(
                 // rows still land at their original desk.y-relative positions.
                 blit_frame(frame, desk.x, desk.y.saturating_sub(1), buf);
             }
+            paint_desk_props(buf, *desk, theme);
             if let Some(bin) = pack.animation("trash_bin").and_then(|a| a.frames.first()) {
                 let bin_x = desk.x + DESK_W;
                 let bin_y = desk.y + 4;
@@ -860,8 +861,12 @@ pub(super) fn paint_drawable(
                     let py = vy + dy;
                     if px < buf.width() && py < buf.height() {
                         let color = if dy == 0 {
-                            panel
-                        } else if (1..=3).contains(&dy) && (1..=2).contains(&dx) {
+                            if dx == 0 || dx == 3 {
+                                theme.appliance.vending_dark
+                            } else {
+                                panel
+                            }
+                        } else if (1..=2).contains(&dy) && (1..=2).contains(&dx) {
                             let idx = ((dy - 1) * 2 + (dx - 1)) as usize;
                             if idx < drinks.len() {
                                 drinks[idx]
@@ -870,7 +875,7 @@ pub(super) fn paint_drawable(
                             }
                         } else if dy == 4 && dx == 2 {
                             theme.appliance.vending_trim
-                        } else if dy == 5 {
+                        } else if dy == 5 || dx == 0 || dx == 3 {
                             theme.appliance.vending_dark
                         } else {
                             body
@@ -905,7 +910,7 @@ pub(super) fn paint_drawable(
                             } else {
                                 tray
                             }
-                        } else if dx == 0 || dx == 4 {
+                        } else if dy == 2 || dx == 0 || dx == 4 {
                             tray
                         } else {
                             body_white
@@ -1636,11 +1641,16 @@ mod tests {
         paint_drawable(&d, &mut buf, &pack, &mut cache, now, th);
         let vx = pos.x - 2;
         let vy = pos.y - 3;
-        // dy==0 row → panel.
+        // The top row has a dark outer frame around the display panel.
         assert_eq!(
             buf.get(vx, vy),
+            th.appliance.vending_dark,
+            "top-left = dark frame"
+        );
+        assert_eq!(
+            buf.get(vx + 1, vy),
             th.appliance.vending_panel,
-            "top row = panel"
+            "top interior = display panel"
         );
         // dy==1,dx==1 → drinks[0] (idx = (dy-1)*2 + (dx-1) = 0).
         assert_eq!(
@@ -1660,12 +1670,19 @@ mod tests {
             th.appliance.vending_dark,
             "bottom row = dark"
         );
-        // A plain body cell (dy==2, dx==0) → body.
+        // A plain body cell below the product window stays body-colored.
         assert_eq!(
-            buf.get(vx, vy + 2),
+            buf.get(vx + 1, vy + 3),
             th.appliance.vending_body,
             "a non-special cell = body"
         );
+        for y in 0..buf.height() {
+            for x in 0..buf.width() {
+                if !(vx..vx + 4).contains(&x) || !(vy..vy + 6).contains(&y) {
+                    assert_eq!(buf.get(x, y), bg, "vending paint stays inside 4x6");
+                }
+            }
+        }
     }
 
     #[test]
@@ -1703,6 +1720,11 @@ mod tests {
             th.appliance.printer_paper,
             "bottom-centre = paper"
         );
+        assert_eq!(
+            buf.get(px0 + 2, py0 + 2),
+            th.appliance.printer_tray,
+            "middle front = paper exit tray"
+        );
         // dx==0, mid row (dy==1) → tray (the dx==0||dx==4 side arm).
         assert_eq!(
             buf.get(px0, py0 + 1),
@@ -1715,6 +1737,13 @@ mod tests {
             th.appliance.printer_body,
             "interior = body"
         );
+        for y in 0..buf.height() {
+            for x in 0..buf.width() {
+                if !(px0..px0 + 5).contains(&x) || !(py0..py0 + 4).contains(&y) {
+                    assert_eq!(buf.get(x, y), bg, "printer paint stays inside 5x4");
+                }
+            }
+        }
     }
 
     #[test]

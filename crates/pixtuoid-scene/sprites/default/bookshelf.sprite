@@ -1,16 +1,15 @@
-# 8x12 top-down bookshelf with vertical book spines on three shelves.
-# r/b/y = book spine colors (red/blue/yellow). D = wood. Bottom row is
-# a closed storage drawer.
+# 8x12 wood bookshelf with dark-backed bays, separated shelves, varied book
+# groups and a closed bottom drawer.
 @frame 0
+D D D D D D D D
+D n n n n n n D
+D r b . y l r D
+D d d d d d d D
+D n n n n n n D
+D b y r . b y D
+D d d d d d d D
+D n n n n n n D
+D y . b r y b D
+D d d d d d d D
+D d d K d d D D
 n n n n n n n n
-n D D D D D D n
-n r b y r b y n
-n D D D D D D n
-n b y r b y r n
-n D D D D D D n
-n y r b y r b n
-n D D D D D D n
-n D D d d D D n
-n D D D D D D n
-n n n n n n n n
-. . . . . . . .

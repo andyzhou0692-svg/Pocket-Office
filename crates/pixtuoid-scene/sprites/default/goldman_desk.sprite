@@ -1,11 +1,11 @@
-# 14x8 Goldman workstation. It keeps the default desk geometry while using
-# pale maple, dual blue screens, a black phone, paper and a black task chair.
+# 14x8 200West workstation. Pale maple, dual blue screens, a black phone,
+# paper and a separated black task chair preserve its authored identity.
 @frame 0
 . M M M M . . . M M M M . .
 p M I I M p p p M I I M p p
 p M I I M p w w M I I M U U
-p p p p p p w w p p p p U U
+p p p p p p q q p p p p U U
 v v v v v v v v v v v v v v
+v v . . . . q q . . . . v v
 v v . . . q q q q . . . v v
-v v . . q q q q q q . . v v
 v v . . . q . . q . . . v v

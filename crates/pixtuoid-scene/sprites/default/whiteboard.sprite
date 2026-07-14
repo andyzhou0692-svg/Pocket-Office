@@ -1,14 +1,14 @@
-# 14x11 portable whiteboard on a stand with two wheels at the bottom.
-# Frame `n`, board surface `w` (off-white), marker squiggle `q`, wheels `M`.
+# 14x11 portable whiteboard. A rounded dark frame surrounds the off-white
+# writing plane; twin uprights terminate in wheels within the 10px base span.
 @frame 0
+. n n n n n n n n n n n n .
+n w w w w w w w w w w w w n
+n w q q q q w w w w w q w n
+n w w w w w w w w w w w w n
+n w w w q w w q q q w w w n
+n w w w w w w w w w w w w n
+n w w q q w w q w w q q w n
 n n n n n n n n n n n n n n
-n w w w w w w w w w w w w n
-n w q q q w q q w q q q w n
-n w w w w w w w w w w w w n
-n w q q w q q q w q q w w n
-n w w w w w w w w w w w w n
-n w q q w q w q q w q w w n
-n n n n n n n n n n n n n n
-. . n . . . . . . . . n . .
-. . n . . . . . . . . n . .
-. . M . . . . . . . . M . .
+. . . n . . . . . . n . . .
+. . n n . . . . . . n n . .
+. . M M . . . . . . M M . .

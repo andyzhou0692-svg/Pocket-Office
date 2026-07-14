@@ -640,6 +640,11 @@ mod tests {
             (standard.width(), standard.height()),
             "Goldman swaps art without changing the current desk sprite geometry"
         );
+        assert_eq!(
+            (frame.width(), frame.height()),
+            (14, 8),
+            "both workstation themes preserve the 14x8 desk visual box"
+        );
         for key in ['p', 'I', 'U', 'w', 'q'] {
             let color = pack
                 .palette
@@ -675,5 +680,69 @@ mod tests {
              a DESK_W edit moved visual.w but not the .sprite rows; render/mask/z-sort will drift",
             crate::layout::desk_furniture_def().visual.w
         );
+    }
+
+    #[test]
+    fn polished_common_area_assets_match_declared_visual_boxes() {
+        let pack = test_default_pack();
+        let cases = [
+            ("meeting_sofa", crate::layout::Furniture::MeetingSofaBody),
+            ("meeting_screen", crate::layout::Furniture::MeetingScreen),
+            ("whiteboard", crate::layout::Furniture::Whiteboard),
+            ("tv_stand", crate::layout::Furniture::Tv),
+            ("floor_lamp", crate::layout::Furniture::FloorLamp),
+        ];
+
+        for (animation_name, furniture) in cases {
+            let frame = pack
+                .animation(animation_name)
+                .and_then(|animation| animation.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            let visual = crate::layout::furniture_def(furniture).visual;
+            assert_eq!(
+                (frame.width(), frame.height()),
+                (visual.w, visual.h),
+                "{animation_name} must preserve its declared visual box"
+            );
+        }
+    }
+
+    #[test]
+    fn polished_pantry_and_decor_assets_preserve_geometry() {
+        let pack = test_default_pack();
+        let fixed = [("pantry", (32, 10)), ("pantry_small", (20, 8))];
+        for (animation_name, expected) in fixed {
+            let frame = pack
+                .animation(animation_name)
+                .and_then(|animation| animation.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            assert_eq!(
+                (frame.width(), frame.height()),
+                expected,
+                "{animation_name} must preserve its counter canvas"
+            );
+        }
+
+        let declared = [
+            ("bookshelf", crate::layout::Furniture::Bookshelf),
+            ("snack_shelf", crate::layout::Furniture::SnackShelf),
+            ("bulletin_board", crate::layout::Furniture::BulletinBoard),
+            ("plant", crate::layout::Furniture::PlantFicus),
+            ("plant_tall", crate::layout::Furniture::PlantTall),
+            ("plant_flower", crate::layout::Furniture::PlantFlower),
+            ("plant_succulent", crate::layout::Furniture::PlantSucculent),
+        ];
+        for (animation_name, furniture) in declared {
+            let frame = pack
+                .animation(animation_name)
+                .and_then(|animation| animation.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            let visual = crate::layout::furniture_def(furniture).visual;
+            assert_eq!(
+                (frame.width(), frame.height()),
+                (visual.w, visual.h),
+                "{animation_name} must preserve its declared visual box"
+            );
+        }
     }
 }

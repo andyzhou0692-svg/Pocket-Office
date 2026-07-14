@@ -1,12 +1,11 @@
-# 6x10 leafy office plant — fuller silhouette than the old 4-wide stick
-# so it reads as "plant" from across the room. `l` light leaf, `L` dark
-# leaf for depth, `n` dark pot rim, `d` darker dirt centre.
+# 6x10 tall office plant with branching negative space, two foliage values
+# and the existing wide, dark-rimmed pot.
 @frame 0
-. l L l . .
-l L l L l .
-L l l L L l
-l L L l l L
-. l l L l .
+. . l L . .
+. l L . l .
+l L . L l L
+. l L . L .
+L . l L . l
 . . L l . .
 . . L L . .
 n n n n n n

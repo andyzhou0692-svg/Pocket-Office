@@ -1,14 +1,13 @@
-# 10x10 wall-mounted TV on a slim stand. Dark monitor frame, cyan-lit
-# display (always "on"), thin mount column, wide base. Lives in the
-# aisle between desk pods as a meeting / standup-board for the office.
+# 10x10 aisle TV. A two-tone monitor frame surrounds the lit display plane;
+# the centered column, wood equipment shelf, and dark foot form one stand.
 @frame 0
 . n n n n n n n n .
 n M M M M M M M M n
 n M c c c c c c M n
+n M c j j j j c M n
 n M c c c c c c M n
-n M c c c c c c M n
-n M M M M M M M M n
+. n n n n n n n n .
 . . . . n n . . . .
-. . . . n n . . . .
+. . . n n n n . . .
 . . D D D D D D . .
-. . n n n n n n . .
+. n n n n n n n n .

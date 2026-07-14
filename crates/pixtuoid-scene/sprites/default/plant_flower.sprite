@@ -1,8 +1,8 @@
-# 6x6 potted flower — red/yellow bloom on a short stem, terracotta pot.
+# 6x6 potted flower with an open bloom, two-value stem and dark pot rim.
 @frame 0
-. y r y . .
-r y y r y .
+. . y . . .
 . r y r . .
+y . r . y .
 . . L l . .
-. . g g . .
+. . n n . .
 . . g g . .

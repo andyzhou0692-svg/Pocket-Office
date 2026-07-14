@@ -1,12 +1,12 @@
-# 4x10 floor lamp — dark shade with warm bulb glow, slim pole, small base.
+# 4x10 floor lamp — outlined warm shade, centered two-pixel pole, chrome foot.
 @frame 0
 . M M .
 M y y M
 M y y M
-. M M .
-. . n .
-. . n .
-. . n .
-. . n .
-. . n .
-. K K .
+M M M M
+. n n .
+. n n .
+. n n .
+. n n .
+. n n .
+n K K n

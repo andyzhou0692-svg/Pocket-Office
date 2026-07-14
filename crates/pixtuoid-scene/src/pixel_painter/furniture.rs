@@ -7,7 +7,45 @@
 
 use pixtuoid_core::sprite::{Rgb, RgbBuffer};
 
-use crate::layout::Bounds;
+use crate::layout::{Bounds, Point};
+
+const DESK_PROP_X_STRIDE: u16 = 19;
+const DESK_PROP_Y_STRIDE: u16 = 16;
+const DESK_PROP_VARIANT_COUNT: u16 = 3;
+
+pub(super) fn desk_prop_variant(desk: Point) -> u8 {
+    ((desk.x / DESK_PROP_X_STRIDE + desk.y / DESK_PROP_Y_STRIDE) % DESK_PROP_VARIANT_COUNT) as u8
+}
+
+pub(super) fn paint_desk_props(buf: &mut RgbBuffer, desk: Point, theme: &crate::theme::Theme) {
+    let paper = theme.appliance.printer_paper;
+    let phone = theme.appliance.vending_dark;
+    let book = theme.furniture.magazine;
+    let book_trim = theme.furniture.magazine_trim;
+    let pixels: &[(u16, u16, Rgb)] = match desk_prop_variant(desk) {
+        0 => &[(1, 3, phone), (2, 3, phone), (11, 3, paper), (12, 3, paper)],
+        1 => &[
+            (1, 3, book_trim),
+            (1, 4, book),
+            (11, 3, phone),
+            (12, 3, phone),
+        ],
+        _ => &[
+            (1, 3, paper),
+            (2, 3, paper),
+            (11, 3, book_trim),
+            (11, 4, book),
+        ],
+    };
+
+    for &(dx, dy, color) in pixels {
+        let x = desk.x + dx;
+        let y = desk.y + dy;
+        if x < buf.width() && y < buf.height() {
+            buf.put(x, y, color);
+        }
+    }
+}
 
 /// Low meeting-room table between the sofas. Wood top with darker
 /// trim along the front edge so it reads as a real piece of furniture,
@@ -22,14 +60,25 @@ pub(super) fn paint_meeting_table(
 ) {
     let top = theme.furniture.wood_top;
     let trim = theme.furniture.wood_trim;
+    let support = theme.furniture.chair_trim;
     let min_x = cx.saturating_sub(w / 2);
     let max_x = (cx + w / 2 + (w & 1)).min(buf.width());
     let min_y = cy.saturating_sub(h / 2);
     let max_y = (cy + h / 2 + (h & 1)).min(buf.height());
     for y in min_y..max_y {
         for x in min_x..max_x {
-            let on_front = y + 1 == max_y;
-            buf.put(x, y, if on_front { trim } else { top });
+            let dx = x - min_x;
+            let dy = y - min_y;
+            let color = match dy {
+                0 | 1 => Some(top),
+                2 => Some(trim),
+                3 if (3..w.saturating_sub(3)).contains(&dx) => Some(support),
+                4 if (2..w.saturating_sub(2)).contains(&dx) => Some(trim),
+                _ => None,
+            };
+            if let Some(color) = color {
+                buf.put(x, y, color);
+            }
         }
     }
 }
@@ -78,6 +127,7 @@ pub(super) fn paint_area_rug(
 pub(super) fn paint_side_table(buf: &mut RgbBuffer, cx: u16, cy: u16, theme: &crate::theme::Theme) {
     let top = theme.furniture.wood_top;
     let trim = theme.furniture.wood_trim;
+    let support = theme.furniture.chair_trim;
     let mag = theme.furniture.magazine;
     let mag_trim = theme.furniture.magazine_trim;
     // Sprite dimensions from the one furniture table (== the mask footprint for
@@ -95,17 +145,25 @@ pub(super) fn paint_side_table(buf: &mut RgbBuffer, cx: u16, cy: u16, theme: &cr
             if px < 0 || py < 0 || px >= buf.width() as i32 || py >= buf.height() as i32 {
                 continue;
             }
-            let on_bottom = dy == h - 1;
-            buf.put(px as u16, py as u16, if on_bottom { trim } else { top });
+            let color = match dy {
+                0 => Some(top),
+                1 => Some(trim),
+                2 if (2..w - 2).contains(&dx) => Some(support),
+                3 if (1..w - 1).contains(&dx) => Some(trim),
+                _ => None,
+            };
+            if let Some(color) = color {
+                buf.put(px as u16, py as u16, color);
+            }
         }
     }
     let mag_pixels: &[((i32, i32), Rgb)] = &[
-        ((-1, -1), mag),
-        ((0, -1), mag),
-        ((1, -1), mag),
-        ((-1, 0), mag_trim),
-        ((0, 0), mag_trim),
-        ((1, 0), mag_trim),
+        ((-1, -2), mag),
+        ((0, -2), mag),
+        ((1, -2), mag),
+        ((-1, -1), mag_trim),
+        ((0, -1), mag_trim),
+        ((1, -1), mag_trim),
     ];
     for ((dx, dy), c) in mag_pixels {
         let px = cx as i32 + dx;
@@ -310,5 +368,32 @@ pub(super) fn paint_trash_bin(buf: &mut RgbBuffer, pr: Bounds) {
                 buf.put(px, py, color);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::desk_prop_variant;
+    use crate::layout::Point;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn desk_prop_variants_are_stable_bounded_and_varied() {
+        let points = [
+            Point { x: 12, y: 24 },
+            Point { x: 31, y: 24 },
+            Point { x: 50, y: 24 },
+            Point { x: 69, y: 40 },
+            Point { x: 88, y: 40 },
+        ];
+        let variants: BTreeSet<u8> = points.iter().copied().map(desk_prop_variant).collect();
+
+        assert_eq!(variants, [0, 1, 2].into_iter().collect());
+        assert!(points
+            .iter()
+            .copied()
+            .map(desk_prop_variant)
+            .all(|variant| variant <= 2));
+        assert_eq!(desk_prop_variant(points[0]), desk_prop_variant(points[0]));
     }
 }

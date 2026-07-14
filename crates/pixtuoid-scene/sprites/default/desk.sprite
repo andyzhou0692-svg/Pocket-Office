@@ -1,10 +1,6 @@
-# 14x8 top-down desk (slimmed 16x9 -> 14x8 for laptop density; front
-# redesigned 2026-07-11, user-pick "Apple style": side LEGS + open gap
-# instead of the old keyboard slab -- the two front-lip rows are legs at
-# both edges with transparent middle, so the carpet (and anyone walking
-# behind the desk front) shows through; no cup, no visible divider --
-# the last column is plain desk surface, kept so the 8-px monitor centers
-# on an even 14-px top).
+# 14x8 top-down desk (slimmed 16x9 -> 14x8 for laptop density). The broad
+# wood plane, shadowed front edge and separated side legs keep the workstation
+# readable after half-block compression; no cup or visible divider.
 # Row 0 is the raised monitor bezel that RISES 1px above the desk back
 # (blitted at desk.y-1, see DeskCubicle in drawable.rs) so the screen reads
 # as a standing display. Screen uses `j` (dark) so the lime screen-glow
@@ -22,7 +18,7 @@
 D D D M M M M M M M M D D D
 D D D M j j j j j j M D D D
 D D D M j j j j j j M D D D
-D D D D n n n n n n D D D D
+D D D M M M M M M M M D D D
+D D D D D D D D D D D D D D
 d d d d d d d d d d d d d d
-d d . . . . . . . . . . d d
 d d . . . . . . . . . . d d

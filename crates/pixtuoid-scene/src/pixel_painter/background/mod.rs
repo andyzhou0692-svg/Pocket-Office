@@ -439,13 +439,9 @@ pub(super) fn paint_floor_and_walls(
 
     for y in 0..buf_h {
         for x in 0..buf_w {
-            let hash = (x as u32)
-                .wrapping_mul(73)
-                .wrapping_add((y as u32).wrapping_mul(151))
-                ^ ((x as u32).wrapping_mul(11) ^ (y as u32).wrapping_mul(37));
-            let color = match hash % 17 {
-                0 | 1 => carpet_light,
-                2 | 3 => carpet_dark,
+            let color = match floor_material_variant(x, y) {
+                -1 => carpet_dark,
+                1 => carpet_light,
                 _ => carpet_base,
             };
             buf.put(x, y, blend_rgb(color, tint, 0.15));
@@ -512,6 +508,12 @@ pub(super) fn paint_floor_and_walls(
                 star_strength,
                 theme.visual_profile(),
             );
+            let inner_sill_y = window_y + window_h - 2;
+            if inner_sill_y < buf_h {
+                for sill_x in (x + 1)..(x + WINDOW_W - 1).min(buf_w) {
+                    buf.put(sill_x, inner_sill_y, window_frame);
+                }
+            }
             // look.spill_strength already includes atmospheric attenuation
             // (time_of_day_look multiplies by atmo.intensity), so heavy
             // weather automatically dims the spill below windows.
@@ -537,6 +539,31 @@ pub(super) fn paint_floor_and_walls(
         for x in 0..buf_w {
             buf.put(x, trim_y, wall_trim_color);
         }
+    }
+    if top_wall_h < buf_h {
+        for x in 0..buf_w {
+            buf.put(x, top_wall_h, theme.office.room_wall_trim_dark);
+        }
+    }
+}
+
+fn floor_material_variant(x: u16, y: u16) -> i8 {
+    const MARK_PERIOD_X: u16 = 4;
+    const MARK_WIDTH: u16 = 2;
+    const MATERIAL_ROW_HEIGHT: u32 = 3;
+    const HASH_X: u32 = 73;
+    const HASH_Y: u32 = 151;
+    const HASH_BUCKETS: u32 = 29;
+
+    if x % MARK_PERIOD_X >= MARK_WIDTH {
+        return 0;
+    }
+    let hash = (x as u32 / MARK_PERIOD_X as u32).wrapping_mul(HASH_X)
+        ^ (y as u32 / MATERIAL_ROW_HEIGHT).wrapping_mul(HASH_Y);
+    match hash % HASH_BUCKETS {
+        0 | 1 => 1,
+        2 | 3 => -1,
+        _ => 0,
     }
 }
 
@@ -1154,6 +1181,59 @@ fn paint_floor_to_ceiling_window(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn floor_material_pattern_is_sparse_deterministic_and_bounded() {
+        let variants: Vec<i8> = (0..128)
+            .flat_map(|y| (0..192).map(move |x| floor_material_variant(x, y)))
+            .collect();
+        assert!(variants.iter().all(|variant| (-1..=1).contains(variant)));
+        let accents = variants.iter().filter(|&&variant| variant != 0).count();
+        let ratio = accents as f32 / variants.len() as f32;
+        assert!((0.04..=0.10).contains(&ratio), "accent ratio {ratio}");
+        assert_eq!(
+            floor_material_variant(17, 29),
+            floor_material_variant(17, 29)
+        );
+    }
+
+    #[test]
+    fn wall_base_and_window_sill_use_distinct_depth_edges() {
+        let theme = crate::theme::theme_by_name("normal").expect("theme");
+        let top_wall_h = 18;
+        let buf_w = 60;
+        let buf_h = 40;
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12 * 3600);
+        let look = TimeOfDayLook {
+            glass_a: theme.office.building_light,
+            glass_b: theme.office.building_dark,
+            spill_strength: 0.0,
+            spill_slant: 0.0,
+            darkness: 0.0,
+        };
+        let mut buf = RgbBuffer::filled(buf_w, buf_h, Rgb { r: 0, g: 0, b: 0 });
+
+        paint_floor_and_walls(
+            &mut buf, buf_w, buf_h, now, &look, top_wall_h, None, theme, 1.0,
+        );
+
+        assert_eq!(
+            buf.get(0, top_wall_h - 1),
+            theme.surface.wall_trim,
+            "the wall keeps its existing trim row"
+        );
+        assert_eq!(
+            buf.get(0, top_wall_h),
+            theme.office.room_wall_trim_dark,
+            "a darker base row separates wall from floor"
+        );
+        let inner_sill_y = 1 + top_wall_h.saturating_sub(2).max(8) - 2;
+        assert_eq!(
+            buf.get(4, inner_sill_y),
+            theme.surface.window_frame,
+            "the first window has a one-pixel inner sill"
+        );
+    }
 
     // Task 4's headline invariant for the golden-hour blaze: it must be
     // SUN-only. Uses hand-built SkyState/Atmo values (not real clock times) so

@@ -567,12 +567,13 @@ fn paint_frame(
     // are subtle.
     let shadow_strength = 0.5 - 0.3 * look.darkness;
     for desk in &ctx.layout.home_desks {
+        let visual = crate::layout::desk_furniture_def().visual;
         paint_shadow(
             ctx.buf,
             Ellipse {
-                cx: desk.x + DESK_W / 2,
-                cy: desk.y + 7,
-                half_w: DESK_W / 2 + 1,
+                cx: desk.x + visual.w / 2,
+                cy: desk.y.saturating_sub(1) + visual.h - 1,
+                half_w: visual.w / 2 + 1,
                 half_h: 3,
             },
             shadow_strength,
@@ -582,15 +583,11 @@ fn paint_frame(
     for wp in &ctx.layout.waypoints {
         use crate::layout::WaypointKind;
         // Couch shadow is emitted once below (3 seat waypoints; per-seat
-        // shadows would overlap). Printer is handled just after — its 4px-tall
-        // sprite's south is pos.y+1, so the generic +2 would float 1px below.
+        // shadows would overlap).
         // Island stands are EMPTY FLOOR cells beside the island (the body
         // carries its own fitted shadow below) — a generic blob at each stand
         // painted phantom shadows left/right of the island.
-        if matches!(
-            wp.kind,
-            WaypointKind::Couch | WaypointKind::Printer | WaypointKind::Island
-        ) {
+        if matches!(wp.kind, WaypointKind::Couch | WaypointKind::Island) {
             continue;
         }
         // Fit the ellipse to the piece's actual sprite width — the flat 7
@@ -598,13 +595,14 @@ fn paint_frame(
         // the old value (currently dead: no shadowed sprite reaches 13px) so
         // a future wide piece can't over-shadow; the narrow appliances
         // deliberately churned to their fitted widths.
-        let vis_w = crate::layout::furniture_def(wp.kind.furniture()).visual.w;
+        let visual = crate::layout::furniture_def(wp.kind.furniture()).visual;
+        let vis_w = visual.w;
         let half_w = if vis_w > 0 { (vis_w / 2 + 1).min(7) } else { 7 };
         paint_shadow(
             ctx.buf,
             Ellipse {
                 cx: wp.pos.x,
-                cy: wp.pos.y + 2,
+                cy: wp.pos.y + center_pin_south_offset(visual.h),
                 half_w,
                 half_h: 2,
             },
@@ -628,32 +626,14 @@ fn paint_frame(
             ctx.theme,
         );
     }
-    for wp in ctx
-        .layout
-        .waypoints
-        .iter()
-        .filter(|w| w.kind == crate::layout::WaypointKind::Printer)
-    {
-        // Flush against the printer's sprite south (pos.y+1).
-        paint_shadow(
-            ctx.buf,
-            Ellipse {
-                cx: wp.pos.x,
-                cy: wp.pos.y + 1,
-                half_w: 5,
-                half_h: 1,
-            },
-            shadow_strength,
-            ctx.theme,
-        );
-    }
     if let Some(center) = ctx.layout.couch_sprite_center {
+        let visual = crate::layout::furniture_def(crate::layout::Furniture::MeetingSofaBody).visual;
         paint_shadow(
             ctx.buf,
             Ellipse {
                 cx: center.x,
-                cy: center.y + 2,
-                half_w: 7,
+                cy: center.y + center_pin_south_offset(visual.h),
+                half_w: visual.w / 2 + 1,
                 half_h: 2,
             },
             shadow_strength,
