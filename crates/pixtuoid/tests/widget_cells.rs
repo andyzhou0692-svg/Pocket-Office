@@ -161,20 +161,20 @@ fn elevator_indicator_visible() {
 #[test]
 fn branding_visible_in_wall_display() {
     let (buf, w, h) = render_and_get_buffer(now(), None);
-    // The wall display branding "pixtuoid" is painted in the top rows
+    // The Pocket Office branding is painted in the top rows
     // by paint_wall_display. Scan the upper quarter for the text.
     let upper_quarter = h / 4;
     let mut found = false;
     for y in 0..upper_quarter {
         let row = row_text(&buf, y, w);
-        if row.contains("pixtuoid") {
+        if row.contains("Pocket Office") {
             found = true;
             break;
         }
     }
     assert!(
         found,
-        "branding 'pixtuoid' not found in the upper quarter of the display"
+        "branding 'Pocket Office' not found in the upper quarter of the display"
     );
 }
 

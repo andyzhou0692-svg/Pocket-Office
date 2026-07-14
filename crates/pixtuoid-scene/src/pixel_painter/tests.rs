@@ -428,6 +428,29 @@ fn agent_palette_glow_tint_shifts_skin_toward_given_color() {
 }
 
 #[test]
+fn agent_palette_skin_shadow_tracks_skin_without_becoming_a_dark_face_block() {
+    let id = pixtuoid_core::AgentId::from_transcript_path("/face-shadow.jsonl");
+    let base = base_palette();
+    let slot = make_slot(id, ActivityState::Idle);
+    let palette = agent_palette(&base, &slot, None, crate::burn::BurnTier::Normal);
+    let skin = palette.get('S').flatten().expect("skin color");
+    let shadow = palette.get('s').flatten().expect("skin-shadow color");
+    assert!(
+        shadow.r <= skin.r && shadow.g <= skin.g && shadow.b <= skin.b,
+        "skin shadow must remain a darker plane of the same face"
+    );
+    let max_channel_delta = skin
+        .r
+        .abs_diff(shadow.r)
+        .max(skin.g.abs_diff(shadow.g))
+        .max(skin.b.abs_diff(shadow.b));
+    assert!(
+        max_channel_delta <= 20,
+        "skin shadow is too contrasty for one face pixel: delta={max_channel_delta}"
+    );
+}
+
+#[test]
 fn tool_glow_tint_maps_known_tools() {
     let id = pixtuoid_core::AgentId::from_transcript_path("/t.jsonl");
     let edit_slot = make_slot(

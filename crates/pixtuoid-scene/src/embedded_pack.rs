@@ -409,7 +409,7 @@ mod tests {
     // recolor targets: recolor_frame matches by RGB equality, so two keys
     // sharing a color are indistinguishable (a recolor — or any future
     // per-key logic — swaps both). Transparent (None) keys are exempt. Caught
-    // the e/q = #1a1a1a dup that the B/H/S/P-only check below missed.
+    // the e/q = #1a1a1a dup that the B/H/S/s/P-only check below missed.
     #[test]
     fn embedded_pack_all_palette_keys_are_distinct_rgbs() {
         let pack = test_default_pack();
@@ -430,7 +430,7 @@ mod tests {
     }
 
     // recolor_frame (pixel_painter/palette.rs) substitutes agent colors by RGB
-    // equality against the base pack's B/H/S/P entries. If any two share an RGB,
+    // equality against the base pack's B/H/S/s/P entries. If any two share an RGB,
     // the recolor pass swaps both and produces artifacts. No validate-pack check
     // enforces it, so this guards the documented uniqueness invariant for the
     // shipped embedded pack.
@@ -520,6 +520,106 @@ mod tests {
             assert!(
                 animation.frames.iter().all(|frame| frame.height() == 16),
                 "{animation_name} must keep every frame on the 16px-tall detail grid"
+            );
+        }
+    }
+
+    fn front_facing_frames(
+        pack: &pixtuoid_core::sprite::format::Pack,
+    ) -> impl Iterator<Item = (&'static str, &pixtuoid_core::sprite::Frame)> {
+        [
+            "seated",
+            "typing",
+            "standing",
+            "walking",
+            "walking_coffee",
+            "holding_coffee",
+        ]
+        .into_iter()
+        .flat_map(|animation_name| {
+            pack.animation(animation_name)
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"))
+                .frames
+                .iter()
+                .map(move |frame| (animation_name, frame))
+        })
+    }
+
+    fn rows_containing(
+        frame: &pixtuoid_core::sprite::Frame,
+        color: pixtuoid_core::sprite::Rgb,
+    ) -> Vec<u16> {
+        (0..frame.height())
+            .filter(|&y| {
+                (0..frame.width())
+                    .any(|x| frame.as_slice()[(y * frame.width() + x) as usize] == Some(color))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn front_faces_keep_eyes_and_mouth_on_distinct_terminal_rows_at_both_parities() {
+        let pack = test_default_pack();
+        let eye = pack.palette.get('e').flatten().expect("eye color");
+        let mouth = pack.palette.get('m').flatten().expect("mouth color");
+
+        for (animation_name, frame) in front_facing_frames(&pack) {
+            let eye_rows = rows_containing(frame, eye);
+            let mouth_rows = rows_containing(frame, mouth);
+            assert_eq!(eye_rows.len(), 1, "{animation_name} has one eye row");
+            assert_eq!(mouth_rows.len(), 1, "{animation_name} has one mouth row");
+
+            for vertical_parity in 0..=1 {
+                let eye_cell = (eye_rows[0] + vertical_parity) / 2;
+                let mouth_cell = (mouth_rows[0] + vertical_parity) / 2;
+                assert_ne!(
+                    eye_cell, mouth_cell,
+                    "{animation_name} collapses eyes and mouth into terminal row {eye_cell} \
+                     at vertical parity {vertical_parity}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn front_faces_carry_a_soft_nose_cheek_plane_and_shaped_jaw() {
+        let pack = test_default_pack();
+        let mouth = pack.palette.get('m').flatten().expect("mouth color");
+        let shadow = pack
+            .palette
+            .get('s')
+            .flatten()
+            .expect("recolorable skin-shadow color");
+
+        for (animation_name, frame) in front_facing_frames(&pack) {
+            let pixel = |x: u16, y: u16| frame.as_slice()[(y * frame.width() + x) as usize];
+            assert_eq!(
+                pixel(5, 4),
+                Some(shadow),
+                "{animation_name} carries a soft centered nose between eyes and mouth"
+            );
+            assert!(
+                (6..=8).any(|x| pixel(x, 4) == Some(shadow)),
+                "{animation_name} carries subtle cheek shading beside the nose"
+            );
+            assert_eq!(
+                pixel(7, 6),
+                Some(shadow),
+                "{animation_name} staggers the jaw shadow away from the mouth corner"
+            );
+            assert_ne!(
+                pixel(6, 6),
+                Some(shadow),
+                "{animation_name} must not stack a full-height shadow block below the mouth"
+            );
+            let mouth_pixels = frame
+                .as_slice()
+                .iter()
+                .filter(|&&pixel| pixel == Some(mouth))
+                .count();
+            assert_eq!(
+                mouth_pixels, 1,
+                "{animation_name} uses one mouth pixel so it cannot read as a large red block"
             );
         }
     }

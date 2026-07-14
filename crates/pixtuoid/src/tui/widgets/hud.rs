@@ -829,7 +829,10 @@ mod hud_tests {
         let l2 = row_text(buf, cx, cy + 1, BOARD_W);
         let l3 = row_text(buf, cx, cy + 2, BOARD_W);
         // L1: brand left, ★ Star right-flushed.
-        assert!(l1.starts_with("pixtuoid v"), "brand leads L1: {l1:?}");
+        assert!(
+            l1.starts_with("Pocket Office v0.1.0"),
+            "Pocket Office brand leads L1: {l1:?}"
+        );
         assert!(
             l1.trim_end().ends_with("\u{2605} Star"),
             "star right-flushed: {l1:?}"

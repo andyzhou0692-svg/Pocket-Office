@@ -8,6 +8,7 @@ version = "1"
 "." = "transparent"
 "H" = "#2a1a0e"   # hair (per-agent recolor target)
 "S" = "#f4c79a"   # skin
+"s" = "#d89a6c"   # skin shadow (per-agent recolor target)
 "e" = "#1a1a1a"   # eyes
 "m" = "#a04040"   # mouth
 "O" = "#3a1414"   # open-mouth (waiting)

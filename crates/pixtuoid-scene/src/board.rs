@@ -181,11 +181,13 @@ pub struct BoardModel {
     pub context: Vec<BoardSegment>,
 }
 
-/// The board's brand line — `pixtuoid v{version}`. Every workspace crate shares
-/// one `version.workspace` value, so this is identical no matter which crate's
-/// `env!` evaluates it (the binary's footer, floating, and wasm all agree).
+/// First visible fork version. This intentionally does not change the inherited
+/// workspace package version or internal crate names.
+pub const POCKET_OFFICE_VERSION: &str = "0.1.0";
+
+/// The board's visible Pocket Office identity.
 pub fn board_brand() -> String {
-    format!("pixtuoid v{}", env!("CARGO_PKG_VERSION"))
+    format!("Pocket Office v{POCKET_OFFICE_VERSION}")
 }
 
 /// The board's L1 ★ CTA text — the ONE definition every painter renders AND the
@@ -314,13 +316,8 @@ mod tests {
     }
 
     #[test]
-    fn board_brand_carries_the_workspace_version() {
-        // The workspace pins one version; the board reads scene's env!, which is
-        // that same value the binary/wasm painters would compute.
-        assert_eq!(
-            board_brand(),
-            format!("pixtuoid v{}", env!("CARGO_PKG_VERSION"))
-        );
+    fn board_brand_identifies_the_pocket_office_fork() {
+        assert_eq!(board_brand(), "Pocket Office v0.1.0");
     }
 
     #[test]
@@ -420,7 +417,7 @@ mod tests {
         // No floor, no gateway → context is just uptime.
         let b = build_board(c, 3661, None, None);
         assert_eq!(b.brand.tone, BoardTone::Brand);
-        assert!(b.brand.text.starts_with("pixtuoid v"));
+        assert!(b.brand.text.starts_with("Pocket Office v"));
         assert_eq!(b.star.text, BOARD_STAR);
         assert_eq!(b.star.tone, BoardTone::Star);
         assert_eq!(b.context.len(), 1);

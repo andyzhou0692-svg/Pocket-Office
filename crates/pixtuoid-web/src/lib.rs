@@ -709,7 +709,7 @@ mod tests {
             board["brand"]["text"]
                 .as_str()
                 .unwrap()
-                .starts_with("pixtuoid v"),
+                .starts_with("Pocket Office v"),
             "brand carries the version: {board}"
         );
         assert_eq!(board["star"]["text"].as_str().unwrap(), "\u{2605} Star");

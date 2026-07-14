@@ -453,9 +453,19 @@ pub(super) fn agent_palette(
     } else {
         skin
     };
+    let skin_shadow = blend_rgb(
+        final_skin,
+        Rgb {
+            r: 78,
+            g: 48,
+            b: 36,
+        },
+        0.14,
+    );
     base.with_override('B', Some(outfit.shirt))
         .with_override('H', Some(hair))
         .with_override('S', Some(final_skin))
+        .with_override('s', Some(skin_shadow))
         .with_override('P', Some(outfit.pants))
 }
 
