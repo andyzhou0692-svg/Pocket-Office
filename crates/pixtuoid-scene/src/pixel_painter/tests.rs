@@ -566,6 +566,188 @@ fn recolor_frame_handles_palette_with_no_overrides() {
 }
 
 #[test]
+fn front_face_overlay_changes_only_the_approved_front_poses() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "face-overlay"),
+        ActivityState::Idle,
+    );
+    let palette = agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+
+    for anim_name in [
+        "seated",
+        "typing",
+        "standing",
+        "walking",
+        "walking_coffee",
+        "holding_coffee",
+    ] {
+        let frame = pack
+            .animation(anim_name)
+            .and_then(|anim| anim.frames.first())
+            .expect("approved front pose exists");
+        let recolored = recolor_frame(frame, &palette, &pack.palette);
+        let detailed =
+            super::face_overlay::apply_front_face_overlay(recolored.clone(), &palette, anim_name);
+        assert_ne!(
+            detailed.as_slice(),
+            recolored.as_slice(),
+            "{anim_name} must receive the facial detail overlay"
+        );
+    }
+
+    for anim_name in ["walking_back", "back_couch", "seated_sleeping"] {
+        let frame = pack
+            .animation(anim_name)
+            .and_then(|anim| anim.frames.first())
+            .expect("excluded pose exists");
+        let recolored = recolor_frame(frame, &palette, &pack.palette);
+        let detailed =
+            super::face_overlay::apply_front_face_overlay(recolored.clone(), &palette, anim_name);
+        assert_eq!(
+            detailed.as_slice(),
+            recolored.as_slice(),
+            "{anim_name} must remain unchanged"
+        );
+    }
+}
+
+#[test]
+fn front_face_overlay_centers_features_and_removes_the_old_shadow_cracks() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "face-geometry"),
+        ActivityState::Idle,
+    );
+    let palette = agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let frame = pack
+        .animation("standing")
+        .and_then(|anim| anim.frames.first())
+        .expect("standing pose exists");
+    let detailed = super::face_overlay::apply_front_face_overlay(
+        recolor_frame(frame, &palette, &pack.palette),
+        &palette,
+        "standing",
+    );
+    let at = |x, y| detailed.get(x, y).copied().flatten();
+    let hair = palette.get('H').flatten();
+    let skin = palette.get('S').flatten();
+    let shadow = palette.get('s').flatten();
+    let eye = palette.get('e').flatten();
+    let mouth = palette.get('m').flatten();
+
+    assert_eq!(at(4, 2), hair, "left brow");
+    assert_eq!(at(7, 2), hair, "right brow");
+    assert_eq!(at(4, 3), at(7, 3), "eye accents stay symmetrical");
+    assert_ne!(
+        at(4, 3),
+        eye,
+        "eye accent separates the eyes from flat black"
+    );
+    assert_eq!(at(3, 4), at(8, 4), "cheek accents stay symmetrical");
+    assert_ne!(at(3, 4), skin, "cheek accent separates from base skin");
+    assert_eq!(at(6, 4), shadow, "nose shadow is centered");
+    assert_eq!(at(5, 4), skin, "old left face crack is cleared");
+    assert_eq!(at(7, 4), skin, "old right face crack is cleared");
+    assert_eq!(at(5, 5), mouth, "mouth starts left of center");
+    assert_eq!(at(6, 5), mouth, "mouth finishes right of center");
+    assert_eq!(at(7, 6), skin, "old jaw crack is cleared");
+}
+
+#[test]
+fn front_face_overlay_mirrors_with_the_character_frame() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "face-mirror"),
+        ActivityState::Idle,
+    );
+    let palette = agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let frame = pack
+        .animation("walking")
+        .and_then(|anim| anim.frames.first())
+        .expect("walking pose exists");
+    let detailed = super::face_overlay::apply_front_face_overlay(
+        recolor_frame(frame, &palette, &pack.palette),
+        &palette,
+        "walking",
+    );
+    let mirrored = detailed.mirror_horizontal();
+    for y in 0..detailed.height() {
+        for x in 0..detailed.width() {
+            assert_eq!(
+                mirrored.get(detailed.width() - 1 - x, y),
+                detailed.get(x, y),
+                "overlay pixel ({x},{y}) must mirror with the frame"
+            );
+        }
+    }
+}
+
+#[test]
+fn front_face_overlay_leaves_custom_geometry_untouched() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "face-custom-pack"),
+        ActivityState::Idle,
+    );
+    let palette = agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let custom = Frame::from_pixels(
+        crate::layout::CHARACTER_SPRITE_W,
+        crate::layout::CHARACTER_SPRITE_H,
+        vec![
+            palette.get('S').flatten();
+            (crate::layout::CHARACTER_SPRITE_W * crate::layout::CHARACTER_SPRITE_H) as usize
+        ],
+    );
+    let detailed =
+        super::face_overlay::apply_front_face_overlay(custom.clone(), &palette, "standing");
+    assert_eq!(
+        detailed.as_slice(),
+        custom.as_slice(),
+        "a custom 12x16 pose without the Pocket Office face geometry must not be stamped"
+    );
+}
+
+#[test]
+fn shared_character_painter_uses_the_front_face_overlay_before_blitting() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "face-paint-path"),
+        ActivityState::Idle,
+    );
+    let palette = agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let raw_eye = palette.get('e').flatten().expect("eye color");
+    let anchor = Point { x: 8, y: 8 };
+    let background = Rgb { r: 1, g: 2, b: 3 };
+    let mut front = RgbBuffer::filled(32, 32, background);
+
+    paint_character_at(
+        &mut front,
+        "standing",
+        0,
+        anchor,
+        &slot,
+        &pack,
+        crate::theme::theme_by_name("normal").expect("normal theme"),
+        false,
+        None,
+        &mut FrameCache::new(),
+        SystemTime::UNIX_EPOCH,
+    );
+
+    assert_ne!(
+        front.get(anchor.x + 4, anchor.y + 3),
+        raw_eye,
+        "the shared paint path must replace the flat eye with the overlay accent"
+    );
+    assert_eq!(
+        front.get(anchor.x + 5, anchor.y + 4),
+        palette.get('S').flatten().expect("skin color"),
+        "the shared paint path must clear the old face crack"
+    );
+}
+
+#[test]
 fn goldman_palette_limits_outfits_to_dark_professional_suits() {
     let base = base_palette();
     for id in 0..32 {

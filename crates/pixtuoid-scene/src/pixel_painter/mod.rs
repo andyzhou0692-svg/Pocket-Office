@@ -81,6 +81,7 @@ mod background;
 mod debug_overlay;
 mod drawable;
 mod effects;
+mod face_overlay;
 mod furniture;
 mod glass;
 mod palette;

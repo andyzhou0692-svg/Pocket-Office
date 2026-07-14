@@ -62,6 +62,8 @@ pub(super) fn paint_character_at(
                     apply_goldman_shirt_inset(frame, recolored, &pack.palette, anim_name)
                 }
             };
+            let recolored =
+                super::face_overlay::apply_front_face_overlay(recolored, &pal, anim_name);
             if flip_x {
                 recolored.mirror_horizontal()
             } else {
