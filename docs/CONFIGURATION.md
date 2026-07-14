@@ -104,7 +104,7 @@ reason. No partial override set is rendered.
 
 Press `t` in the TUI to switch themes with a live preview picker (`j`/`k` or
 `↑`/`↓` to navigate); your choice is written back to `config.toml` and persists
-across sessions. Override for a single run with `--theme <name>`. Six themes ship
+across sessions. Override for a single run with `--theme <name>`. Seven themes ship
 built-in: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`,
 `gruvbox`, `goldman`.
 
