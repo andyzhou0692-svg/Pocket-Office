@@ -20,8 +20,9 @@ tom = "Tom (Head of IBD)"
 amy = "Amy (Head of IR)"
 jess = "Jess (Head of Strategy)"
 
-# Real subagents remain stable numbered Analysts. Resident activity is a local
-# visual rotation and does not classify work or consume model tokens.
+# Real subagents receive stable recurring visual names from a fixed local
+# roster. Resident activity is a local visual rotation and does not classify
+# work or consume model tokens. At most seven idle avatars render at once.
 
 # Optional TUI-only furniture position overrides. Coordinates are scene pixels.
 [[layout.positions]]
@@ -48,7 +49,7 @@ kind = "dog"        # name omitted → "Office Dog"
 | `theme` | `"normal"` | Color theme: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox`, `200West`. The former `goldman` name remains an alias. |
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
-| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Real subagents receive stable `Analyst 01`, `Analyst 02`, and so on labels while present. |
+| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Other real agents receive stable recurring visual names from the built-in local roster while present. |
 | `[[layout.positions]]` | procedural layout | Reposition one existing furniture or decor item on one TUI floor. See [Layout positions](#layout-positions). |
 | `[[pets]]` | all kinds, default names | One stanza per pet. `kind` (`"cat"`/`"dog"`) is required; `name` is optional (the hover-tooltip label, default `Office Cat`/`Office Dog`). Omit the section for all pets; `pets = []` for none; an unknown `kind` is skipped without affecting other settings. Keep it last (it's a table section). |
 

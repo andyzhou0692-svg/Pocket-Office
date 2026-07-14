@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -7,11 +7,16 @@ use pixtuoid_core::state::{ActivityState, AgentSlot, ToolKind};
 use pixtuoid_core::{AgentId, SceneState};
 
 const SOURCE: &str = "visual-coworker";
+const MAX_VISIBLE_IDLE_AGENTS: usize = 7;
 const RESIDENTS: [(&str, &str); 3] = [
     ("tom", "Tom (Head of IBD)"),
     ("amy", "Amy (Head of IR)"),
     ("jess", "Jess (Head of Strategy)"),
 ];
+
+fn counts_toward_idle_cap(slot: &AgentSlot) -> bool {
+    matches!(slot.state, ActivityState::Idle) && slot.exiting_at.is_none()
+}
 
 /// Builds a render-only scene containing the persistent office residents.
 /// The reducer's authoritative scene is never mutated, so these residents
@@ -99,6 +104,30 @@ impl VisualCoworkers {
             );
         }
 
+        let mut idle_ids: Vec<_> = rendered
+            .agents
+            .iter()
+            .filter(|(_, slot)| counts_toward_idle_cap(slot))
+            .map(|(id, _)| *id)
+            .collect();
+        idle_ids.sort_by_key(|id| {
+            let slot = &rendered.agents[id];
+            (
+                slot.label.as_ref() == "Vivian",
+                slot.source.as_ref() != SOURCE,
+                slot.last_event_at,
+                slot.agent_id.raw(),
+            )
+        });
+        let visible_idle: HashSet<_> = idle_ids
+            .into_iter()
+            .rev()
+            .take(MAX_VISIBLE_IDLE_AGENTS)
+            .collect();
+        rendered
+            .agents
+            .retain(|id, slot| !counts_toward_idle_cap(slot) || visible_idle.contains(id));
+
         rendered
     }
 }
@@ -107,6 +136,7 @@ impl VisualCoworkers {
 mod tests {
     use super::*;
     use pixtuoid_core::state::{GlobalDeskIndex, MAX_FLOORS};
+    use std::time::Duration;
 
     fn slot(
         id: AgentId,
@@ -215,7 +245,7 @@ mod tests {
             child,
             slot(
                 child,
-                "Analyst 01",
+                "Alex",
                 1,
                 Some(root),
                 ActivityState::Active {
@@ -234,5 +264,160 @@ mod tests {
             .agents
             .values()
             .all(|slot| slot.source.as_ref() != SOURCE));
+    }
+
+    #[test]
+    fn render_scene_caps_idle_agents_at_seven_without_hiding_work() {
+        let mut capacities = [0; MAX_FLOORS];
+        capacities[0] = 16;
+        let mut scene = SceneState::new(capacities);
+        let vivian = AgentId::from_parts("codex", "root");
+        scene.agents.insert(
+            vivian,
+            slot(vivian, "Vivian", 0, None, ActivityState::Idle, 0),
+        );
+
+        for desk in 1..=8 {
+            let id = AgentId::from_parts("codex", &format!("idle-{desk}"));
+            let mut idle = slot(
+                id,
+                &format!("Idle {desk}"),
+                desk,
+                Some(vivian),
+                ActivityState::Idle,
+                0,
+            );
+            idle.last_event_at = SystemTime::UNIX_EPOCH + Duration::from_secs(desk as u64);
+            scene.agents.insert(id, idle);
+        }
+
+        let active = AgentId::from_parts("codex", "active");
+        scene.agents.insert(
+            active,
+            slot(
+                active,
+                "Active",
+                9,
+                Some(vivian),
+                ActivityState::Active {
+                    tool_use_id: None,
+                    detail: None,
+                    kind: ToolKind::Other,
+                },
+                1,
+            ),
+        );
+        let waiting = AgentId::from_parts("codex", "waiting");
+        scene.agents.insert(
+            waiting,
+            slot(
+                waiting,
+                "Waiting",
+                10,
+                Some(vivian),
+                ActivityState::Waiting {
+                    reason: Arc::from("permission"),
+                },
+                0,
+            ),
+        );
+        let real_agent_count = scene.agents.len();
+
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+        let visible_idle = rendered
+            .agents
+            .values()
+            .filter(|slot| matches!(slot.state, ActivityState::Idle))
+            .count();
+
+        assert_eq!(visible_idle, 7);
+        assert!(rendered.agents.contains_key(&active));
+        assert!(rendered.agents.contains_key(&waiting));
+        assert!(rendered.agents.contains_key(&vivian));
+        assert_eq!(
+            scene.agents.len(),
+            real_agent_count,
+            "rendering must not mutate real sessions"
+        );
+    }
+
+    #[test]
+    fn idle_cap_prefers_real_agents_before_render_only_residents() {
+        let mut capacities = [0; MAX_FLOORS];
+        capacities[0] = 12;
+        let mut scene = SceneState::new(capacities);
+        let vivian = AgentId::from_parts("codex", "root");
+        scene.agents.insert(
+            vivian,
+            slot(vivian, "Vivian", 0, None, ActivityState::Idle, 0),
+        );
+        for desk in 1..=4 {
+            let id = AgentId::from_parts("codex", &format!("real-{desk}"));
+            scene.agents.insert(
+                id,
+                slot(
+                    id,
+                    &format!("Real {desk}"),
+                    desk,
+                    Some(vivian),
+                    ActivityState::Idle,
+                    0,
+                ),
+            );
+        }
+
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+        let visible_real = rendered
+            .agents
+            .values()
+            .filter(|slot| slot.source.as_ref() != SOURCE)
+            .count();
+        let visible_residents = rendered
+            .agents
+            .values()
+            .filter(|slot| slot.source.as_ref() == SOURCE)
+            .count();
+
+        assert_eq!(visible_real, 5);
+        assert_eq!(visible_residents, 2);
+    }
+
+    #[test]
+    fn idle_cap_does_not_hide_an_agent_who_is_already_walking_out() {
+        let mut capacities = [0; MAX_FLOORS];
+        capacities[0] = 16;
+        let mut scene = SceneState::new(capacities);
+        let vivian = AgentId::from_parts("codex", "root");
+        scene.agents.insert(
+            vivian,
+            slot(vivian, "Vivian", 0, None, ActivityState::Idle, 0),
+        );
+        for desk in 1..=8 {
+            let id = AgentId::from_parts("codex", &format!("idle-{desk}"));
+            let mut idle = slot(
+                id,
+                &format!("Idle {desk}"),
+                desk,
+                Some(vivian),
+                ActivityState::Idle,
+                0,
+            );
+            idle.last_event_at = SystemTime::UNIX_EPOCH + Duration::from_secs(desk as u64);
+            scene.agents.insert(id, idle);
+        }
+        let exiting = AgentId::from_parts("codex", "exiting");
+        let mut departure = slot(exiting, "Leaving", 9, Some(vivian), ActivityState::Idle, 0);
+        departure.exiting_at = Some(SystemTime::UNIX_EPOCH);
+        scene.agents.insert(exiting, departure);
+
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+
+        assert!(
+            rendered.agents.contains_key(&exiting),
+            "an existing walk-out must finish even when the idle office is full"
+        );
     }
 }

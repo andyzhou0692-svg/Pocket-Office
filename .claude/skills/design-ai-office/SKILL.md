@@ -16,12 +16,13 @@ This is a visual product workflow. It must not change how the underlying agents 
 Preserve these decisions unless Andy explicitly changes them:
 
 1. AIoffice is an ambient local visualization of real Claude and Codex activity.
-2. Vivian is the real named root session. Real delegated subagents appear as numbered Analysts.
+2. Vivian is the real named root session. Real delegated subagents receive stable recurring visual names from a fixed local roster.
 3. Other recurring office names are render-only residents. Names and titles carry no personality, skill, authority, or task routing.
 4. Do not add semantic classification, keyword routing, hidden role markers, extra model calls, or synthetic agent sessions for visual effects.
 5. The interactive terminal dashboard and passive floating display remain distinct surfaces.
 6. Reuse current configuration, theme, scene, sprite, layout, and ambient-behavior systems before proposing a new subsystem.
 7. Recommendations are not decisions. Do not implement an unchosen addition because it is convenient or interesting.
+8. Render no more than seven idle avatars at once, including Vivian and persistent residents. Active and waiting agents remain visible.
 
 ## Recover the actual request
 

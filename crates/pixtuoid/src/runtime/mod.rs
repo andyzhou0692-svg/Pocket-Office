@@ -35,6 +35,12 @@ pub type SceneRx = watch::Receiver<Arc<SceneState>>;
 /// `compute_boot_capacities` before the first TUI frame.
 pub(crate) const FALLBACK_DESKS: usize = 16;
 
+const RECURRING_AGENT_NAMES: [&str; 24] = [
+    "Alex", "Maya", "Daniel", "Sophie", "Ethan", "Nina", "Leo", "Grace", "Marcus", "Chloe", "Ryan",
+    "Isabel", "Noah", "Priya", "Owen", "Zoe", "Julian", "Elena", "Miles", "Camille", "Theo", "Ava",
+    "Simon", "Lena",
+];
+
 /// The startup inputs shared by `run` + `run_async`. Bundled so a new boot
 /// flag is one struct field, not a fourth copy of the arg list to thread
 /// through both signatures + the main.rs call. The `theme` is already resolved
@@ -81,8 +87,8 @@ struct VisualNameResolver {
     configured: BTreeMap<String, String>,
     raw_labels: HashMap<AgentId, String>,
     rendered_labels: HashMap<AgentId, String>,
-    analyst_numbers: HashMap<AgentId, usize>,
-    next_analyst: usize,
+    roster_slots: HashMap<AgentId, usize>,
+    next_roster_slot: usize,
 }
 
 impl VisualNameResolver {
@@ -91,8 +97,8 @@ impl VisualNameResolver {
             configured,
             raw_labels: HashMap::new(),
             rendered_labels: HashMap::new(),
-            analyst_numbers: HashMap::new(),
-            next_analyst: 1,
+            roster_slots: HashMap::new(),
+            next_roster_slot: 0,
         }
     }
 
@@ -101,7 +107,7 @@ impl VisualNameResolver {
             .retain(|id, _| scene.agents.contains_key(id));
         self.rendered_labels
             .retain(|id, _| scene.agents.contains_key(id));
-        self.analyst_numbers
+        self.roster_slots
             .retain(|id, _| scene.agents.contains_key(id));
 
         for (id, slot) in &scene.agents {
@@ -127,7 +133,7 @@ impl VisualNameResolver {
 
             if let Some(id) = target {
                 configured_ids.insert(id);
-                self.analyst_numbers.remove(&id);
+                self.roster_slots.remove(&id);
                 self.rendered_labels.insert(id, display_name.clone());
                 scene
                     .agents
@@ -137,12 +143,13 @@ impl VisualNameResolver {
             }
         }
 
-        for (id, number) in &self.analyst_numbers {
+        for (id, roster_slot) in &self.roster_slots {
             if configured_ids.contains(id) {
                 continue;
             }
             if let Some(slot) = scene.agents.get_mut(id) {
-                let label = format!("Analyst {number:02}");
+                let label =
+                    RECURRING_AGENT_NAMES[*roster_slot % RECURRING_AGENT_NAMES.len()].to_string();
                 self.rendered_labels.insert(*id, label.clone());
                 slot.label = label.into();
             }
@@ -151,18 +158,17 @@ impl VisualNameResolver {
         let mut unnamed: Vec<_> = scene
             .agents
             .iter()
-            .filter(|(id, _)| {
-                !configured_ids.contains(id) && !self.analyst_numbers.contains_key(id)
-            })
+            .filter(|(id, _)| !configured_ids.contains(id) && !self.roster_slots.contains_key(id))
             .map(|(id, slot)| (*id, slot.desk_index))
             .collect();
         unnamed.sort_by_key(|(id, desk)| (*desk, *id));
 
         for (id, _) in unnamed {
-            let number = self.next_analyst;
-            self.next_analyst += 1;
-            self.analyst_numbers.insert(id, number);
-            let label = format!("Analyst {number:02}");
+            let roster_slot = self.next_roster_slot;
+            self.next_roster_slot += 1;
+            self.roster_slots.insert(id, roster_slot);
+            let label =
+                RECURRING_AGENT_NAMES[roster_slot % RECURRING_AGENT_NAMES.len()].to_string();
             self.rendered_labels.insert(id, label.clone());
             scene
                 .agents
@@ -315,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn visual_names_replace_known_labels_and_hide_unknown_labels() {
+    fn visual_names_replace_known_labels_and_give_unknown_agents_recurring_names() {
         let now = SystemTime::now();
         let mut scene = SceneState::uniform(8);
         let mut reducer = Reducer::new();
@@ -353,14 +359,11 @@ mod tests {
 
         let labels: Vec<String> = scene.agents.values().map(|a| a.label.to_string()).collect();
         assert!(labels.iter().any(|label| label == "Vivian"), "{labels:?}");
-        assert!(
-            labels.iter().any(|label| label == "Analyst 01"),
-            "{labels:?}"
-        );
+        assert!(labels.iter().any(|label| label == "Alex"), "{labels:?}");
     }
 
     #[test]
-    fn visual_names_assign_one_persistent_name_and_number_the_rest() {
+    fn visual_names_assign_one_persistent_name_and_name_the_rest_from_the_roster() {
         let now = SystemTime::now();
         let mut scene = SceneState::uniform(8);
         let mut reducer = Reducer::new();
@@ -409,8 +412,8 @@ mod tests {
             .count();
         assert_eq!(vivians, 1, "only the primary agent may be Vivian");
         assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
-        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
-        assert_eq!(scene.agents[&sibling].label.as_ref(), "Analyst 02");
+        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
+        assert_eq!(scene.agents[&sibling].label.as_ref(), "Maya");
         assert_eq!(
             first_labels,
             scene
@@ -430,7 +433,7 @@ mod tests {
     }
 
     #[test]
-    fn visual_names_keep_subagents_numbered_after_a_dispatch_tag_arrives() {
+    fn visual_names_keep_recurring_subagent_names_after_a_dispatch_tag_arrives() {
         let now = SystemTime::now();
         let mut scene = SceneState::uniform(8);
         let mut reducer = Reducer::new();
@@ -461,7 +464,7 @@ mod tests {
         ]);
         let mut resolver = VisualNameResolver::new(names);
         resolver.apply(&mut scene);
-        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
+        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
 
         reducer.apply(
             &mut scene,
@@ -475,7 +478,7 @@ mod tests {
         resolver.apply(&mut scene);
 
         assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
-        assert_eq!(scene.agents[&child].label.as_ref(), "Analyst 01");
+        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
     }
 
     #[test]
