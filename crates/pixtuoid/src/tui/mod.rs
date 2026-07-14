@@ -510,6 +510,7 @@ pub(crate) struct TuiSession {
     pub desk_cap: Option<usize>,
     pub pets: Vec<pet::Pet>,
     pub visual_coworker_names: BTreeMap<String, String>,
+    pub layout_overrides: BTreeMap<usize, pixtuoid_scene::layout::LayoutOverrides>,
     pub source_health:
         tokio::sync::watch::Receiver<Vec<pixtuoid_core::source::manager::SourceDeath>>,
     /// The resolved hook socket (Unix) / named pipe (Windows) the daemon bound,
@@ -540,6 +541,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
         desk_cap,
         pets,
         visual_coworker_names,
+        layout_overrides,
         mut source_health,
         socket_path,
         connected,
@@ -555,6 +557,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
     let visual_coworkers = crate::runtime::VisualCoworkers::new(visual_coworker_names);
     let term = setup_terminal()?;
     let mut renderer = TuiRenderer::new(term, theme, pets);
+    renderer.set_layout_overrides(layout_overrides);
     // First-run onboarding "move-in" overlay (TOP of the modal precedence chain).
     // The roster is built only on first run; if no agent CLIs are detected there's
     // nothing to connect, so it stays closed and the office shows normally.

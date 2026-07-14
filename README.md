@@ -115,8 +115,9 @@ _\* experimental — limited testing, unsigned binaries._
 ## Configuration
 
 Everything lives in `~/.config/pixtuoid/config.toml` (created on first launch;
-every key optional) — theme, desk cap, custom pet names, and sprite packs. CLI
-flags override the file (`pixtuoid run --theme dracula`).
+every key optional) — theme, desk cap, custom pet names, sprite packs, and
+validated TUI furniture positions. CLI flags override the file
+(`pixtuoid run --theme dracula`).
 
 The setting you'll reach for most is the **theme** — press `t` in the TUI for a
 live-preview picker across six built-in palettes; your pick persists across sessions.

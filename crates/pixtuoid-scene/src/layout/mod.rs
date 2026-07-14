@@ -23,6 +23,7 @@ mod coarse;
 mod compute;
 mod decor;
 mod mask;
+mod overrides;
 mod placement;
 mod reach;
 mod rooms;
@@ -35,6 +36,7 @@ pub use decor::{
     DESK_APPROACH, SEAT_RENDER_Y_OFF, WALKING_Y_OFF,
 };
 pub use mask::{WALL_THICK_H, WALL_THICK_V};
+pub use overrides::{LayoutOverrides, LayoutPosition};
 pub use placement::{anchored_top_left, z_sort_row, Anchor};
 pub use reach::ReachSet;
 pub use rooms::walls::Doorway;
@@ -317,6 +319,17 @@ impl SceneLayout {
         floor_seed: u64,
     ) -> Option<Self> {
         compute::compute_with_seed(buf_w, buf_h, max_desks, floor_seed)
+    }
+
+    pub fn compute_with_seed_and_overrides(
+        buf_w: u16,
+        buf_h: u16,
+        max_desks: Option<usize>,
+        floor_seed: u64,
+        overrides: &LayoutOverrides,
+    ) -> Option<anyhow::Result<Self>> {
+        let mut layout = compute::compute_with_seed(buf_w, buf_h, max_desks, floor_seed)?;
+        Some(overrides::apply(&mut layout, overrides).map(|()| layout))
     }
 
     pub fn is_walkable(&self, x: u16, y: u16) -> bool {

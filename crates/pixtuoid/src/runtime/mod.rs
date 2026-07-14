@@ -53,6 +53,7 @@ pub struct RunConfig {
     /// Display-only aliases keyed by the raw label produced by the source
     /// reducer. They do not affect agent identity, routing or lifecycle.
     pub agent_names: BTreeMap<String, String>,
+    pub layout_overrides: BTreeMap<usize, pixtuoid_scene::layout::LayoutOverrides>,
     /// The resolved set of CONNECTED source ids (registry names). Seeded at boot
     /// from `config::resolve_connected`; the runtime wraps it in a shared
     /// [`ConnectedSources`] the reducer gate reads and the Sources panel

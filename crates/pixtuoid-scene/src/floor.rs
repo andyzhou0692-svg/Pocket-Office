@@ -112,6 +112,7 @@ pub struct FloorCtx {
     /// memory cost is one `Layout`. Private — everything rides
     /// [`FloorCtx::frame_layout`].
     layout_memo: Option<((u16, u16, u64), crate::layout::Layout)>,
+    layout_overrides: crate::layout::LayoutOverrides,
 }
 
 impl Default for FloorCtx {
@@ -131,6 +132,14 @@ impl FloorCtx {
             motion: HashMap::new(),
             door_anim_max_ms: 0,
             layout_memo: None,
+            layout_overrides: crate::layout::LayoutOverrides::default(),
+        }
+    }
+
+    pub fn set_layout_overrides(&mut self, overrides: crate::layout::LayoutOverrides) {
+        if self.layout_overrides != overrides {
+            self.layout_overrides = overrides;
+            self.layout_memo = None;
         }
     }
 
@@ -150,7 +159,31 @@ impl FloorCtx {
         let layout = match &self.layout_memo {
             Some((k, l)) if *k == key => l.clone(),
             _ => {
-                let l = crate::layout::Layout::compute_with_seed(buf_w, buf_h, None, floor_seed)?;
+                let l = if self.layout_overrides.is_empty() {
+                    crate::layout::Layout::compute_with_seed(buf_w, buf_h, None, floor_seed)?
+                } else {
+                    match crate::layout::Layout::compute_with_seed_and_overrides(
+                        buf_w,
+                        buf_h,
+                        None,
+                        floor_seed,
+                        &self.layout_overrides,
+                    )? {
+                        Ok(layout) => layout,
+                        Err(error) => {
+                            tracing::warn!(
+                                %error,
+                                buf_w,
+                                buf_h,
+                                floor_seed,
+                                "invalid layout overrides; using the procedural floor"
+                            );
+                            crate::layout::Layout::compute_with_seed(
+                                buf_w, buf_h, None, floor_seed,
+                            )?
+                        }
+                    }
+                };
                 self.layout_memo = Some((key, l.clone()));
                 l
             }
@@ -816,6 +849,36 @@ mod tests {
         // (The corridor re-point half of the prologue runs on every call — hit or
         // miss — inside frame_layout; the router keeps no public getter to assert
         // on, and set_preferred_zone's behavior is pinned by the pathfind tests.)
+    }
+
+    #[test]
+    fn frame_layout_applies_valid_overrides_and_falls_back_atomically_on_invalid_ones() {
+        use crate::layout::{LayoutOverrides, LayoutPosition, Point};
+
+        let mut ctx = FloorCtx::new();
+        let base = ctx.frame_layout(240, 160, 0).unwrap();
+        let target = Point {
+            x: base.cubicle_band.x + base.cubicle_band.width * 3 / 4,
+            y: base.cubicle_band.y + 6,
+        };
+        ctx.set_layout_overrides(LayoutOverrides::new([LayoutPosition::new(
+            "lounge.floor-lamp",
+            target,
+        )]));
+        assert_eq!(
+            ctx.frame_layout(240, 160, 0).unwrap().floor_lamp,
+            Some(target)
+        );
+
+        ctx.set_layout_overrides(LayoutOverrides::new([LayoutPosition::new(
+            "lounge.floor-lamp",
+            base.home_desks[0],
+        )]));
+        assert_eq!(
+            ctx.frame_layout(240, 160, 0).unwrap().floor_lamp,
+            base.floor_lamp,
+            "an invalid set falls back to the complete procedural floor"
+        );
     }
 
     #[test]

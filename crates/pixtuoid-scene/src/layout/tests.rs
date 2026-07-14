@@ -1,6 +1,86 @@
 use super::*;
 
 #[test]
+fn layout_override_moves_lounge_lamp_and_rebuilds_walkability() {
+    let base = SceneLayout::compute_with_seed(240, 160, Some(8), 0).expect("fits");
+    let target = Point {
+        x: base.cubicle_band.x + base.cubicle_band.width * 3 / 4,
+        y: base.cubicle_band.y + 6,
+    };
+    let overrides = LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", target)]);
+
+    let moved = SceneLayout::compute_with_seed_and_overrides(240, 160, Some(8), 0, &overrides)
+        .expect("fits")
+        .expect("valid override");
+
+    assert_eq!(moved.floor_lamp, Some(target));
+    assert!(!moved.is_walkable(target.x, target.y));
+    assert_ne!(moved.walkable, base.walkable);
+}
+
+#[test]
+fn layout_override_rejects_a_visual_outside_the_buffer() {
+    let overrides = LayoutOverrides::new([LayoutPosition::new(
+        "lounge.floor-lamp",
+        Point { x: 0, y: 0 },
+    )]);
+
+    let error = SceneLayout::compute_with_seed_and_overrides(240, 160, Some(8), 0, &overrides)
+        .expect("fits")
+        .expect_err("out-of-bounds visual must be refused");
+
+    assert!(
+        error.to_string().contains("bounds") || error.to_string().contains("allowed area"),
+        "{error}"
+    );
+}
+
+#[test]
+fn layout_override_rejects_a_collision_with_a_fixed_desk() {
+    let base = SceneLayout::compute_with_seed(240, 160, Some(8), 0).expect("fits");
+    let desk = base.home_desks[0];
+    let overrides = LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", desk)]);
+
+    let error = SceneLayout::compute_with_seed_and_overrides(240, 160, Some(8), 0, &overrides)
+        .expect("fits")
+        .expect_err("desk collision must be refused");
+
+    assert!(error.to_string().contains("desk"), "{error}");
+}
+
+#[test]
+fn layout_override_rejects_a_new_collision_inside_the_lounge_cluster() {
+    let base = SceneLayout::compute_with_seed(240, 160, Some(8), 0).expect("fits");
+    let target = base
+        .couch_sprite_center
+        .expect("standard floor has a couch");
+    let overrides = LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", target)]);
+
+    let error = SceneLayout::compute_with_seed_and_overrides(240, 160, Some(8), 0, &overrides)
+        .expect("fits")
+        .expect_err("a newly introduced lounge overlap must be refused");
+
+    assert!(error.to_string().contains("collides"), "{error}");
+}
+
+#[test]
+fn layout_override_rejects_a_wall_decor_visual_collision() {
+    let base = SceneLayout::compute_with_seed(240, 160, Some(8), 0).expect("fits");
+    let bookshelf = base
+        .wall_decor
+        .iter()
+        .find(|decor| decor.kind == WallDecor::Bookshelf)
+        .expect("standard floor has a bookshelf");
+    let overrides = LayoutOverrides::new([LayoutPosition::new("wall.exit-sign", bookshelf.pos)]);
+
+    let error = SceneLayout::compute_with_seed_and_overrides(240, 160, Some(8), 0, &overrides)
+        .expect("fits")
+        .expect_err("overlapping wall decor must be refused");
+
+    assert!(error.to_string().contains("collides"), "{error}");
+}
+
+#[test]
 fn kitchen_island_places_on_roomy_pantries_and_refuses_small() {
     // Roomy Senior floor: island + its 4 stands (E/W flank + the two
     // "bartender" slots INSIDE the body — occluded by the counter's y-sort)

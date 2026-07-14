@@ -2,6 +2,33 @@ use super::*;
 use pixtuoid_scene::layout::Point;
 
 #[test]
+fn terminal_renderer_consumes_floor_scoped_layout_overrides() {
+    use pixtuoid_scene::layout::{LayoutOverrides, LayoutPosition, SceneLayout};
+
+    let cols = 120;
+    let rows = 60;
+    let buf_h = (rows - 1) * 2;
+    let base = SceneLayout::compute_with_seed(cols, buf_h, None, 0).unwrap();
+    let target = Point {
+        x: base.cubicle_band.x + base.cubicle_band.width * 3 / 4,
+        y: base.cubicle_band.y + 6,
+    };
+    let mut overrides = std::collections::BTreeMap::new();
+    overrides.insert(
+        0,
+        LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", target)]),
+    );
+
+    let mut renderer = build(cols, rows, vec![]);
+    renderer.set_layout_overrides(overrides);
+    renderer
+        .render(&SceneState::uniform(16), &pack(), t0())
+        .unwrap();
+
+    assert_eq!(renderer.cached_layout().unwrap().floor_lamp, Some(target));
+}
+
+#[test]
 fn offscreen_floor_freezes_and_resyncs_on_return() {
     let pack = pixtuoid_scene::embedded_pack::load_sprite_pack(None).expect("embedded pack");
     let theme = pixtuoid_scene::theme::ALL_THEMES[0];

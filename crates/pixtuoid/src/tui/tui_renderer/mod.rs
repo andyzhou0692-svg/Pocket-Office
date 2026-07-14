@@ -112,6 +112,7 @@ pub struct TuiRenderer<B: Backend<Error: Send + Sync + 'static>> {
     /// they always move together). Kept here, disjoint from the floor buffers, for
     /// borrow-free `DrawCtx` assembly.
     onboarding: crate::tui::welcome::OnboardingFrame,
+    layout_overrides: std::collections::BTreeMap<usize, pixtuoid_scene::layout::LayoutOverrides>,
 }
 
 impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
@@ -140,6 +141,22 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
             dashboard: Default::default(),
             connection: Default::default(),
             onboarding: crate::tui::welcome::OnboardingFrame::default(),
+            layout_overrides: std::collections::BTreeMap::new(),
+        }
+    }
+
+    pub fn set_layout_overrides(
+        &mut self,
+        overrides: std::collections::BTreeMap<usize, pixtuoid_scene::layout::LayoutOverrides>,
+    ) {
+        self.layout_overrides = overrides;
+        for (floor, per_floor) in self.floors.iter_mut().enumerate() {
+            per_floor.ctx.set_layout_overrides(
+                self.layout_overrides
+                    .get(&floor)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
         }
     }
 
@@ -687,7 +704,15 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
 
         // Grow the per-floor sessions if needed.
         while self.floors.len() < nf {
-            self.floors.push(PerFloor::new());
+            let floor = self.floors.len();
+            let mut per_floor = PerFloor::new();
+            per_floor.ctx.set_layout_overrides(
+                self.layout_overrides
+                    .get(&floor)
+                    .cloned()
+                    .unwrap_or_default(),
+            );
+            self.floors.push(per_floor);
         }
 
         // Cancel transition if target floors no longer exist.

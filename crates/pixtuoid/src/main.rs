@@ -198,6 +198,7 @@ fn build_run_config(
     // inference was dropped in 0.12.0).
     let connected = config::resolve_connected(&cfg);
     let agent_names = cfg.agent_names.clone();
+    let layout_overrides = config::resolve_layout_overrides(&cfg);
     if !headless {
         // Config problems must reach the user's eyes, not only the log file (#87):
         // stderr BEFORE any alternate screen / window. Headless already has a
@@ -218,6 +219,7 @@ fn build_run_config(
         theme,
         pets,
         agent_names,
+        layout_overrides,
         connected,
         log_path: Some(logging::log_file_path()),
         first_run,

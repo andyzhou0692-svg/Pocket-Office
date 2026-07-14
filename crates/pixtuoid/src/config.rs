@@ -19,6 +19,20 @@ pub struct PetEntry {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LayoutConfigRaw {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub positions: Vec<LayoutPositionRaw>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct LayoutPositionRaw {
+    pub floor: usize,
+    pub item: String,
+    pub x: u16,
+    pub y: u16,
+}
+
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct AppConfig {
     pub theme: Option<String>,
@@ -62,6 +76,8 @@ pub struct AppConfig {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub agent_names: BTreeMap<String, String>,
+    #[serde(rename = "layout", default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<LayoutConfigRaw>,
     /// `pixtuoid floating` desktop-window geometry — a single `[floating]` table
     /// (size/position/opacity). Absent ⇒ defaults from [`resolve_floating`]. Keep
     /// BEFORE `pets`: it's a `[table]`, and the `[[pets]]` array-of-tables must
@@ -97,6 +113,38 @@ pub fn resolve_visual_coworker_fps(config: &AppConfig) -> u64 {
         .visual_coworker_fps
         .filter(|fps| *fps > 0)
         .unwrap_or(VISUAL_COWORKER_FPS_DEFAULT)
+}
+
+pub fn resolve_layout_overrides(
+    config: &AppConfig,
+) -> BTreeMap<usize, pixtuoid_scene::layout::LayoutOverrides> {
+    let mut by_floor: BTreeMap<usize, Vec<pixtuoid_scene::layout::LayoutPosition>> =
+        BTreeMap::new();
+    for position in config
+        .layout
+        .as_ref()
+        .into_iter()
+        .flat_map(|layout| &layout.positions)
+    {
+        by_floor.entry(position.floor).or_default().push(
+            pixtuoid_scene::layout::LayoutPosition::new(
+                position.item.clone(),
+                pixtuoid_scene::layout::Point {
+                    x: position.x,
+                    y: position.y,
+                },
+            ),
+        );
+    }
+    by_floor
+        .into_iter()
+        .map(|(floor, positions)| {
+            (
+                floor,
+                pixtuoid_scene::layout::LayoutOverrides::new(positions),
+            )
+        })
+        .collect()
 }
 
 /// Raw `[floating]` table as parsed — every field optional so a partial table (or an
@@ -461,6 +509,45 @@ pub fn resolve_pets(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layout_positions_parse_from_the_nested_config_contract() {
+        let cfg: AppConfig = toml::from_str(
+            r#"
+                [[layout.positions]]
+                floor = 0
+                item = "lounge.floor-lamp"
+                x = 118
+                y = 34
+            "#,
+        )
+        .unwrap();
+
+        let positions = cfg.layout.expect("layout table").positions;
+        assert_eq!(positions.len(), 1);
+        assert_eq!(positions[0].floor, 0);
+        assert_eq!(positions[0].item, "lounge.floor-lamp");
+        assert_eq!((positions[0].x, positions[0].y), (118, 34));
+    }
+
+    #[test]
+    fn layout_positions_resolve_into_floor_scoped_scene_overrides() {
+        let cfg: AppConfig = toml::from_str(
+            r#"
+                [[layout.positions]]
+                floor = 2
+                item = "aisle.printer"
+                x = 90
+                y = 70
+            "#,
+        )
+        .unwrap();
+
+        let resolved = resolve_layout_overrides(&cfg);
+        assert_eq!(resolved.len(), 1);
+        assert!(!resolved[&2].is_empty());
+        assert!(!resolved.contains_key(&0));
+    }
 
     #[test]
     fn visual_coworker_fps_roundtrips_as_a_config_setting() {

@@ -23,6 +23,13 @@ jess = "Jess (Head of Strategy)"
 # Real subagents remain stable numbered Analysts. Resident activity is a local
 # visual rotation and does not classify work or consume model tokens.
 
+# Optional TUI-only furniture position overrides. Coordinates are scene pixels.
+[[layout.positions]]
+floor = 0
+item = "lounge.floor-lamp"
+x = 118
+y = 34
+
 # One stanza per pet. Omit the whole section to show all pets with default
 # names; use `pets = []` to disable all pets. `name` is optional (shown in
 # the pet's hover tooltip). Keep [[pets]] last — it's a table section.
@@ -42,7 +49,48 @@ kind = "dog"        # name omitted → "Office Dog"
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
 | `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Real subagents receive stable `Analyst 01`, `Analyst 02`, and so on labels while present. |
+| `[[layout.positions]]` | procedural layout | Reposition one existing furniture or decor item on one TUI floor. See [Layout positions](#layout-positions). |
 | `[[pets]]` | all kinds, default names | One stanza per pet. `kind` (`"cat"`/`"dog"`) is required; `name` is optional (the hover-tooltip label, default `Office Cat`/`Office Dog`). Omit the section for all pets; `pets = []` for none; an unknown `kind` is skipped without affecting other settings. Keep it last (it's a table section). |
+
+## Layout positions
+
+`[[layout.positions]]` moves an item that the procedural layout already placed.
+It does not create furniture, change its kind, or move rooms, walls, or desks.
+The setting applies to the terminal TUI after restart. Floating and web layouts
+remain procedural.
+
+```toml
+[[layout.positions]]
+floor = 0
+item = "lounge.floor-lamp"
+x = 118
+y = 34
+```
+
+`floor` is zero-based. `x` is a terminal column in the scene canvas. `y` is a
+half-block pixel row, so the scene has two y pixels per terminal row. The status
+footer is outside this coordinate space.
+
+Available item names:
+
+- Lounge: `lounge.couch`, `lounge.floor-lamp`, `lounge.side-table`
+- Pantry: `pantry.counter`, `pantry.island`, `pantry.snack-shelf`
+- Aisle: `aisle.vending-machine`, `aisle.printer`
+- Meeting rooms: `meeting.<room>.north-sofa`, `meeting.<room>.table`,
+  `meeting.<room>.south-sofa`
+- Plants: `plant.cubicle-west`, `plant.cubicle-east`,
+  `plant.meeting-0-north`, `plant.meeting-0-south`
+- Wall decor: `wall.bookshelf`, `wall.exit-sign`, `wall.whiteboard`,
+  `wall.meeting-screen`
+- Procedural pod decor: `pod-decor.<index>`
+
+An item must exist on the selected floor variant. Coupled interaction points
+move with their furniture, including couch seats, meeting seats, kitchen-island
+stands, and interactive pod decor. Pixtuoid validates the complete override set
+for the floor against scene bounds, room bounds, fixed walls and desks, other
+furniture, walkable connectivity, and furniture approach routes. If any entry is
+invalid, the entire floor falls back to its procedural positions and logs the
+reason. No partial override set is rendered.
 
 ## System-managed (don't edit — pixtuoid writes these for you)
 
