@@ -6,7 +6,7 @@ use pixtuoid_core::{AgentId, SceneState};
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Padding, Paragraph};
+use ratatui::widgets::{Block, Padding, Paragraph, Wrap};
 
 use super::{compact_hms, display_width, source_badge_span, to_color, StateKind};
 use crate::tui::renderer::clip_widget_rect;
@@ -439,20 +439,32 @@ pub fn paint_chitchat_bubbles(
     scene_rect: Rect,
     theme: &pixtuoid_scene::theme::Theme,
 ) {
+    const MAX_BUBBLE_WIDTH: u16 = 40;
+    const ANCHOR_GAP_ROWS: u16 = 2;
+
     for bubble in bubbles {
         let text = format!(" {} ", bubble.text);
         // Size by DISPLAY width, not byte length: a wide-glyph quip (the line
         // pool can grow) would otherwise over-size + mis-center the bubble.
         // Matches the rest of this file (paint_simple_tooltip uses `.width()`).
         let line = Line::from(text.clone());
-        let tip_w = line.width() as u16;
-        let tip_h = 1u16;
+        let tip_w = (line.width() as u16)
+            .min(MAX_BUBBLE_WIDTH)
+            .min(scene_rect.width);
+        if tip_w == 0 {
+            continue;
+        }
+        let style = Style::default()
+            .bg(to_color(theme.ui.tooltip_bg))
+            .fg(Color::White);
+        let paragraph = Paragraph::new(Span::styled(text, style)).wrap(Wrap { trim: true });
+        let tip_h = wrapped_chitchat_height(bubble.text, tip_w);
 
         let cell_x = scene_rect.x + bubble.anchor.x;
         let cell_y = scene_rect.y + bubble.anchor.y / 2;
 
         let bx = cell_x.saturating_sub(tip_w / 2);
-        let by = cell_y.saturating_sub(3);
+        let by = cell_y.saturating_sub(tip_h.saturating_add(ANCHOR_GAP_ROWS));
 
         if let Some(r) = clip_widget_rect(
             Rect {
@@ -463,12 +475,33 @@ pub fn paint_chitchat_bubbles(
             },
             scene_rect,
         ) {
-            let style = Style::default()
-                .bg(to_color(theme.ui.tooltip_bg))
-                .fg(Color::White);
-            f.render_widget(Paragraph::new(Span::styled(text, style)), r);
+            f.render_widget(paragraph, r);
         }
     }
+}
+
+fn wrapped_chitchat_height(text: &str, width: u16) -> u16 {
+    let width = usize::from(width);
+    let mut rows = 1u16;
+    let mut used = 0usize;
+
+    for word in text.split_whitespace() {
+        let mut word_width = Line::from(word).width();
+        if used > 0 {
+            if used.saturating_add(1).saturating_add(word_width) <= width {
+                used += 1 + word_width;
+                continue;
+            }
+            rows = rows.saturating_add(1);
+        }
+        while word_width > width {
+            rows = rows.saturating_add(1);
+            word_width -= width;
+        }
+        used = word_width;
+    }
+
+    rows
 }
 
 #[cfg(test)]

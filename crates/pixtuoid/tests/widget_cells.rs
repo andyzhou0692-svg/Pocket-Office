@@ -223,3 +223,36 @@ fn chitchat_bubble_text_appears_in_buffer() {
         bubble_text
     );
 }
+
+#[test]
+fn long_chitchat_wraps_instead_of_clipping_its_ending() {
+    use pixtuoid_scene::chitchat::ChitchatBubble;
+    use pixtuoid_scene::layout::Point;
+
+    let w = 40u16;
+    let h = 30u16;
+    let backend = TestBackend::new(w, h);
+    let mut term = Terminal::new(backend).unwrap();
+    let scene_rect = ratatui::layout::Rect {
+        x: 0,
+        y: 0,
+        width: w,
+        height: h,
+    };
+    let bubbles = vec![ChitchatBubble {
+        text: "Don’t stay up all night, but have it to me tomorrow morning.",
+        anchor: Point { x: 20, y: 40 },
+    }];
+
+    term.draw(|f| {
+        pixtuoid::tui::widgets::paint_chitchat_bubbles(f, &bubbles, scene_rect, &theme::NORMAL);
+    })
+    .unwrap();
+
+    let buf = term.backend().buffer();
+    let rows: Vec<String> = (0..h).map(|y| row_text(buf, y, w)).collect();
+    assert!(rows
+        .iter()
+        .any(|row| row.contains("Don’t stay up all night")));
+    assert!(rows.iter().any(|row| row.contains("tomorrow morning.")));
+}

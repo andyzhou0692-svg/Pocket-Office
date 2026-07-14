@@ -13,11 +13,6 @@ use pixtuoid_core::AgentId;
 use crate::layout::{Point, WaypointKind};
 use crate::pose::{IdleBehavior, DEFAULT_IDLE_BEHAVIOR};
 
-/// Maximum dialogue length that remains legible in the half-block speech
-/// bubble. Every built-in pack is pinned to this bound by tests.
-#[cfg(test)]
-const MAX_DIALOGUE_CHARS: usize = 12;
-
 /// Static, zero-token avatar behavior selected by the visible office theme.
 /// Motion mechanics remain in `pose`/`motion`; this pack contains only their
 /// deterministic idle policy plus the dialogue data chitchat consumes.
@@ -40,11 +35,12 @@ const TURN_MS: u64 = 1_500;
 /// Number of speaking turns.
 const TURNS: u64 = 4;
 
-/// Pool of short speech-bubble quips — mostly dev humor, with a few
+/// Default pool of short speech-bubble quips — mostly dev humor, with a few
 /// office/watercooler lines that fit the social venues (pantry, couch, meeting
 /// room) where these conversations happen. Order doesn't matter: `current_bubble`
 /// indexes `% CHITCHAT_LINES.len()`, so the pool can grow freely. Keep each line
-/// short (≤ ~12 chars) so it fits the bubble at half-block scale.
+/// short so the default bubble stays compact at half-block scale. Theme packs
+/// may use longer lines; the terminal painter wraps them within the scene.
 pub const CHITCHAT_LINES: &[&str] = &[
     "git push -f",
     "// TODO",
@@ -99,27 +95,50 @@ pub const CHITCHAT_LINES: &[&str] = &[
 ];
 
 const GOLDMAN_DIALOGUE: &[&str] = &[
-    "pls fix",
-    "add logo",
-    "more logos?",
-    "circle back",
-    "per my last",
-    "thoughts?",
-    "pls advise",
-    "run the acc",
-    "need comps",
-    "upside case",
-    "downside?",
-    "send model",
-    "tighten it",
-    "make it pop",
-    "quick turn",
-    "pls update",
-    "see attached",
-    "bump EBITDA",
-    "buyer list?",
-    "font bigger",
-    "align logos",
+    "Don’t stay up all night, but have it to me tomorrow morning.",
+    "No need to burn the midnight oil.",
+    "I don’t want you working weekends, but have it on my desk Monday morning.",
+    "I have a feeling someone might be doing weekend work on this.",
+    "Great page. Let’s move it to the appendix.",
+    "Fill me in when you come up for air.",
+    "Don’t spin your wheels on this too long.",
+    "Work smart, not hard.",
+    "This will be a great learning experience.",
+    "This is a good chance for you to step up.",
+    "I want to be efficient with the team’s time.",
+    "We’re all wearing several hats here.",
+    "There’s an error in your model.",
+    "Don’t boil the ocean.",
+    "Don’t cut the lawn with scissors.",
+    "Don’t recreate the wheel.",
+    "Don’t leave any meat on the bones.",
+    "Don’t throw the baby out with the bathwater.",
+    "Don’t put all your eggs in one basket.",
+    "Don’t get caught with your pants down.",
+    "Don’t drink your own Kool Aid.",
+    "Don’t bring sand to the beach.",
+    "Lots of wood to chop.",
+    "Squeaky wheel gets the grease.",
+    "Run it up the flagpole and see who salutes.",
+    "Dangle the cape in front of the bull.",
+    "Dig the puck out of the corner.",
+    "Fill the room with smoke.",
+    "See if any snakes come out of the woodpile.",
+    "Too many cooks in the kitchen.",
+    "Letting the wolf into the chicken coop.",
+    "The devil is in the details.",
+    "We are preaching to the choir.",
+    "Let’s not milk the cow from the inside.",
+    "That model is the Titanic. It can’t be saved.",
+    "The company is a black box.",
+    "This is Wall Street, not Sesame Street.",
+    "There are a thousand ways to skin a cat.",
+    "This feels like a tallest midget contest.",
+    "Let's massage the numbers",
+    "Give me the 10,000 foot view.",
+    "Eee bit, D, A.",
+    "There’s no need to be caught with our pants down.",
+    "I’ll socialize it with the board.",
 ];
 
 pub(crate) static DEFAULT_BEHAVIOR: BehaviorPack = BehaviorPack {
@@ -361,6 +380,8 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
+    const GOLDMAN_ORIGINAL_LIST: &str = include_str!("chitchat_goldman_original.txt");
+
     fn base_time() -> SystemTime {
         SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000)
     }
@@ -386,23 +407,34 @@ mod tests {
     }
 
     #[test]
-    fn every_dialogue_pack_is_nonempty_and_fits_the_bubble() {
+    fn every_dialogue_pack_is_nonempty() {
         for pack in [&DEFAULT_BEHAVIOR, &GOLDMAN_BEHAVIOR] {
             assert!(!pack.dialogue.is_empty());
-            for line in pack.dialogue {
-                assert!(
-                    line.chars().count() <= MAX_DIALOGUE_CHARS,
-                    "dialogue line exceeds the half-block bubble width: {line:?}"
-                );
-            }
         }
     }
 
     #[test]
     fn goldman_dialogue_is_distinct_from_default_office_chitchat() {
         assert_ne!(GOLDMAN_BEHAVIOR.dialogue, DEFAULT_BEHAVIOR.dialogue);
-        assert!(GOLDMAN_BEHAVIOR.dialogue.contains(&"pls fix"));
-        assert!(GOLDMAN_BEHAVIOR.dialogue.contains(&"add logo"));
+        assert!(GOLDMAN_BEHAVIOR
+            .dialogue
+            .contains(&"Don’t stay up all night, but have it to me tomorrow morning."));
+        assert!(GOLDMAN_BEHAVIOR
+            .dialogue
+            .contains(&"I’ll socialize it with the board."));
+        assert_eq!(GOLDMAN_BEHAVIOR.dialogue.len(), 44);
+    }
+
+    #[test]
+    fn goldman_original_research_list_remains_archived() {
+        let numbered_entries = GOLDMAN_ORIGINAL_LIST
+            .lines()
+            .filter(|line| {
+                line.split_once(". ")
+                    .is_some_and(|(number, _)| number.parse::<usize>().is_ok())
+            })
+            .count();
+        assert_eq!(numbered_entries, 250);
     }
 
     #[test]
