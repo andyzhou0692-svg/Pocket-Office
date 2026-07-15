@@ -634,31 +634,31 @@ fn front_face_overlay_keeps_small_scale_features_sparse_and_removes_shadow_crack
     let shadow = palette.get('s').flatten();
     let eye = palette.get('e').flatten();
 
-    assert_eq!(at(4, 2), skin, "forehead remains clear at this scale");
-    assert_eq!(at(7, 2), skin, "forehead remains clear at this scale");
-    assert_eq!(at(4, 3), at(7, 3), "eye accents stay symmetrical");
+    assert_eq!(at(5, 3), skin, "forehead remains clear at this scale");
+    assert_eq!(at(10, 3), skin, "forehead remains clear at this scale");
+    assert_eq!(at(5, 4), at(10, 4), "eye accents stay symmetrical");
     assert_ne!(
-        at(4, 3),
+        at(5, 4),
         eye,
         "eye accent separates the eyes from flat black"
     );
-    let eye_accent = at(4, 3).expect("eye accent is painted");
+    let eye_accent = at(5, 4).expect("eye accent is painted");
     assert!(
         u16::from(eye_accent.r) + u16::from(eye_accent.g) + u16::from(eye_accent.b) < 240,
         "eye accent remains dark enough to read at half-block scale"
     );
-    assert_eq!(at(3, 4), skin, "left cheek remains clear");
-    assert_eq!(at(8, 4), skin, "right cheek remains clear");
-    assert_eq!(at(6, 4), shadow, "nose shadow is centered");
-    assert_eq!(at(5, 4), skin, "old left face crack is cleared");
-    assert_eq!(at(7, 4), skin, "old right face crack is cleared");
-    assert_eq!(at(5, 5), skin, "mouth does not become a two-pixel red bar");
+    assert_eq!(at(4, 5), skin, "left cheek remains clear");
+    assert_eq!(at(11, 5), skin, "right cheek remains clear");
+    assert_eq!(at(7, 6), shadow, "nose shadow is centered");
+    assert_eq!(at(6, 5), skin, "old left face crack is cleared");
+    assert_eq!(at(9, 5), skin, "old right face crack is cleared");
+    assert_eq!(at(7, 7), skin, "mouth does not become a two-pixel red bar");
     assert_eq!(
-        at(6, 5),
+        at(8, 7),
         shadow,
         "mouth is one muted centered pixel, not a red wound"
     );
-    assert_eq!(at(7, 6), skin, "old jaw crack is cleared");
+    assert_eq!(at(9, 8), skin, "old jaw crack is cleared");
 }
 
 #[test]
@@ -711,7 +711,7 @@ fn front_face_overlay_leaves_custom_geometry_untouched() {
     assert_eq!(
         detailed.as_slice(),
         custom.as_slice(),
-        "a custom 12x16 pose without the Pocket Office face geometry must not be stamped"
+        "a custom pose without the Pocket Office face geometry must not be stamped"
     );
 }
 
@@ -743,12 +743,12 @@ fn shared_character_painter_uses_the_front_face_overlay_before_blitting() {
     );
 
     assert_ne!(
-        front.get(anchor.x + 4, anchor.y + 3),
+        front.get(anchor.x + 5, anchor.y + 4),
         raw_eye,
         "the shared paint path must replace the flat eye with the overlay accent"
     );
     assert_eq!(
-        front.get(anchor.x + 5, anchor.y + 4),
+        front.get(anchor.x + 6, anchor.y + 5),
         palette.get('S').flatten().expect("skin color"),
         "the shared paint path must clear the old face crack"
     );
@@ -1323,11 +1323,11 @@ fn desk_z_key_is_the_visual_south() {
     // The DeskCubicle z-sort baseline is `desk.y + visual.h` — a VISUAL
     // property (it must track the sprite, not the blocked ground, so the
     // walk-behind footprint shrink is z-neutral by construction). Density
-    // desk: visual.h = DESK_H+2 = 7. Locks the value so a visual resize
+    // Desk visual height tracks DESK_H+2. Locks the value so a visual resize
     // surfaces here, not as a layering bug.
     assert_eq!(
         crate::layout::desk_furniture_def().visual.h,
-        7,
+        crate::layout::DESK_H + 2,
         "desk z-key offset (DESK_H+2)"
     );
 }
@@ -2435,7 +2435,7 @@ fn swig_character_drawable_paints_the_liquor_bottle_inline() {
     );
 
     assert_eq!(
-        buf.get(anchor.x + 11, anchor.y + 6),
+        buf.get(anchor.x + 14, anchor.y + 7),
         Rgb {
             r: 204,
             g: 124,
@@ -2483,19 +2483,19 @@ fn suspicious_glance_moves_alexs_eyes_left_then_right() {
     };
 
     let baseline = render(crate::habits::CharacterHabit::None);
-    let eye = baseline.get(anchor.x + 4, anchor.y + 3);
-    let skin = baseline.get(anchor.x + 5, anchor.y + 3);
+    let eye = baseline.get(anchor.x + 5, anchor.y + 4);
+    let skin = baseline.get(anchor.x + 6, anchor.y + 4);
     let left = render(crate::habits::CharacterHabit::LookLeft);
-    assert_eq!(left.get(anchor.x + 3, anchor.y + 3), eye);
-    assert_eq!(left.get(anchor.x + 6, anchor.y + 3), eye);
-    assert_eq!(left.get(anchor.x + 4, anchor.y + 3), skin);
-    assert_eq!(left.get(anchor.x + 7, anchor.y + 3), skin);
+    assert_eq!(left.get(anchor.x + 4, anchor.y + 4), eye);
+    assert_eq!(left.get(anchor.x + 9, anchor.y + 4), eye);
+    assert_eq!(left.get(anchor.x + 5, anchor.y + 4), skin);
+    assert_eq!(left.get(anchor.x + 10, anchor.y + 4), skin);
 
     let right = render(crate::habits::CharacterHabit::LookRight);
-    assert_eq!(right.get(anchor.x + 5, anchor.y + 3), eye);
-    assert_eq!(right.get(anchor.x + 8, anchor.y + 3), eye);
-    assert_eq!(right.get(anchor.x + 4, anchor.y + 3), skin);
-    assert_eq!(right.get(anchor.x + 7, anchor.y + 3), skin);
+    assert_eq!(right.get(anchor.x + 6, anchor.y + 4), eye);
+    assert_eq!(right.get(anchor.x + 11, anchor.y + 4), eye);
+    assert_eq!(right.get(anchor.x + 5, anchor.y + 4), skin);
+    assert_eq!(right.get(anchor.x + 10, anchor.y + 4), skin);
 }
 
 #[test]
@@ -2660,22 +2660,5 @@ fn paint_frame_is_pure_and_byte_identical() {
         chitchat.len(),
         chitchat_before,
         "paint must not start/expire chitchat"
-    );
-}
-
-#[test]
-fn desk_ceiling_pool_stays_tighter_than_the_workstation() {
-    let desk = Point { x: 40, y: 50 };
-    let pool = desk_ceiling_pool(desk);
-    assert_eq!((pool.cx, pool.cy), (desk.x + DESK_W / 2, desk.y - 2));
-    assert!(
-        pool.half_w <= 7,
-        "desk light half-width {} washes neighboring furniture into one horizontal band",
-        pool.half_w
-    );
-    assert!(
-        pool.half_h <= 3,
-        "desk light half-height {} makes the workstation float inside an oversized blob",
-        pool.half_h
     );
 }

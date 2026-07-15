@@ -1,5 +1,5 @@
 ---
-import { REPO, SPONSOR, asset, DOCS } from '../consts';
+import { REPO, asset, DOCS } from '../consts';
 // Absolute home so the section anchors work from any page (e.g. /config).
 const home = asset('');
 // `floating` = the OPEN FLOOR index treatment (corner chrome over the live
@@ -42,15 +42,6 @@ const { floating = false } = Astro.props;
         </div>
       </div>
       <a href={REPO} target="_blank" rel="noreferrer">GitHub ↗</a>
-      <a
-        class="nav__coffee"
-        href={SPONSOR}
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Buy me a coffee (opens in a new tab)"
-      >
-        ☕ Coffee
-      </a>
     </nav>
     <button
       id="nav-burger"
@@ -259,16 +250,6 @@ const { floating = false } = Astro.props;
   }
   .nav__links a:hover {
     color: var(--fg);
-  }
-  /* support CTA — coral so it reads as an action, not just another nav link.
-     --coral-deep stays contrast-safe on both day (cream bar) and night (dark bar)
-     and is exempt from the gallery retint. */
-  .nav__links a.nav__coffee {
-    color: var(--coral-deep);
-    white-space: nowrap;
-  }
-  .nav__links a.nav__coffee:hover {
-    color: var(--coral);
   }
   .nav__burger {
     margin-left: auto;

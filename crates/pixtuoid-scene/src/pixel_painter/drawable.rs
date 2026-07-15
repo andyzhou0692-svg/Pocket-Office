@@ -30,7 +30,7 @@ use super::effects::{
 use super::epoch_ms;
 use super::frame_at;
 use super::furniture::{
-    paint_area_rug, paint_desk_props, paint_kitchen_island, paint_meeting_table, paint_side_table,
+    paint_area_rug, paint_kitchen_island, paint_meeting_table, paint_side_table,
 };
 use super::paint_character_at;
 use crate::frame_cache::FrameCache;
@@ -52,15 +52,16 @@ pub(super) struct Drawable<'a> {
 }
 
 pub(super) enum DrawableKind<'a> {
-    /// Whole cubicle as one z-unit: divider + filing cabinet (every
-    /// other desk) + desk sprite + trash bin + screen-glow if the
-    /// occupant is Active. Bundled so the cubicle paints atomically at
-    /// the desk's bottom-edge row.
-    DeskCubicle {
+    /// Rear workstation layer. Monitors and chair paint before the worker so
+    /// they remain spatially behind the body instead of cutting across it.
+    DeskBack {
         desk: Point,
-        is_last_col: bool,
-        has_cabinet: bool,
         screen_glow: Option<Rgb>,
+    },
+    /// Front workstation layer. The tabletop and legs paint after the worker,
+    /// creating one readable foreground edge at the seated waist.
+    DeskFront {
+        desk: Point,
         has_coffee: bool,
         coffee_steam: bool,
     },
@@ -634,61 +635,31 @@ pub(super) fn paint_drawable(
     theme: &crate::theme::Theme,
 ) {
     match &d.kind {
-        DrawableKind::DeskCubicle {
+        DrawableKind::DeskBack { desk, screen_glow } => {
+            let animation = match theme.visual_profile() {
+                crate::theme::VisualProfile::Standard => "desk_back",
+                crate::theme::VisualProfile::Goldman => "goldman_desk_back",
+            };
+            if let Some(frame) = pack.animation(animation).and_then(|a| a.frames.first()) {
+                blit_frame(frame, desk.x, desk.y.saturating_sub(9), buf);
+            }
+            if let Some(tint) = screen_glow {
+                paint_screen_glow(buf, desk.x, desk.y.saturating_sub(9), now, *tint, theme);
+            }
+        }
+        DrawableKind::DeskFront {
             desk,
-            is_last_col,
-            has_cabinet,
-            screen_glow,
             has_coffee,
             coffee_steam,
         } => {
-            let divider = theme.office.cubicle_divider;
-            if !is_last_col {
-                let div_x = desk.x + DESK_W + 3;
-                for dy in 0..(DESK_H + 1) {
-                    let py = desk.y.saturating_sub(1) + dy;
-                    if div_x < buf.width() && py < buf.height() {
-                        buf.put(div_x, py, divider);
-                    }
-                }
-            }
-            if *has_cabinet {
-                if let Some(cab) = pack
-                    .animation("filing_cabinet")
-                    .and_then(|a| a.frames.first())
-                {
-                    let cab_x = desk.x.saturating_sub(cab.width() + 1);
-                    let cab_y = desk.y;
-                    if cab_y + cab.height() <= buf.height() {
-                        blit_frame(cab, cab_x, cab_y, buf);
-                    }
-                }
-            }
-            let desk_animation = match theme.visual_profile() {
-                crate::theme::VisualProfile::Standard => "desk",
-                crate::theme::VisualProfile::Goldman => "goldman_desk",
+            let animation = match theme.visual_profile() {
+                crate::theme::VisualProfile::Standard => "desk_front",
+                crate::theme::VisualProfile::Goldman => "goldman_desk_front",
             };
-            if let Some(frame) = pack
-                .animation(desk_animation)
-                .and_then(|a| a.frames.first())
-            {
-                // The desk sprite's top row is the monitor's raised bezel (1px
-                // above the desk back), so blit 1px higher — the surface/keyboard
-                // rows still land at their original desk.y-relative positions.
+            if let Some(frame) = pack.animation(animation).and_then(|a| a.frames.first()) {
                 blit_frame(frame, desk.x, desk.y.saturating_sub(1), buf);
             }
-            paint_desk_props(buf, *desk, theme);
-            if let Some(bin) = pack.animation("trash_bin").and_then(|a| a.frames.first()) {
-                let bin_x = desk.x + DESK_W;
-                let bin_y = desk.y + 4;
-                if bin_x + bin.width() <= buf.width() && bin_y + bin.height() <= buf.height() {
-                    blit_frame(bin, bin_x, bin_y, buf);
-                }
-            }
             paint_desk_coffee(buf, *desk, *has_coffee, *coffee_steam, now, theme);
-            if let Some(tint) = screen_glow {
-                paint_screen_glow(buf, desk.x, desk.y, now, *tint, theme);
-            }
         }
         DrawableKind::Character {
             agent,
@@ -1067,6 +1038,9 @@ fn paint_desk_coffee(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::{HashSet, VecDeque};
+    use std::path::Path;
+    use std::sync::Arc;
 
     fn p(x: u16, y: u16) -> Point {
         Point { x, y }
@@ -1267,59 +1241,355 @@ mod tests {
         crate::theme::theme_by_name("normal").expect("theme")
     }
 
-    #[test]
-    fn desk_cubicle_with_cabinet_blits_cabinet_and_trash_bin() {
-        // A DeskCubicle with has_cabinet=true paints the filing cabinet (west of
-        // the desk) and the trash bin (at the desk's east edge) when both fit in
-        // the buffer (covers the cabinet blit + the side-bin blit).
+    fn render_workstation(theme_name: &str) -> (RgbBuffer, Rgb, Point) {
         let pack = test_pack();
         let mut cache = FrameCache::new();
         let now = SystemTime::UNIX_EPOCH;
-        let desk = Point { x: 40, y: 30 };
-        let cab = pack
-            .animation("filing_cabinet")
-            .and_then(|a| a.frames.first())
-            .expect("filing_cabinet anim");
-        let bin = pack
-            .animation("trash_bin")
-            .and_then(|a| a.frames.first())
-            .expect("trash_bin anim");
+        let desk = Point { x: 40, y: 40 };
         let bg = Rgb { r: 1, g: 2, b: 3 };
-        let mut buf = RgbBuffer::filled(120, 80, bg);
-        let d = Drawable {
-            anchor_y: desk.y + 8,
-            kind: DrawableKind::DeskCubicle {
+        let mut buf = RgbBuffer::filled(120, 90, bg);
+        let theme = crate::theme::theme_by_name(theme_name).expect("theme resolves");
+        let back = Drawable {
+            anchor_y: desk.y - 1,
+            kind: DrawableKind::DeskBack {
                 desk,
-                is_last_col: true,
-                has_cabinet: true,
                 screen_glow: None,
+            },
+        };
+        let front = Drawable {
+            anchor_y: desk.y + 8,
+            kind: DrawableKind::DeskFront {
+                desk,
                 has_coffee: false,
                 coffee_steam: false,
             },
         };
-        paint_drawable(&d, &mut buf, &pack, &mut cache, now, theme());
-        // Cabinet lands at desk.x - cab.width - 1 .. ; sample a pixel inside it.
-        let cab_x = desk.x.saturating_sub(cab.width() + 1);
-        let mut cab_painted = false;
-        for dy in 0..cab.height() {
-            for dx in 0..cab.width() {
-                if buf.get(cab_x + dx, desk.y + dy) != bg {
-                    cab_painted = true;
-                }
+        paint_drawable(&back, &mut buf, &pack, &mut cache, now, theme);
+        paint_drawable(&front, &mut buf, &pack, &mut cache, now, theme);
+        (buf, bg, desk)
+    }
+
+    fn occupied_workstation_agent() -> AgentSlot {
+        let now = SystemTime::UNIX_EPOCH;
+        AgentSlot {
+            agent_id: pixtuoid_core::AgentId::from_parts("codex", "occupied-workstation"),
+            source: Arc::from("codex"),
+            session_id: Arc::from("occupied-workstation"),
+            cwd: Arc::from(Path::new("/tmp/pocket-office")),
+            label: "Vivian".into(),
+            state: pixtuoid_core::state::ActivityState::Idle,
+            state_started_at: now,
+            created_at: now,
+            last_event_at: now,
+            exiting_at: None,
+            pending_idle_at: None,
+            desk_index: pixtuoid_core::state::GlobalDeskIndex(0),
+            floor_idx: 0,
+            tool_call_count: 0,
+            active_ms: 0,
+            unknown_cwd: false,
+            parent_id: None,
+            pid: None,
+            model: None,
+            effort: None,
+        }
+    }
+
+    #[test]
+    fn occupied_workstation_keeps_the_character_between_rear_and_front_layers() {
+        for theme_name in ["normal", "200West"] {
+            let pack = test_pack();
+            let now = SystemTime::UNIX_EPOCH;
+            let desk = Point { x: 40, y: 36 };
+            let bg = Rgb { r: 1, g: 2, b: 3 };
+            let theme = crate::theme::theme_by_name(theme_name).expect("theme resolves");
+            let agent = occupied_workstation_agent();
+            let anchor_no_breath = crate::pixel_painter::anchors::seated_anchor(
+                desk,
+                crate::layout::CHARACTER_SPRITE_W,
+            );
+            let anchor =
+                crate::pixel_painter::anchors::with_breath(anchor_no_breath, agent.agent_id, now);
+            let back = || Drawable {
+                anchor_y: desk.y.saturating_sub(1),
+                kind: DrawableKind::DeskBack {
+                    desk,
+                    screen_glow: None,
+                },
+            };
+            let character = || Drawable {
+                anchor_y: anchor_no_breath.y + crate::layout::WALKING_Y_OFF,
+                kind: DrawableKind::Character {
+                    agent: &agent,
+                    anim_name: "seated",
+                    frame_idx: 0,
+                    anchor,
+                    flip_x: false,
+                    glow_tint: None,
+                    sleep_z_seed: None,
+                    waiting_bubble: false,
+                    walking_dust_frame: None,
+                    habit: crate::habits::CharacterHabit::None,
+                },
+            };
+            let front = || Drawable {
+                anchor_y: desk.y + crate::layout::desk_furniture_def().visual.h,
+                kind: DrawableKind::DeskFront {
+                    desk,
+                    has_coffee: false,
+                    coffee_steam: false,
+                },
+            };
+
+            let mut back_only = RgbBuffer::filled(120, 60, bg);
+            paint_drawable(
+                &back(),
+                &mut back_only,
+                &pack,
+                &mut FrameCache::new(),
+                now,
+                theme,
+            );
+            let mut character_only = RgbBuffer::filled(120, 60, bg);
+            paint_drawable(
+                &character(),
+                &mut character_only,
+                &pack,
+                &mut FrameCache::new(),
+                now,
+                theme,
+            );
+            let mut front_only = RgbBuffer::filled(120, 60, bg);
+            paint_drawable(
+                &front(),
+                &mut front_only,
+                &pack,
+                &mut FrameCache::new(),
+                now,
+                theme,
+            );
+
+            let mut drawables = [back(), character(), front()];
+            drawables.sort_by_key(|drawable| drawable.anchor_y);
+            let mut composite = RgbBuffer::filled(120, 60, bg);
+            let mut cache = FrameCache::new();
+            for drawable in &drawables {
+                paint_drawable(drawable, &mut composite, &pack, &mut cache, now, theme);
+            }
+
+            let rear_overlap = (desk.x + 4, desk.y - 8);
+            assert_ne!(
+                back_only.get(rear_overlap.0, rear_overlap.1),
+                bg,
+                "{theme_name} rear monitor occupies the overlap sample"
+            );
+            assert_ne!(
+                character_only.get(rear_overlap.0, rear_overlap.1),
+                bg,
+                "{theme_name} character occupies the rear overlap sample"
+            );
+            assert_eq!(
+                composite.get(rear_overlap.0, rear_overlap.1),
+                character_only.get(rear_overlap.0, rear_overlap.1),
+                "{theme_name} rear monitor must remain behind the character"
+            );
+
+            let front_overlap = (desk.x + 4, desk.y - 1);
+            assert_ne!(
+                character_only.get(front_overlap.0, front_overlap.1),
+                bg,
+                "{theme_name} character occupies the front overlap sample"
+            );
+            assert_ne!(
+                front_only.get(front_overlap.0, front_overlap.1),
+                bg,
+                "{theme_name} desktop occupies the front overlap sample"
+            );
+            assert_eq!(
+                composite.get(front_overlap.0, front_overlap.1),
+                front_only.get(front_overlap.0, front_overlap.1),
+                "{theme_name} desktop must remain in front of the seated character"
+            );
+
+            let visible_screen = (desk.x + 14, desk.y - 8);
+            assert_ne!(
+                back_only.get(visible_screen.0, visible_screen.1),
+                bg,
+                "{theme_name} side monitor has a visible screen"
+            );
+            assert_eq!(
+                composite.get(visible_screen.0, visible_screen.1),
+                back_only.get(visible_screen.0, visible_screen.1),
+                "{theme_name} side monitor remains visible beside the occupant"
+            );
+
+            for y in [desk.y - 2, desk.y - 1] {
+                assert!(
+                    (desk.x + 2..=desk.x + 15).all(|x| composite.get(x, y) != bg),
+                    "{theme_name} occupied desktop keeps two broad connected rows"
+                );
+            }
+            for y in anchor.y..desk.y + 6 {
+                assert_eq!(
+                    composite.get(desk.x - 2, y),
+                    bg,
+                    "{theme_name} occupied workstation has no detached west rail"
+                );
+                assert_eq!(
+                    composite.get(desk.x + 18, y),
+                    bg,
+                    "{theme_name} occupied workstation has no detached east rail"
+                );
             }
         }
-        assert!(cab_painted, "filing cabinet should paint west of the desk");
-        // Trash bin lands at desk.x + DESK_W.
-        let bin_x = desk.x + DESK_W;
-        let mut bin_painted = false;
-        for dy in 0..bin.height() {
-            for dx in 0..bin.width() {
-                if buf.get(bin_x + dx, desk.y + 4 + dy) != bg {
-                    bin_painted = true;
+    }
+
+    #[test]
+    fn workstation_fits_a_compact_terminal_height() {
+        for theme_name in ["normal", "200West"] {
+            let (buf, bg, desk) = render_workstation(theme_name);
+            let painted_rows: Vec<u16> = (0..buf.height())
+                .filter(|&y| (desk.x..desk.x + 18).any(|x| buf.get(x, y) != bg))
+                .collect();
+            let painted_h = painted_rows.last().expect("workstation paints")
+                - painted_rows.first().expect("workstation paints")
+                + 1;
+            assert!(
+                painted_h <= 14,
+                "{theme_name} workstation is {painted_h}px tall before Terminal scaling; it explodes into separated furniture at the live 14px scale"
+            );
+        }
+    }
+
+    #[test]
+    fn workstation_paints_one_connected_silhouette() {
+        for theme_name in ["normal", "200West"] {
+            let (buf, bg, desk) = render_workstation(theme_name);
+            let painted: HashSet<(u16, u16)> = (0..buf.height())
+                .flat_map(|y| (desk.x..desk.x + 18).map(move |x| (x, y)))
+                .filter(|&(x, y)| buf.get(x, y) != bg)
+                .collect();
+            let mut unseen = painted.clone();
+            let mut components = 0usize;
+            while let Some(&start) = unseen.iter().next() {
+                components += 1;
+                let mut queue = VecDeque::from([start]);
+                unseen.remove(&start);
+                while let Some((x, y)) = queue.pop_front() {
+                    for neighbor in [
+                        x.checked_sub(1).map(|nx| (nx, y)),
+                        x.checked_add(1).map(|nx| (nx, y)),
+                        y.checked_sub(1).map(|ny| (x, ny)),
+                        y.checked_add(1).map(|ny| (x, ny)),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        if unseen.remove(&neighbor) {
+                            queue.push_back(neighbor);
+                        }
+                    }
                 }
             }
+            assert_eq!(
+                components, 1,
+                "{theme_name} workstation paints {components} detached pieces instead of one desk silhouette"
+            );
         }
-        assert!(bin_painted, "trash bin should paint at the desk east edge");
+    }
+
+    #[test]
+    fn workstation_desktop_has_visible_depth() {
+        for theme_name in ["normal", "200West"] {
+            let (buf, bg, desk) = render_workstation(theme_name);
+            let broad_rows: Vec<u16> = (0..buf.height())
+                .filter(|&y| {
+                    let mut longest = 0u16;
+                    let mut run = 0u16;
+                    for x in desk.x..desk.x + 18 {
+                        if buf.get(x, y) != bg {
+                            run += 1;
+                            longest = longest.max(run);
+                        } else {
+                            run = 0;
+                        }
+                    }
+                    longest >= 12
+                })
+                .collect();
+            assert!(
+                broad_rows.windows(2).any(|rows| rows[1] == rows[0] + 1),
+                "{theme_name} workstation has only an isolated horizontal bar, not a desktop with depth"
+            );
+        }
+    }
+
+    #[test]
+    fn desk_cubicle_keeps_sidecar_regions_clear() {
+        let pack = test_pack();
+        let mut cache = FrameCache::new();
+        let now = SystemTime::UNIX_EPOCH;
+        let desk = Point { x: 40, y: 30 };
+        let bg = Rgb { r: 1, g: 2, b: 3 };
+        let mut buf = RgbBuffer::filled(120, 80, bg);
+        let back = Drawable {
+            anchor_y: desk.y - 1,
+            kind: DrawableKind::DeskBack {
+                desk,
+                screen_glow: None,
+            },
+        };
+        let front = Drawable {
+            anchor_y: desk.y + 8,
+            kind: DrawableKind::DeskFront {
+                desk,
+                has_coffee: false,
+                coffee_steam: false,
+            },
+        };
+        paint_drawable(&back, &mut buf, &pack, &mut cache, now, theme());
+        paint_drawable(&front, &mut buf, &pack, &mut cache, now, theme());
+        for y in desk.y - 9..desk.y + 7 {
+            assert_eq!(buf.get(desk.x - 1, y), bg, "west sidecar stays clear");
+            assert_eq!(buf.get(desk.x + 18, y), bg, "east sidecar stays clear");
+        }
+    }
+
+    #[test]
+    fn desk_cubicle_does_not_paint_a_detached_vertical_rail() {
+        let pack = test_pack();
+        let mut cache = FrameCache::new();
+        let now = SystemTime::UNIX_EPOCH;
+        let desk = Point { x: 40, y: 30 };
+        let bg = Rgb { r: 1, g: 2, b: 3 };
+        let mut buf = RgbBuffer::filled(120, 80, bg);
+        let back = Drawable {
+            anchor_y: desk.y - 1,
+            kind: DrawableKind::DeskBack {
+                desk,
+                screen_glow: None,
+            },
+        };
+        let front = Drawable {
+            anchor_y: desk.y + 8,
+            kind: DrawableKind::DeskFront {
+                desk,
+                has_coffee: false,
+                coffee_steam: false,
+            },
+        };
+
+        paint_drawable(&back, &mut buf, &pack, &mut cache, now, theme());
+        paint_drawable(&front, &mut buf, &pack, &mut cache, now, theme());
+
+        let rail_x = desk.x + DESK_W + 3;
+        for y in desk.y..desk.y + 5 {
+            assert_eq!(
+                buf.get(rail_x, y),
+                bg,
+                "a workstation must not grow a detached vertical rail at ({rail_x}, {y})"
+            );
+        }
     }
 
     #[test]

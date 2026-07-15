@@ -1,0 +1,10 @@
+# 18x7 compact front workstation layer. The front edge, chair and legs remain
+# attached to the desktop above; the final transparent row preserves geometry.
+@frame 0
+. D d d d d d d d d d d d d d d D .
+. D d . . . . M E E M . . . . d D .
+. D d . . . . M M M M . . . . d D .
+. D . . . . . M . . M . . . . . D .
+. D . . . . . . . . . . . . . . D .
+. D D . . . . . . . . . . . . D D .
+. . . . . . . . . . . . . . . . . .

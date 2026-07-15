@@ -1,14 +1,29 @@
 ---
 name: beautify-decoration
-version: 1.0.0
-description: "Iterate on the visual identity of a top-down pixel-art decoration (sprite + layout integration) in pixtuoid. Use when redesigning an existing decoration (pantry, lounge, meeting room, cubicle decor) or adding a new one. Captures the rebuild trap, the visual-verification loop, resolution constraints, sprite-format pitfalls, and the layout-integration checklist that we learned the hard way during the pantry beautify session."
+description: "Use when adding or redesigning Pocket Office sprites, furniture, scenery, or layout visuals, or when the user reports distorted graphics, horizontal bands, weak visual identity, missing live changes, scaling problems, or differences between generated previews and the actual terminal."
 metadata:
+  version: "1.2.0"
   scope: "pixtuoid repo only"
 ---
 
 # beautify-decoration (v1)
 
 A repo-specific iteration loop for visually redesigning a decoration in `pixtuoid`. Follow this when the user says "beautify X" or "make Y look better" — it short-circuits several rebuild traps and visual-design dead ends that aren't obvious from the codebase alone.
+
+## Diagnose the render boundary before editing art
+
+Classify the first broken boundary before opening a sprite file:
+
+| Evidence | Leading investigation |
+|---|---|
+| One asset is wrong in both the RGB snapshot and native terminal | Source sprite, palette, anchor, or z-order |
+| Many unrelated assets share the same bands, gaps, stretching, or color leaks | Shared RGB renderer or target painter |
+| RGB snapshot is clean but Apple Terminal is broken | Half-block flush, foreground/background mapping, font glyph metrics, or terminal cell geometry |
+| Proof binary is correct but the user's command is wrong | Launcher resolution, stale install, or binary mismatch |
+
+Use the same small high-contrast sample at every boundary. For a terminal half-block path, use one distinct top pixel and one distinct bottom pixel and inspect the resulting symbol, foreground, and background colors.
+
+**A clean synthetic render plus a broken native render blocks further sprite edits.** Higher source resolution cannot repair terminal glyph rasterization. If two art corrections leave the same native symptom, stop before a third attempt and return to systematic root-cause investigation.
 
 ## When to use
 
@@ -33,18 +48,36 @@ A repo-specific iteration loop for visually redesigning a decoration in `pixtuoi
    ↓
 5. Read the cropped PNG → self-critique → back to step 1
    ↓
-6. When happy, send to user with SendUserFile and short caption
+6. When the synthetic direction is viable, rebuild BOTH current-source binaries:
+   cargo build --release -p pixtuoid --example snapshot
+   cargo build --release -p pixtuoid
    ↓
-7. cargo build --release --workspace    ← rebuild the LIVE binary too
+7. Record the absolute paths and SHA256 hashes of the proof and live binaries
    ↓
-8. Commit with iteration history (which designs were tried, why rejected)
+8. Run the proof binary through Apple Terminal at the exact grid that reproduced
+   the user's issue, using fixed time, weather, theme, seed, and sample roster
+   ↓
+9. Capture the complete Apple Terminal window at native resolution. Confirm the
+   office is visible, then inspect the full frame plus target crops
+   ↓
+10. Resolve the user's real launch command, install the verified live binary,
+    confirm their hashes match, then rerun that exact launcher in Apple Terminal
+    at the issue-reproducing grid and capture it natively
+   ↓
+11. Only now send the native Terminal result to the user
+   ↓
+12. Commit with iteration history (which designs were tried, why rejected)
 ```
 
 The user is the final judge of "does it look like a fridge / coffee machine / etc." — but you should self-critique before sending. Three iterations of self-critique before bothering the user.
 
-**Step 7 is mandatory.** `cargo build --release --example snapshot` does NOT rebuild the main binary. Users testing with `./target/release/pixtuoid run` won't see sprite changes until the workspace is rebuilt. Forgetting this step is how "I changed the sprite but nothing happened in the live TUI" bugs get filed.
+**Steps 6 through 10 are mandatory.** `cargo build --release --example snapshot` does NOT rebuild the main binary. Users testing with `./target/release/pixtuoid run` won't see sprite changes until the live binary is rebuilt. Forgetting this is how "I changed the sprite but nothing happened in the live TUI" bugs get filed.
 
-**Step 8 is mandatory.** Commit messages for sprite changes must include the iteration count and a one-line rationale for each rejected attempt. Future editors need to know which alternatives were explored — otherwise they'll re-try the same dead-end designs (the seated_sleeping sprite went through 4 iterations before reading correctly at scale).
+**Terminal proof is not a synthetic snapshot.** TestBackend PNGs and GIFs are fast iteration tools. They use a custom fixed-cell rasterizer and cannot reproduce Apple Terminal, SF Mono, or terminal glyph behavior. Never enlarge, frame, crop, or relabel a synthetic snapshot to make it look like live Terminal evidence.
+
+The proof must use the exact user-reported terminal application and issue-reproducing grid. It must show the office, not only the footer. Record the proof binary's absolute path and SHA256 after the final source edit. Any later source or asset edit invalidates the capture and requires rebuild, rehash, and recapture.
+
+**Step 12 is mandatory.** Commit messages for sprite changes must include the iteration count and a one-line rationale for each rejected attempt. Future editors need to know which alternatives were explored — otherwise they'll re-try the same dead-end designs (the seated_sleeping sprite went through 4 iterations before reading correctly at scale).
 
 ## Sharp edges (the things that wasted time during the pantry session)
 
@@ -79,6 +112,8 @@ crop.save('/tmp/crop.png')
 ```
 
 Then inspect the cropped PNG with the active harness's image-reading tool.
+
+This helper is for iteration only. Its resized crop can never serve as final terminal acceptance. Final acceptance is the full native Apple Terminal capture produced after the current source and live binaries have been rebuilt and hashed.
 
 PIL is available system-wide (installed via `pip3 install --user --break-system-packages Pillow`). If a fresh environment misses it, install once.
 
@@ -120,6 +155,8 @@ When a sprite **changes size**:
 
 `./target/release/pixtuoid run` uses the main binary. `examples/snapshot` uses its own binary. **Both** need `cargo build --release --example snapshot` (or `cargo build --release --workspace --example snapshot`) when iterating on snapshot — and `cargo build --release` is fine for the live TUI binary.
 
+The command the user types may resolve to a third path. Run `command -v <launch-name>`, resolve symlinks, and compare SHA256 hashes. Do not claim the installed app is current until the user's actual launcher matches the verified live binary.
+
 ## Self-critique checklist — MANDATORY before every SendUserFile
 
 You **must** run this checklist explicitly before each `SendUserFile` in a beautify loop. State the result of each row in the message (✅/⚠️/❌). Fix any ❌ before sending; if you ship a ⚠️, call it out so the user knows the trade-off.
@@ -132,6 +169,8 @@ You **must** run this checklist explicitly before each `SendUserFile` in a beaut
 | Color distinctness | New elements use colors distinct from immediate neighbours. |
 | `cargo test` | Connectivity test passes (`cargo test --workspace --features pixtuoid-core/test-renderer`). |
 | `--debug-walkable` | Rendered the overlay and visually checked no narrow / isolated walkable pockets near the new element. |
+| Native terminal proof | Full current-source proof-binary capture uses the user's actual terminal and issue-reproducing grid; the office is visible and the image is unscaled. |
+| Live launcher proof | The user's resolved launcher hashes to the rebuilt live binary and its own native rerun reproduces the accepted result. |
 
 Skipping this checklist defeats the point of the skill — the whole reason it exists is that past sessions shipped invisible / unverified changes.
 

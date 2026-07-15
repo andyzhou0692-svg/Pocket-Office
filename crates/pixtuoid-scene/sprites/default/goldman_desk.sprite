@@ -1,11 +1,13 @@
-# 14x8 200West workstation. Pale maple, dual blue screens, a black phone,
-# paper and a separated black task chair preserve its authored identity.
+# 18x10 200West workstation. One maple desktop edge, compact dual monitors,
+# recessed chair and separated legs. Transparent margins preserve layout space.
 @frame 0
-. M M M M . . M M M M . . .
-. M I I M . . M I I M . . .
-. M I I M . . M I I M . U .
-. . M M p w q p . M M . . .
-. p p p p k k p p U p p p .
-. p p v v v v v v v v p p .
-. v v p p p p p p p p v v .
-. . v v . . . . . . v v . .
+. . M M M M M . . . M M M M M . . .
+. . M I I I M . . . M I I I M . . .
+. . M I I I M . . . M I I I M . . .
+. . . M M M . . . . . M M M . . . .
+. . . . M . . . . . . . M . . . . .
+. . . M M . . . . . . M M . . . . .
+. . p p p p p p p p p p p p p p . .
+. . v p . . . . . . . . . . p v . .
+. . v v . . . k k k k . . . v v . .
+. . v . . . . k . . k . . . . v . .

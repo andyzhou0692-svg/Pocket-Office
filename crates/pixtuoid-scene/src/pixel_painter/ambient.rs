@@ -152,8 +152,7 @@ pub(super) fn paint_ceiling_halos(buf: &mut RgbBuffer, theme: &Theme, halos: &[C
 }
 
 /// Gather one halo per agent currently mid-tool-call. Monitor x is the
-/// centre of the screen sprite that `paint_screen_glow` lights up
-/// (desk.x + 6, matching the 4..=9 lit column band). Ceiling y is one
+/// centre of the dual screen sprite that `paint_screen_glow` lights up. Ceiling y is one
 /// row above the desk's top edge so the halo sits in the wall band
 /// rather than on the monitor frame itself.
 fn collect_ceiling_halos(
@@ -202,7 +201,7 @@ fn collect_ceiling_halos(
             continue;
         };
         halos.push(CeilingHalo {
-            x: desk.x + 6,
+            x: desk.x + crate::layout::DESK_W / 2,
             y: desk.y.saturating_sub(1),
             color,
             intensity: CEILING_HALO_INTENSITY,

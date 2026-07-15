@@ -634,6 +634,36 @@ mod tests {
     }
 
     #[test]
+    fn lower_half_block_rasterizes_top_from_bg_and_bottom_from_fg() {
+        let mut term_buf = ratatui::buffer::Buffer::empty(ratatui::layout::Rect::new(0, 0, 1, 1));
+        let cell = &mut term_buf[(0, 0)];
+        cell.set_symbol("\u{2584}");
+        cell.fg = Color::Rgb(40, 50, 60);
+        cell.bg = Color::Rgb(10, 20, 30);
+
+        let image = cells_to_rgba(&term_buf, 1, 1, CELL_W, CELL_H);
+
+        for y in 0..CELL_H / 2 {
+            for x in 0..CELL_W {
+                assert_eq!(
+                    image.get_pixel(x, y).0,
+                    [10, 20, 30, 255],
+                    "top logical pixel at ({x},{y}) comes from the cell background"
+                );
+            }
+        }
+        for y in CELL_H / 2..CELL_H {
+            for x in 0..CELL_W {
+                assert_eq!(
+                    image.get_pixel(x, y).0,
+                    [40, 50, 60, 255],
+                    "bottom logical pixel at ({x},{y}) comes from the lower-half foreground"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn mix_rgb_endpoints_and_midpoint() {
         let bg = ImgRgb([0u8, 100, 200]);
         let fg = ImgRgb([200u8, 100, 0]);

@@ -24,7 +24,7 @@ use crate::pose::{self, Pose};
 pub(super) use crate::layout::CHARACTER_SPRITE_W;
 
 // All anchor fns center the sprite horizontally on `sprite_w`. The default
-// human pack is 12×16; custom packs still pass their real width while keeping
+// human pack is 16×20; custom packs still pass their real width while keeping
 // the shared foot positions used by layout and hit testing.
 pub(super) fn seated_anchor(desk: Point, sprite_w: u16) -> Point {
     Point {

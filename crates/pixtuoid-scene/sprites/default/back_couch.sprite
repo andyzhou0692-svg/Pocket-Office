@@ -1,18 +1,22 @@
-# 12x16 character sitting on a couch facing the window.
+# 16x20 Pocket Office character sprite.
 @frame 0
-. . . n H H H H n . . .
-. . n H H H H H H n . .
-. . n H H H H H H n . .
-. . n H H H H H H n . .
-. . . n H H H H n . . .
-. . . . n H H n . . . .
-. . . . B B B B . . . .
-. . . B B B B B B . . .
-. . B B n B B n B B . .
-. S B B B B B B B B S .
-. . B B B B B B B B . .
-. . . B B B B B B . . .
-. . B B B B B B B B . .
-. . B B . . . . B B . .
-. . . B B . . B B . . .
-. . . . B B B B . . . .
+. . . . . H H H H H H . . . . .
+. . . . H H H H H H H H . . . .
+. . . n H H H H H H H H n . . .
+. . n H H H H H H H H H H n . .
+. . n H H H H H H H H H H n . .
+. . . n H H H H H H H H n . . .
+. . . . n H H H H H H n . . . .
+. . . . . n H H H H n . . . . .
+. . . . B B n n n n B B . . . .
+. . . B B B B B B B B B B . . .
+. . S B B B B n n B B B B S . .
+. . S B B B B B B B B B B S . .
+. . . B B B B B B B B B B . . .
+. . . B B B B B B B B B B . . .
+. . . B B B B B B B B B B . . .
+. . B B B B B B B B B B B B . .
+. . B B B B . . . . B B B B . .
+. . . B B B . . . . B B B . . .
+. . . . B B B . . B B B . . . .
+. . . . . B B B B B B . . . . .

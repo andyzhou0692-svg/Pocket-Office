@@ -2,7 +2,7 @@
 //! piece of furniture and waypoint kind in the office. Kept separate from
 //! geometry so adding a new sprite kind doesn't churn the layout math.
 
-use super::{Point, Size, CHARACTER_SPRITE_H, DESK_FOOT_H, DESK_H, DESK_W};
+use super::{Point, Size, CHARACTER_SPRITE_H, DESK_FOOT_H, DESK_H, DESK_SEAT_Y_OFF, DESK_W};
 
 /// Wander destinations the Idle state machine can pick. Each kind controls
 /// the pose + sprite an arriving agent takes. Plants/lamps are decor, not
@@ -793,7 +793,7 @@ pub const SEAT_RENDER_Y_OFF: u16 = CHARACTER_SPRITE_H - 2;
 /// locked by a `pixel_painter` test; if `DESK_W` or those anchors change they move
 /// together by keeping the walk cell on the fixed center of the desk.
 pub(crate) const DESK_WALK_X_OFF: u16 = DESK_W / 2;
-pub(crate) const DESK_WALK_Y_OFF: u16 = 4;
+pub(crate) const DESK_WALK_Y_OFF: u16 = DESK_SEAT_Y_OFF;
 
 /// The cell an agent walks to/from for its home `desk` (top-left Point). The
 /// single source for what were ~10 scattered `desk + (6, 4)` literals across the

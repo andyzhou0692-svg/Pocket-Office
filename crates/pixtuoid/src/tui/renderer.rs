@@ -521,9 +521,15 @@ pub(super) fn flush_buffer_to_term_at_offset(
             let fg = buf.as_slice()[py_top * w + cx];
             let bg = buf.as_slice()[py_bot * w + cx];
             let cell = &mut term_buf[(x, y)];
-            cell.set_symbol("\u{2580}");
-            cell.fg = Color::Rgb(fg.r, fg.g, fg.b);
-            cell.bg = Color::Rgb(bg.r, bg.g, bg.b);
+            // SF Mono renders U+2580 (upper half block) as a centered stripe,
+            // letting the lower-pixel background leak above and below it. That
+            // slices every sprite into horizontal bands in Apple Terminal.
+            // U+2584 anchors to the bottom edge, so keep the logical top pixel
+            // as the full-cell background and overlay the logical bottom pixel
+            // as the lower-half foreground.
+            cell.set_symbol("\u{2584}");
+            cell.fg = Color::Rgb(bg.r, bg.g, bg.b);
+            cell.bg = Color::Rgb(fg.r, fg.g, fg.b);
         }
     }
 }
@@ -660,8 +666,34 @@ mod tests {
         pixtuoid_core::sprite::Rgb { r, g, b }
     }
 
-    /// The cell symbol a flushed half-block carries (upper-half block).
-    const HALF_BLOCK: &str = "\u{2580}";
+    /// The cell symbol a flushed half-block carries. SF Mono renders the upper
+    /// half block as a centered band, so production uses the lower-half block
+    /// with top in the background and bottom in the foreground.
+    const HALF_BLOCK: &str = "\u{2584}";
+
+    #[test]
+    fn flush_maps_top_to_background_and_bottom_to_lower_half_block() {
+        let top = rgb(10, 20, 30);
+        let bottom = rgb(40, 50, 60);
+        let mut buf = RgbBuffer::filled(1, 2, top);
+        buf.put(0, 1, bottom);
+        let mut term =
+            Terminal::new(ratatui::backend::TestBackend::new(1, 1)).expect("test backend");
+        let rect = Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        };
+
+        term.draw(|f| flush_buffer_to_term_at_offset(f, &buf, rect, 0))
+            .expect("draw");
+
+        let cell = term.backend().buffer().cell((0, 0)).expect("painted cell");
+        assert_eq!(cell.symbol(), HALF_BLOCK);
+        assert_eq!(cell.bg, Color::Rgb(top.r, top.g, top.b));
+        assert_eq!(cell.fg, Color::Rgb(bottom.r, bottom.g, bottom.b));
+    }
 
     // Lines 499-500: columns whose terminal x falls past the scene rect's right
     // edge are skipped (a buffer wider than the rect). Deleting the `continue`

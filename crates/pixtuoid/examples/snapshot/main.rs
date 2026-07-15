@@ -8,7 +8,7 @@ mod proof;
 mod scenes;
 
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
@@ -70,6 +70,17 @@ struct SnapshotArgs {
     /// Override the snapshot terminal height (cells). Default 64.
     #[arg(long)]
     rows: Option<u16>,
+
+    /// Render the deterministic sample office through the production
+    /// Crossterm backend in the current terminal. This is the Apple Terminal
+    /// visual-acceptance path; unlike the PNG encoder, it exercises the real
+    /// terminal font and half-block rasterization.
+    #[arg(long, conflicts_with_all = ["live", "gif", "anim", "proof"])]
+    terminal_proof: bool,
+
+    /// Seconds to keep a terminal proof visible before restoring the shell.
+    #[arg(long, default_value_t = 20, requires = "terminal_proof")]
+    terminal_proof_secs: u64,
 
     /// Cap on home desks per floor for the sample scene. Agents past
     /// this count overflow to additional floors (up to MAX_FLOORS=10).
@@ -347,6 +358,64 @@ fn parse_navigations(specs: &[String]) -> Result<Vec<(u64, usize)>> {
         .collect()
 }
 
+fn validate_terminal_proof_size(actual: ratatui::layout::Size, cols: u16, rows: u16) -> Result<()> {
+    if actual.width != cols || actual.height != rows {
+        anyhow::bail!(
+            "terminal proof is running at {}x{}, expected {}x{}; resize the terminal before accepting this capture",
+            actual.width,
+            actual.height,
+            cols,
+            rows
+        );
+    }
+    let scene_height = rows.saturating_sub(1).saturating_mul(2);
+    if pixtuoid_scene::layout::SceneLayout::compute_with_seed(cols, scene_height, None, 0).is_none()
+    {
+        anyhow::bail!(
+            "{}x{} can render the footer only, not the office; use at least 31 rows for terminal proof",
+            cols,
+            rows
+        );
+    }
+    Ok(())
+}
+
+fn render_terminal_proof(
+    scene: &SceneState,
+    pack: &pixtuoid_core::sprite::format::Pack,
+    now: SystemTime,
+    theme: &'static pixtuoid_scene::theme::Theme,
+    cols: u16,
+    rows: u16,
+    hold_secs: u64,
+) -> Result<()> {
+    let mut term = pixtuoid::tui::setup_terminal()?;
+    let actual = match term.size() {
+        Ok(actual) => actual,
+        Err(err) => {
+            let _ = pixtuoid::tui::teardown_terminal(&mut term);
+            return Err(err.into());
+        }
+    };
+    if let Err(err) = validate_terminal_proof_size(actual, cols, rows) {
+        let _ = pixtuoid::tui::teardown_terminal(&mut term);
+        return Err(err);
+    }
+    if let Err(err) = term.hide_cursor() {
+        let _ = pixtuoid::tui::teardown_terminal(&mut term);
+        return Err(err.into());
+    }
+
+    let mut renderer = pixtuoid::tui::tui_renderer::TuiRenderer::new(term, theme, Vec::new());
+    let render_result = renderer.render(scene, pack, now);
+    if render_result.is_ok() {
+        std::thread::sleep(Duration::from_secs(hold_secs));
+    }
+    let teardown_result = pixtuoid::tui::teardown_terminal(&mut renderer.terminal);
+    render_result?;
+    teardown_result
+}
+
 fn main() -> Result<()> {
     let args = SnapshotArgs::parse();
 
@@ -444,13 +513,7 @@ fn main() -> Result<()> {
     if let Some(state) = args.openclaw.as_deref() {
         inject_openclaw_presence(&mut scene, state, now)?;
     }
-    let backend = TestBackend::new(cols, rows);
-    let mut term = Terminal::new(backend)?;
-    let mut buf = RgbBuffer::filled(0, 0, Rgb { r: 0, g: 0, b: 0 });
     let pack = load_sprite_pack(args.pack_dir.clone())?;
-    // The per-floor sim/paint stores, grouped (cache/router/overlay/history/
-    // light/motion): DrawCtx + save_as_gif now take them as ONE FloorCtx.
-    let mut store = pixtuoid_scene::floor::FloorCtx::new();
     // Fail loudly like --weather above — a typo'd theme silently rendering
     // NORMAL would put wrong-palette art into the docs/site screenshot pipelines.
     let theme = pixtuoid_scene::theme::theme_by_name(&args.theme).ok_or_else(|| {
@@ -464,6 +527,25 @@ fn main() -> Result<()> {
             valid.join(" | ")
         )
     })?;
+
+    if args.terminal_proof {
+        return render_terminal_proof(
+            &scene,
+            &pack,
+            now,
+            theme,
+            cols,
+            rows,
+            args.terminal_proof_secs,
+        );
+    }
+
+    let backend = TestBackend::new(cols, rows);
+    let mut term = Terminal::new(backend)?;
+    let mut buf = RgbBuffer::filled(0, 0, Rgb { r: 0, g: 0, b: 0 });
+    // The per-floor sim/paint stores, grouped (cache/router/overlay/history/
+    // light/motion): DrawCtx + save_as_gif now take them as ONE FloorCtx.
+    let mut store = pixtuoid_scene::floor::FloorCtx::new();
 
     if let Some(fixture) = args.proof.as_deref() {
         let frames_dir = args
@@ -993,5 +1075,41 @@ mod tests {
         assert!(
             SnapshotArgs::try_parse_from(["snapshot", "out.png", "--dashboard", "--gif"]).is_err()
         );
+    }
+
+    #[test]
+    fn terminal_proof_flag_parses_with_an_explicit_hold() {
+        let args = SnapshotArgs::try_parse_from([
+            "snapshot",
+            "--terminal-proof",
+            "--terminal-proof-secs",
+            "12",
+            "--cols",
+            "120",
+            "--rows",
+            "30",
+        ])
+        .expect("terminal proof arguments");
+
+        assert!(args.terminal_proof);
+        assert_eq!(args.terminal_proof_secs, 12);
+    }
+
+    #[test]
+    fn terminal_proof_rejects_a_terminal_grid_mismatch() {
+        let err = validate_terminal_proof_size(ratatui::layout::Size::new(119, 30), 120, 30)
+            .expect_err("wrong grid must not be accepted as visual proof");
+
+        assert!(err.to_string().contains("119x30"), "{err}");
+        assert!(err.to_string().contains("120x30"), "{err}");
+    }
+
+    #[test]
+    fn terminal_proof_rejects_a_grid_that_cannot_draw_the_office() {
+        let err = validate_terminal_proof_size(ratatui::layout::Size::new(120, 30), 120, 30)
+            .expect_err("footer-only output must not count as visual proof");
+
+        assert!(err.to_string().contains("footer only"), "{err}");
+        assert!(validate_terminal_proof_size(ratatui::layout::Size::new(120, 31), 120, 31).is_ok());
     }
 }

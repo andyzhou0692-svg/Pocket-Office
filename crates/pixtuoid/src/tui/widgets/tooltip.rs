@@ -340,7 +340,7 @@ pub(crate) fn paint_coffee_tooltip(
     scene_rect: Rect,
     theme: &pixtuoid_scene::theme::Theme,
 ) {
-    paint_simple_tooltip(f, " \u{2615} Buy Ivan a coffee ", mx, my, scene_rect, theme);
+    paint_simple_tooltip(f, " \u{2615} Coffee machine ", mx, my, scene_rect, theme);
 }
 
 pub(crate) fn paint_furniture_tooltip(

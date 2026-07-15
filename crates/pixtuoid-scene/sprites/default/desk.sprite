@@ -1,26 +1,13 @@
-# 14x8 top-down desk (slimmed 16x9 -> 14x8 for laptop density). The broad
-# wood plane, shadowed front edge and separated side legs keep the workstation
-# readable after half-block compression; no cup or visible divider.
-# Row 0 is the raised monitor bezel that RISES 1px above the desk back
-# (blitted at desk.y-1, see DeskCubicle in drawable.rs). Two small screens,
-# a broken-value wood apron and inset legs replace the old long horizontal
-# bars while preserving the same footprint and anchor geometry. Screens use
-# `j` (dark) so the lime screen-glow overlay reads as "workstation active".
-# The sprite is
-# DESK_W + 4 = 14 px wide == the FurnitureDef visual.w AND the blocked-ground
-# width (footprint is (DESK_W+4) x DESK_FOOT_H, a shallow south strip,
-# ground_y: End -- the monitor + surface overhang NORTH = walk-behind,
-# invariant #6 -- stamped TopLeft in mask.rs). Sprite-width-vs-visual.w is
-# pinned by `desk_sprite_width_tracks_the_footprint_overhang` so a DESK_W edit
-# that moves visual.w but not these rows can't silently desync render vs
-# mask/occlusion/z-sort. The overhang is VERTICAL only: the bezel row above
-# (desk.y-1) + the 2-row front lip.
+# 18x10 Pocket Office workstation. One desktop edge, compact dual monitors,
+# recessed chair and separated legs. Transparent margins preserve layout space.
 @frame 0
-. . . M M M . . M M M . . .
-. . M j j M . . M j j M . .
-. . M j j M . . M j j M . .
-. . . M M . k k . M M . . .
-. D D D D k k D D D D D D .
-. D D d d d d d d d d D D .
-. d d D D D D D D D D d d .
-. . d d . . . . . . d d . .
+. . M M M M M . . . M M M M M . . .
+. . M j j j M . . . M j j j M . . .
+. . M j j j M . . . M j j j M . . .
+. . . M M M . . . . . M M M . . . .
+. . . . M . . . . . . . M . . . . .
+. . . M M . . . . . . M M . . . . .
+. . D D D D D D D D D D D D D D . .
+. . d D . . . . . . . . . . D d . .
+. . d d . . . k k k k . . . d d . .
+. . d . . . . k . . k . . . . d . .

@@ -8,15 +8,15 @@ expression: l.home_desks
         y: 30,
     },
     Point {
-        x: 59,
+        x: 63,
         y: 30,
     },
     Point {
         x: 37,
-        y: 47,
+        y: 49,
     },
     Point {
-        x: 59,
-        y: 47,
+        x: 63,
+        y: 49,
     },
 ]

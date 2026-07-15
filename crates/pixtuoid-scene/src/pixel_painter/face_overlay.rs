@@ -1,4 +1,4 @@
-//! Procedural detail pass for the shared 12x16 front-facing character face.
+//! Procedural detail pass for the shared 16x20 front-facing character face.
 
 use pixtuoid_core::sprite::{Frame, Palette};
 
@@ -12,22 +12,22 @@ const FRONT_FACE_ANIMS: &[&str] = &[
     "walking_coffee",
     "holding_coffee",
 ];
-const MIN_FACE_WIDTH: u16 = 9;
-const MIN_FACE_HEIGHT: u16 = 7;
+const MIN_FACE_WIDTH: u16 = 16;
+const MIN_FACE_HEIGHT: u16 = 10;
 const EYE_ACCENT_MIX: f32 = 0.18;
-const EYE_POINTS: &[(u16, u16)] = &[(4, 3), (7, 3)];
+const EYE_POINTS: &[(u16, u16)] = &[(5, 4), (10, 4)];
 const CLEAR_POINTS: &[(u16, u16)] = &[
-    (4, 2),
-    (7, 2),
-    (3, 4),
-    (5, 4),
-    (7, 4),
-    (8, 4),
-    (5, 5),
-    (7, 6),
+    (5, 3),
+    (10, 3),
+    (4, 5),
+    (6, 5),
+    (9, 5),
+    (11, 5),
+    (7, 7),
+    (9, 8),
 ];
-const NOSE_POINT: (u16, u16) = (6, 4);
-const MOUTH_POINT: (u16, u16) = (6, 5);
+const NOSE_POINT: (u16, u16) = (7, 6);
+const MOUTH_POINT: (u16, u16) = (8, 7);
 
 pub(super) fn apply_front_face_overlay(
     mut frame: Frame,
@@ -72,10 +72,10 @@ fn has_pocket_office_face_geometry(
     shadow: pixtuoid_core::Rgb,
     mouth: pixtuoid_core::Rgb,
 ) -> bool {
-    frame.get(4, 3) == Some(&Some(eye))
-        && frame.get(7, 3) == Some(&Some(eye))
-        && frame.get(5, 4) == Some(&Some(shadow))
-        && frame.get(7, 4) == Some(&Some(shadow))
-        && frame.get(5, 5) == Some(&Some(mouth))
-        && frame.get(6, 5) == Some(&Some(shadow))
+    frame.get(5, 4) == Some(&Some(eye))
+        && frame.get(10, 4) == Some(&Some(eye))
+        && frame.get(7, 6) == Some(&Some(shadow))
+        && frame.get(9, 6) == Some(&Some(shadow))
+        && frame.get(8, 7) == Some(&Some(mouth))
+        && frame.get(9, 7) == Some(&Some(shadow))
 }

@@ -71,11 +71,19 @@ Do not silently turn that bundle into a generalized theme engine. Use the existi
 
 ### Graphics and resolution
 
-1. Determine whether the problem is missing source detail, poor sprite proportions, half-block compression, scaling, or stretching. Do not call every blurry result a resolution problem.
-2. Never invent missing visual detail without art direction or a source reference. Show the design direction first when the source pixels do not contain the requested information.
-3. Preserve sprite aspect ratio at normal, resized, and full-screen terminal sizes. Do not stretch character width to fill the viewport.
-4. Optimize for silhouette, proportion, and color identity at actual terminal scale. Follow `beautify-decoration` for snapshot, crop, self-critique, and live-binary rebuild.
-5. Validate characters with a face crop and full-body crop, not only the full office screenshot.
+1. Classify the failure before editing art: source detail, sprite proportions, shared RGB composition, target-painter flush, terminal glyph rasterization, scaling, stretching, or stale installation. Do not call every blurry or broken result a resolution problem.
+2. Use cross-object correlation as the first diagnostic. If unrelated objects such as faces, desks, chairs, and walls share the same bands, gaps, stretching, or color leaks, treat the shared renderer or target painter as the leading cause until evidence disproves it. Do not redraw each asset.
+3. Trace the same visible sample through four boundaries: source sprite, shared RGB buffer, target painter output, and the user's actual terminal or window. The first boundary where the defect appears owns the investigation.
+4. Treat a clean synthetic render plus a broken native render as a hard stop on sprite editing. Inspect the terminal flush, half-block mapping, font glyph metrics, cell geometry, and installed binary before changing another asset.
+5. Keep output corruption separate from source resolution. More sprite pixels can add detail after the target renders correctly; they cannot repair broken glyph rasterization or cell mapping.
+6. After two rejected corrections with the same visible symptom, stop surface patching and return to systematic root-cause investigation before a third attempt.
+7. Never invent missing visual detail without art direction or a source reference. Show the design direction first when the source pixels do not contain the requested information.
+8. Preserve sprite aspect ratio at normal, resized, and full-screen terminal sizes. Do not stretch character width to fill the viewport.
+9. Optimize for silhouette, proportion, and color identity at actual terminal scale. Follow `beautify-decoration` for boundary diagnosis, snapshot iteration, real-terminal proof, self-critique, and live-binary rebuild.
+10. Validate characters with a face crop and full-body crop, not only the full office screenshot.
+11. Treat TestBackend PNGs and GIFs as iteration evidence only. They do not reproduce the user's terminal font, glyph rasterization, cell proportions, or exact layout geometry.
+12. For every TUI-visible graphics change, capture the freshly rebuilt proof binary inside the user's actual terminal application at the exact grid size that reproduced the issue. The office itself must be visible; footer-only output is a failed proof.
+13. Keep the native terminal capture unscaled. A crop may support diagnosis, but it may not replace the full native capture or be enlarged and relabeled as terminal proof.
 
 ### Office layout and movable objects
 
@@ -113,10 +121,10 @@ Match verification to the change:
 
 | Change | Required evidence |
 |---|---|
-| Palette | Theme tests, generated media, rendered office inspection |
-| Sprite or scenery | Targeted tests, snapshot crop, actual-size inspection, live binary rebuild |
-| Character proportions | Face and body crops at normal and full-screen sizes; no horizontal stretch |
-| Layout | Scene tests, walkability overlay, resized-window render |
+| Palette | Theme tests and generated media for iteration; native terminal capture through the user's actual launcher for acceptance |
+| Sprite, scenery, or terminal rendering | Targeted tests and synthetic crops for iteration; freshly rebuilt proof-binary hash; full native capture from the user's actual terminal at the issue-reproducing grid; live launcher hash matches the verified build |
+| Character proportions | Face and body crops plus full native terminal captures at normal and full-screen sizes; no horizontal stretch |
+| Layout | Scene tests and walkability overlay; native terminal captures through the user's actual launcher at each affected grid size |
 | Ambient behavior | Failing test first, passing state/timing tests, rendered behavior observation |
 | Chatter | Selection tests, theme isolation, confirmation that no model or task classifier is called |
 | Portability | Git tracks canonical files and relative discovery links; no user-specific path is stored |
@@ -124,9 +132,12 @@ Match verification to the change:
 Before calling the work complete:
 
 1. Demonstrate the requested visible result.
-2. State any visual compromise plainly.
-3. Confirm no unchosen subsystem or token-consuming behavior was added.
-4. Run the repository's required review skill before merge.
+2. For terminal-painter changes, test a two-color vertical pixel pair so the logical top and bottom colors are proven through the exact half-block symbol, foreground, and background mapping.
+3. Confirm the proof used current source by recording the absolute proof-binary path and SHA256 after the final edit. Any later source or asset edit invalidates that proof.
+4. Resolve the user's real launch command, verify its executable hashes to the rebuilt live binary, then run that exact launcher at the issue-reproducing grid and capture it natively. Do not assume `pixtuoid`, `pocket-office`, and a build artifact point to the same executable.
+5. State any visual compromise plainly.
+6. Confirm no unchosen subsystem or token-consuming behavior was added.
+7. Run the repository's required review skill before merge.
 
 ## Example
 

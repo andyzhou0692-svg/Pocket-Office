@@ -85,6 +85,22 @@ frame_ms = 600
 frames   = ["goldman_desk.sprite"]
 frame_ms = 600
 
+[animations.desk_back]
+frames   = ["desk_back.sprite"]
+frame_ms = 600
+
+[animations.desk_front]
+frames   = ["desk_front.sprite"]
+frame_ms = 600
+
+[animations.goldman_desk_back]
+frames   = ["goldman_desk_back.sprite"]
+frame_ms = 600
+
+[animations.goldman_desk_front]
+frames   = ["goldman_desk_front.sprite"]
+frame_ms = 600
+
 [animations.plant]
 frames   = ["plant.sprite"]
 frame_ms = 600

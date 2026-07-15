@@ -7,45 +7,7 @@
 
 use pixtuoid_core::sprite::{Rgb, RgbBuffer};
 
-use crate::layout::{Bounds, Point};
-
-const DESK_PROP_X_STRIDE: u16 = 19;
-const DESK_PROP_Y_STRIDE: u16 = 16;
-const DESK_PROP_VARIANT_COUNT: u16 = 3;
-
-pub(super) fn desk_prop_variant(desk: Point) -> u8 {
-    ((desk.x / DESK_PROP_X_STRIDE + desk.y / DESK_PROP_Y_STRIDE) % DESK_PROP_VARIANT_COUNT) as u8
-}
-
-pub(super) fn paint_desk_props(buf: &mut RgbBuffer, desk: Point, theme: &crate::theme::Theme) {
-    let paper = theme.appliance.printer_paper;
-    let phone = theme.appliance.vending_dark;
-    let book = theme.furniture.magazine;
-    let book_trim = theme.furniture.magazine_trim;
-    let pixels: &[(u16, u16, Rgb)] = match desk_prop_variant(desk) {
-        0 => &[(1, 3, phone), (2, 3, phone), (11, 3, paper), (12, 3, paper)],
-        1 => &[
-            (1, 3, book_trim),
-            (1, 4, book),
-            (11, 3, phone),
-            (12, 3, phone),
-        ],
-        _ => &[
-            (1, 3, paper),
-            (2, 3, paper),
-            (11, 3, book_trim),
-            (11, 4, book),
-        ],
-    };
-
-    for &(dx, dy, color) in pixels {
-        let x = desk.x + dx;
-        let y = desk.y + dy;
-        if x < buf.width() && y < buf.height() {
-            buf.put(x, y, color);
-        }
-    }
-}
+use crate::layout::Bounds;
 
 /// Low meeting-room table between the sofas. Wood top with darker
 /// trim along the front edge so it reads as a real piece of furniture,
@@ -368,32 +330,5 @@ pub(super) fn paint_trash_bin(buf: &mut RgbBuffer, pr: Bounds) {
                 buf.put(px, py, color);
             }
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::desk_prop_variant;
-    use crate::layout::Point;
-    use std::collections::BTreeSet;
-
-    #[test]
-    fn desk_prop_variants_are_stable_bounded_and_varied() {
-        let points = [
-            Point { x: 12, y: 24 },
-            Point { x: 31, y: 24 },
-            Point { x: 50, y: 24 },
-            Point { x: 69, y: 40 },
-            Point { x: 88, y: 40 },
-        ];
-        let variants: BTreeSet<u8> = points.iter().copied().map(desk_prop_variant).collect();
-
-        assert_eq!(variants, [0, 1, 2].into_iter().collect());
-        assert!(points
-            .iter()
-            .copied()
-            .map(desk_prop_variant)
-            .all(|variant| variant <= 2));
-        assert_eq!(desk_prop_variant(points[0]), desk_prop_variant(points[0]));
     }
 }

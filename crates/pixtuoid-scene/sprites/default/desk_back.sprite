@@ -1,0 +1,15 @@
+# 18x12 compact rear workstation layer, authored for large Terminal cells.
+# Monitor stems join a two-row desktop, so the desk reads as one silhouette.
+@frame 0
+. . E E E E . . . . . . E E E E . .
+. . E j j E . . . . . . E j j E . .
+. . E j j E . . . . . . E j j E . .
+. . E E E E . . . . . . E E E E . .
+. . . . E . . . . . . . . E . . . .
+. . . . E . . . . . . . . E . . . .
+. . . E E E . . . . . . E E E . . .
+. . D D D D D D D D D D D D D D . .
+. D D D D D D D D D D D D D D D D .
+. D d d d d d d d d d d d d d d D .
+. D d . . . . M M M M . . . . d D .
+. D d . . . . M E E M . . . . d D .

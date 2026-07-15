@@ -327,14 +327,14 @@ pub(super) fn compute_with_seed(
             kind: PlantKind::Flower,
             pos: Point {
                 x: cubicle_band.x + 4,
-                y: cubicle_aisle.y.saturating_sub(4),
+                y: cubicle_aisle.y.saturating_sub(8),
             },
         },
         PlantItem {
             kind: PlantKind::Succulent,
             pos: Point {
                 x: cubicle_band.x + cubicle_band.width.saturating_sub(4),
-                y: cubicle_aisle.y.saturating_sub(4),
+                y: cubicle_aisle.y.saturating_sub(8),
             },
         },
     ]

@@ -28,7 +28,7 @@ use crate::floor::LightingState;
 use crate::frame_cache::FrameCache;
 use crate::layout::{
     z_sort_row, Anchor, Layout, PlantItem, PodDecorItem, Point, Size, WallDecorItem, WallSegment,
-    DESK_W, ELEVATOR_H, ELEVATOR_W,
+    ELEVATOR_H, ELEVATOR_W,
 };
 use crate::motion::MotionState;
 use crate::pet::PetFrame;
@@ -341,15 +341,6 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
     }
 }
 
-fn desk_ceiling_pool(desk: Point) -> Ellipse {
-    Ellipse {
-        cx: desk.x + DESK_W / 2,
-        cy: desk.y.saturating_sub(2),
-        half_w: 7,
-        half_h: 3,
-    }
-}
-
 /// The PAINT half of the frame: blit the world the sim already advanced.
 /// Reads the [`SimFrame`] immutably; every positional/lifecycle decision was
 /// made in `sim_step` — this pass only resolves presentation (theme colors,
@@ -424,9 +415,6 @@ fn paint_frame(
         look.spill_strength * DAYLIGHT_FLOOR_LIFT,
     );
     let pool_strength = (0.15 + 0.30 * look.darkness) * indoor_scale;
-    for desk in &ctx.layout.home_desks {
-        paint_ceiling_pool(ctx.buf, desk_ceiling_pool(*desk), pool_strength, ctx.theme);
-    }
     // Two ceiling fluorescents over the pantry and a third over the
     // corridor so the floor is lit consistently with the lounge_band gone.
     if let Some(pr) = ctx.layout.pantry.map(|p| p.bounds) {
@@ -572,8 +560,8 @@ fn paint_frame(
             Ellipse {
                 cx: desk.x + visual.w / 2,
                 cy: desk.y.saturating_sub(1) + visual.h - 1,
-                half_w: visual.w / 2 + 1,
-                half_h: 3,
+                half_w: visual.w / 2,
+                half_h: 1,
             },
             shadow_strength,
             ctx.theme,
@@ -810,16 +798,11 @@ pub(super) fn frame_at(anim: &Sprite, idx: usize) -> Option<&Frame> {
     anim.frames.get(idx).or_else(|| anim.frames.first())
 }
 
-/// Desk cubicles — each carries its divider + cabinet + bin + screen glow.
-/// The desk sprite (14×7) sorts at `desk.y + visual.h` = `desk.y + 7`
-/// (`DESK_H + 2`; was `desk.y + 8` pre-density) — one row past its visual south
-/// row, just past the seated worker's feet (`desk.y + 4`) so the sitter stays
-/// visually behind the desk. Z is a VISUAL property: it tracks the sprite, not
-/// the blocked ground — which is why the walk-behind footprint change (shrinking
-/// the ground to a shallow south strip, #551) was z-neutral by construction.
-/// `seated_agents` (built once before the ambient pass) gates the screen glow
-/// so it only paints for a worker actually at the desk. The DeskCubicle
-/// drawable is Copy, so this borrows nothing from the agent set.
+/// Workstations are deliberately split around the character depth. The rear
+/// monitor and chair layer sorts before the worker. The front tabletop and
+/// legs retain the furniture south-edge z key and sort after the worker.
+/// A single layer cannot satisfy both relationships and produces the detached
+/// rails and blocks visible around an occupied workstation.
 fn enqueue_desk_cubicles<'a>(
     ctx: &PaintCtx<'_>,
     agents: &[AgentSlot],
@@ -829,11 +812,6 @@ fn enqueue_desk_cubicles<'a>(
     for (i, &desk) in ctx.layout.home_desks.iter().enumerate() {
         let local = FloorLocalDeskIndex(i);
         let desk_def = crate::layout::desk_furniture_def();
-        let Some(Size { w: desk_fp_w, .. }) = desk_def.footprint else {
-            continue;
-        };
-        let is_last_col = desk.x + desk_fp_w + DESK_W
-            >= ctx.layout.cubicle_band.x + ctx.layout.cubicle_band.width;
         let occupant = agents
             .iter()
             .find(|a| a.desk_index.single_floor_local() == local && a.exiting_at.is_none());
@@ -849,12 +827,13 @@ fn enqueue_desk_cubicles<'a>(
                     .is_some_and(|d| d.as_secs() < COFFEE_STEAM_WINDOW_SECS)
             });
         drawables.push(Drawable {
+            anchor_y: desk.y.saturating_sub(1),
+            kind: DrawableKind::DeskBack { desk, screen_glow },
+        });
+        drawables.push(Drawable {
             anchor_y: desk.y + desk_def.visual.h,
-            kind: DrawableKind::DeskCubicle {
+            kind: DrawableKind::DeskFront {
                 desk,
-                is_last_col,
-                has_cabinet: i % 2 == 0,
-                screen_glow,
                 has_coffee,
                 coffee_steam,
             },

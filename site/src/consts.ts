@@ -9,7 +9,6 @@ import featuresData from './features.json';
 //  old /pixtuoid/ project page, can never silently break links.)
 export const REPO = 'https://github.com/IvanWng97/pixtuoid';
 export const CRATES = 'https://crates.io/crates/pixtuoid';
-export const SPONSOR = 'https://buymeacoffee.com/IvanWng97';
 // Deploy origin. The BUILD authority is `site` in astro.config.mjs — `Astro.site`
 // reflects it, and this const is only the type-narrowing fallback for the
 // (build-time unreachable) `Astro.site` undefined arm, shared so the two head

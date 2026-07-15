@@ -38,8 +38,8 @@ fn layout_override_rejects_a_visual_outside_the_buffer() {
 #[test]
 fn layout_override_rejects_a_collision_with_a_fixed_desk() {
     let base = SceneLayout::compute_with_seed(240, 160, Some(8), 0).expect("fits");
-    let desk = base.home_desks[0];
-    let overrides = LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", desk)]);
+    let chair = desk_walk_anchor(base.home_desks[0]);
+    let overrides = LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", chair)]);
 
     let error = SceneLayout::compute_with_seed_and_overrides(240, 160, Some(8), 0, &overrides)
         .expect("fits")
@@ -461,18 +461,19 @@ fn partial_bottom_row_caps_mid_fill_when_agents_run_out() {
     // exercises these lines — `num_agents` must be tuned to the grid (here
     // `cap - 1`, one short of filling the 2-desk partial row).
     //
-    // Sizes chosen empirically (each has a 2-desk partial bottom row whose first
-    // desk appears at num_agents = cap-1 and second at cap, so cap-1 breaks the
-    // 'partial_y loop mid-row). Driven through the public compute path (the
-    // private PodGrid has no constructor — see the cov verdict).
-    for (w, h, cap) in [(88u16, 108u16, 6usize), (88, 120, 8), (88, 175, 10)] {
-        // Total capacity at this size is exactly `cap`.
-        let full = SceneLayout::compute_with_seed(w, h, Some(TEST_DEFAULT_DESKS), 0).expect("fits");
-        assert_eq!(
-            full.home_desks.len(),
-            cap,
-            "{w}x{h}: expected total desk capacity {cap}"
-        );
+    // Find three current geometries with a two-desk partial bottom row. The desk
+    // detail grid can change its exact height thresholds, while the behavior
+    // under test remains the same.
+    let mut exercised = 0usize;
+    for h in 96u16..=240 {
+        let w = 88u16;
+        let Some(full) = SceneLayout::compute_with_seed(w, h, Some(TEST_DEFAULT_DESKS), 0) else {
+            continue;
+        };
+        let cap = full.home_desks.len();
+        if cap < 6 || cap % 4 != 2 {
+            continue;
+        }
         let max_y = full.home_desks.iter().map(|d| d.y).max().unwrap();
         let band_at = |n: usize| {
             SceneLayout::compute_with_seed(w, h, Some(n), 0)
@@ -507,7 +508,15 @@ fn partial_bottom_row_caps_mid_fill_when_agents_run_out() {
             1,
             "{w}x{h}: cap-1 leaves the partial row half-filled (break mid-row)"
         );
+        exercised += 1;
+        if exercised == 3 {
+            break;
+        }
     }
+    assert_eq!(
+        exercised, 3,
+        "the sweep must find three partial-row fixtures"
+    );
 }
 
 #[test]

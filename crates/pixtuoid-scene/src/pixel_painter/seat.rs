@@ -257,4 +257,4 @@ pub(super) fn settle_seat_view(cell: Point, layout: &Layout) -> Option<(SeatView
 /// The home-desk sitter's z-key offset south of `desk`: `seated_anchor.y(=desk.y
 /// − 12) + sprite_h(16) = desk.y + 4`. Below the desk furniture key (`desk.y + 8`)
 /// so the sitter and its sit-down glide always sort behind the desk monitor.
-pub(super) const DESK_SEAT_Z_OFF: u16 = 4;
+pub(super) const DESK_SEAT_Z_OFF: u16 = crate::layout::DESK_SEAT_Y_OFF;

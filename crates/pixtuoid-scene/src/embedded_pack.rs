@@ -160,6 +160,10 @@ fn load_embedded_pack() -> Result<Pack> {
             "walking_coffee_1.sprite",
             "desk.sprite",
             "goldman_desk.sprite",
+            "desk_back.sprite",
+            "desk_front.sprite",
+            "goldman_desk_back.sprite",
+            "goldman_desk_front.sprite",
             "plant.sprite",
             "plant_tall.sprite",
             "plant_flower.sprite",
@@ -474,12 +478,12 @@ mod tests {
             .expect("embedded pack carries a standing pose");
         let (w, h) = (frame.width(), frame.height());
         assert_eq!(
-            w, 12,
-            "AI Office characters should use the 12px detail grid"
+            w, 16,
+            "Pocket Office characters should use the 16px detail grid"
         );
         assert_eq!(
-            h, 16,
-            "AI Office characters should use the approved 12x16 proportion"
+            h, 20,
+            "Pocket Office characters should use the approved 16x20 proportion"
         );
         assert_eq!(
             w,
@@ -514,12 +518,42 @@ mod tests {
                 .animation(animation_name)
                 .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
             assert!(
-                animation.frames.iter().all(|frame| frame.width() == 12),
-                "{animation_name} must keep every frame on the 12px detail grid"
+                animation.frames.iter().all(|frame| frame.width() == 16),
+                "{animation_name} must keep every frame on the 16px detail grid"
             );
             assert!(
-                animation.frames.iter().all(|frame| frame.height() == 16),
-                "{animation_name} must keep every frame on the 16px-tall detail grid"
+                animation.frames.iter().all(|frame| frame.height() == 20),
+                "{animation_name} must keep every frame on the 20px-tall detail grid"
+            );
+        }
+    }
+
+    #[test]
+    fn workstation_sprites_do_not_collapse_into_stacked_full_width_bands() {
+        let pack = test_default_pack();
+        for animation_name in ["desk_front", "goldman_desk_front"] {
+            let frame = pack
+                .animation(animation_name)
+                .and_then(|animation| animation.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            let wide_rows = (0..frame.height())
+                .filter(|&y| {
+                    let mut longest = 0u16;
+                    let mut run = 0u16;
+                    for x in 0..frame.width() {
+                        if frame.get(x, y).copied().flatten().is_some() {
+                            run += 1;
+                            longest = longest.max(run);
+                        } else {
+                            run = 0;
+                        }
+                    }
+                    longest >= 12
+                })
+                .count();
+            assert_eq!(
+                wide_rows, 1,
+                "{animation_name} should have one readable desktop edge, not stacked horizontal bars"
             );
         }
     }
@@ -596,8 +630,8 @@ mod tests {
 
     #[test]
     fn default_people_and_desks_avoid_full_width_color_bands() {
-        const MAX_CHARACTER_ROW: usize = 10;
-        const MAX_DESK_ROW: usize = 12;
+        const MAX_CHARACTER_ROW: usize = 14;
+        const MAX_DESK_ROW: usize = 16;
 
         let pack = test_default_pack();
         for animation_name in [
@@ -703,21 +737,21 @@ mod tests {
         for (animation_name, frame) in front_facing_frames(&pack) {
             let pixel = |x: u16, y: u16| frame.as_slice()[(y * frame.width() + x) as usize];
             assert_eq!(
-                pixel(5, 4),
+                pixel(7, 6),
                 Some(shadow),
                 "{animation_name} carries a soft centered nose between eyes and mouth"
             );
             assert!(
-                (6..=8).any(|x| pixel(x, 4) == Some(shadow)),
+                (8..=10).any(|x| pixel(x, 6) == Some(shadow)),
                 "{animation_name} carries subtle cheek shading beside the nose"
             );
             assert_eq!(
-                pixel(7, 6),
+                pixel(9, 8),
                 Some(shadow),
                 "{animation_name} staggers the jaw shadow away from the mouth corner"
             );
             assert_ne!(
-                pixel(6, 6),
+                pixel(8, 8),
                 Some(shadow),
                 "{animation_name} must not stack a full-height shadow block below the mouth"
             );
@@ -736,35 +770,50 @@ mod tests {
     #[test]
     fn goldman_desk_preserves_geometry_and_carries_bank_floor_cues() {
         let pack = test_default_pack();
-        let frame = pack
-            .animation("goldman_desk")
-            .and_then(|a| a.frames.first())
-            .expect("embedded pack carries the Goldman desk");
-        let standard = pack
-            .animation("desk")
-            .and_then(|a| a.frames.first())
-            .expect("embedded pack carries the standard desk");
-        assert_eq!(
-            (frame.width(), frame.height()),
-            (standard.width(), standard.height()),
-            "Goldman swaps art without changing the current desk sprite geometry"
-        );
-        assert_eq!(
-            (frame.width(), frame.height()),
-            (14, 8),
-            "both workstation themes preserve the 14x8 desk visual box"
-        );
-        for key in ['p', 'I', 'U', 'w', 'q'] {
+        for (goldman, standard, expected) in [
+            ("goldman_desk_back", "desk_back", (18, 12)),
+            ("goldman_desk_front", "desk_front", (18, 7)),
+        ] {
+            let frame = pack
+                .animation(goldman)
+                .and_then(|a| a.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {goldman}"));
+            let standard_frame = pack
+                .animation(standard)
+                .and_then(|a| a.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {standard}"));
+            assert_eq!(
+                (frame.width(), frame.height()),
+                (standard_frame.width(), standard_frame.height()),
+                "200West swaps art without changing {standard} geometry"
+            );
+            assert_eq!((frame.width(), frame.height()), expected);
+        }
+        for key in ['p', 'v'] {
             let color = pack
                 .palette
                 .get(key)
                 .flatten()
                 .unwrap_or_else(|| panic!("Goldman desk palette key {key:?} exists"));
+            let frame = pack
+                .animation("goldman_desk_front")
+                .and_then(|a| a.frames.first())
+                .expect("embedded pack carries the 200West desk front");
             assert!(
                 frame.as_slice().contains(&Some(color)),
                 "Goldman desk must paint cue {key:?}"
             );
         }
+        let screen = pack
+            .palette
+            .get('I')
+            .flatten()
+            .expect("200West screen color");
+        let back = pack
+            .animation("goldman_desk_back")
+            .and_then(|a| a.frames.first())
+            .expect("embedded pack carries the 200West desk back");
+        assert!(back.as_slice().contains(&Some(screen)));
     }
 
     // The desk sprite's row width is a THIRD copy of `DESK_W + 4` (baked into the
@@ -777,18 +826,19 @@ mod tests {
     #[test]
     fn desk_sprite_width_tracks_the_footprint_overhang() {
         let pack = test_default_pack();
-        let w = pack
-            .animation("desk")
-            .and_then(|a| a.frames.first())
-            .expect("embedded pack carries a desk sprite")
-            .width();
-        assert_eq!(
-            w,
-            crate::layout::desk_furniture_def().visual.w,
-            "embedded 'desk' sprite is {w}px wide but visual.w (DESK_W+4) is {} — \
-             a DESK_W edit moved visual.w but not the .sprite rows; render/mask/z-sort will drift",
-            crate::layout::desk_furniture_def().visual.w
-        );
+        for animation_name in ["desk_back", "desk_front"] {
+            let w = pack
+                .animation(animation_name)
+                .and_then(|a| a.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"))
+                .width();
+            assert_eq!(
+                w,
+                crate::layout::desk_furniture_def().visual.w,
+                "embedded {animation_name} sprite is {w}px wide but visual.w is {}",
+                crate::layout::desk_furniture_def().visual.w
+            );
+        }
     }
 
     #[test]

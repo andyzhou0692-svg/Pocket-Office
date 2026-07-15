@@ -872,7 +872,7 @@ mod tests {
 
         ctx.set_layout_overrides(LayoutOverrides::new([LayoutPosition::new(
             "lounge.floor-lamp",
-            base.home_desks[0],
+            crate::layout::desk_walk_anchor(base.home_desks[0]),
         )]));
         assert_eq!(
             ctx.frame_layout(240, 160, 0).unwrap().floor_lamp,

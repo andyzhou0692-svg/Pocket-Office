@@ -32,23 +32,21 @@ pub(super) fn paint_screen_glow(
             buf.put(px, py, c);
         }
     };
-    for dx in 3..=10 {
-        put(buf, dx, 0, frame_lit);
-    }
-    for dx in 4..=9 {
+    const LEFT_SCREEN: std::ops::RangeInclusive<u16> = 3..=4;
+    const RIGHT_SCREEN: std::ops::RangeInclusive<u16> = 13..=14;
+    for dx in LEFT_SCREEN.clone().chain(RIGHT_SCREEN.clone()) {
         put(buf, dx, 1, glow_bright);
         put(buf, dx, 2, glow);
-    }
-    for dx in 4..=9 {
-        put(buf, dx, 3, frame_lit);
     }
     // Screen scanline advances one column per this interval.
     const SCANLINE_STEP_MS: u64 = 120;
     let elapsed_ms = epoch_ms(now);
     let phase = (elapsed_ms / SCANLINE_STEP_MS) as u16 + desk_x;
-    let scan_col = 4 + (phase % 6);
-    put(buf, scan_col, 1, scanline);
-    put(buf, scan_col, 2, scanline);
+    let local_col = phase % 2;
+    for scan_col in [3 + local_col, 13 + local_col] {
+        put(buf, scan_col, 1, frame_lit);
+        put(buf, scan_col, 2, scanline);
+    }
 }
 
 pub(super) fn paint_sleep_z(
@@ -83,7 +81,7 @@ pub(super) fn paint_sleep_z(
         return;
     }
     let rise = (t * MAX_RISE as f32) as u16;
-    let z_x = head_anchor.x + 5;
+    let z_x = head_anchor.x + 7;
     let z_y = head_anchor.y.saturating_sub(rise + 3);
     const GLYPH: &[(u16, u16)] = &[(0, 0), (1, 0), (1, 1), (0, 2), (1, 2)];
     for (dx, dy) in GLYPH {
@@ -130,7 +128,7 @@ pub(super) fn paint_walking_dust(
 ) {
     let dust = theme.effects.walking_dust;
     let foot_y = walker_anchor.y + WALKING_Y_OFF;
-    let foot_x = walker_anchor.x + if frame_idx == 0 { 6 } else { 1 };
+    let foot_x = walker_anchor.x + if frame_idx == 0 { 10 } else { 2 };
     if foot_x < buf.width() && foot_y < buf.height() {
         let cur = buf.get(foot_x, foot_y);
         buf.put(foot_x, foot_y, blend_rgb(cur, dust, 0.45));
@@ -185,7 +183,7 @@ pub(super) fn paint_pet_hearts(buf: &mut RgbBuffer, cat_pos: Point, elapsed_ms: 
 pub(super) fn paint_waiting_bubble(buf: &mut RgbBuffer, anchor: Point, theme: &Theme) {
     let fg = theme.effects.waiting_bubble;
     const GLYPH: &[&[u8]] = &[b".YYY.", b"...Y.", b"..Y..", b"..Y.."];
-    let bx = anchor.x + 1;
+    let bx = anchor.x + 2;
     let by = anchor.y.saturating_sub(5) & !1u16;
     for (dy, row) in GLYPH.iter().enumerate() {
         for (dx, byte) in row.iter().enumerate() {
@@ -224,15 +222,15 @@ const LIQUOR_BOTTLE_LABEL: Rgb = Rgb {
 
 pub(super) fn paint_liquor_bottle(buf: &mut RgbBuffer, anchor: Point) {
     const PIXELS: &[(u16, u16, Rgb)] = &[
-        (10, 4, LIQUOR_BOTTLE_CAP),
-        (10, 5, LIQUOR_BOTTLE_GLASS),
-        (11, 5, LIQUOR_BOTTLE_GLASS),
-        (10, 6, LIQUOR_BOTTLE_GLASS),
-        (11, 6, LIQUOR_BOTTLE_AMBER),
-        (10, 7, LIQUOR_BOTTLE_LABEL),
-        (11, 7, LIQUOR_BOTTLE_LABEL),
-        (10, 8, LIQUOR_BOTTLE_GLASS),
-        (11, 8, LIQUOR_BOTTLE_AMBER),
+        (13, 5, LIQUOR_BOTTLE_CAP),
+        (13, 6, LIQUOR_BOTTLE_GLASS),
+        (14, 6, LIQUOR_BOTTLE_GLASS),
+        (13, 7, LIQUOR_BOTTLE_GLASS),
+        (14, 7, LIQUOR_BOTTLE_AMBER),
+        (13, 8, LIQUOR_BOTTLE_LABEL),
+        (14, 8, LIQUOR_BOTTLE_LABEL),
+        (13, 9, LIQUOR_BOTTLE_GLASS),
+        (14, 9, LIQUOR_BOTTLE_AMBER),
     ];
     for &(dx, dy, color) in PIXELS {
         let px = anchor.x + dx;
@@ -250,23 +248,23 @@ pub(super) fn paint_suspicious_glance(
 ) {
     use crate::habits::CharacterHabit;
     if !matches!(habit, CharacterHabit::LookLeft | CharacterHabit::LookRight)
-        || anchor.x + 8 >= buf.width()
-        || anchor.y + 3 >= buf.height()
+        || anchor.x + 11 >= buf.width()
+        || anchor.y + 4 >= buf.height()
     {
         return;
     }
-    let eye = buf.get(anchor.x + 4, anchor.y + 3);
-    let skin = buf.get(anchor.x + 5, anchor.y + 3);
-    for x in [4, 7] {
-        buf.put(anchor.x + x, anchor.y + 3, skin);
+    let eye = buf.get(anchor.x + 5, anchor.y + 4);
+    let skin = buf.get(anchor.x + 6, anchor.y + 4);
+    for x in [5, 10] {
+        buf.put(anchor.x + x, anchor.y + 4, skin);
     }
     let shifted = match habit {
-        CharacterHabit::LookLeft => [3, 6],
-        CharacterHabit::LookRight => [5, 8],
+        CharacterHabit::LookLeft => [4, 9],
+        CharacterHabit::LookRight => [6, 11],
         _ => return,
     };
     for x in shifted {
-        buf.put(anchor.x + x, anchor.y + 3, eye);
+        buf.put(anchor.x + x, anchor.y + 4, eye);
     }
 }
 
@@ -368,6 +366,41 @@ mod tests {
         crate::theme::theme_by_name("normal").expect("normal theme")
     }
 
+    #[test]
+    fn active_glow_lights_two_monitor_interiors_without_repainting_the_table() {
+        let black = Rgb { r: 0, g: 0, b: 0 };
+        let tint = Rgb {
+            r: 40,
+            g: 180,
+            b: 220,
+        };
+        let mut buf = RgbBuffer::filled(24, 16, black);
+
+        paint_screen_glow(&mut buf, 2, 3, SystemTime::UNIX_EPOCH, tint, theme());
+
+        for y in 4..=5 {
+            assert_ne!(buf.get(5, y), black, "left monitor is lit");
+            assert_ne!(buf.get(15, y), black, "right monitor is lit");
+            assert_eq!(buf.get(4, y), black, "left bezel stays visible");
+            assert_eq!(buf.get(14, y), black, "right bezel stays visible");
+            assert_eq!(buf.get(10, y), black, "center gap stays open");
+        }
+        for x in 2..20 {
+            assert_eq!(
+                buf.get(x, 6),
+                black,
+                "active screens must not become three-row blue blocks"
+            );
+        }
+        for x in 2..20 {
+            assert_eq!(
+                buf.get(x, 7),
+                black,
+                "the glow must not repaint the tabletop or apron"
+            );
+        }
+    }
+
     fn render(head: Point, phase_ms: u64) -> RgbBuffer {
         let mut buf = RgbBuffer::filled(64, 64, Rgb { r: 0, g: 0, b: 0 });
         let now = SystemTime::UNIX_EPOCH + Duration::from_millis(phase_ms);
@@ -381,7 +414,7 @@ mod tests {
 
     // Topmost lit pixel in the z's column, if any (kept independent of MAX_RISE).
     fn top_lit(buf: &RgbBuffer, head: Point, bg: Rgb) -> Option<(u16, Rgb)> {
-        let zx = head.x + 5;
+        let zx = head.x + 7;
         (0..head.y).find_map(|y| {
             let p = buf.get(zx, y);
             (p != bg).then_some((y, p))
@@ -392,7 +425,7 @@ mod tests {
     fn sleep_z_dims_as_it_rises_then_rests() {
         let head = Point { x: 20, y: 30 };
         let bg = Rgb { r: 0, g: 0, b: 0 };
-        let zx = head.x + 5;
+        let zx = head.x + 7;
 
         // Just spawned (rise 0 for any MAX_RISE): brightest, at the spawn row.
         let low = render(head, 200);
@@ -425,10 +458,10 @@ mod tests {
 
         paint_liquor_bottle(&mut buf, anchor);
 
-        assert_eq!(buf.get(anchor.x + 10, anchor.y + 4), LIQUOR_BOTTLE_CAP);
-        assert_eq!(buf.get(anchor.x + 10, anchor.y + 5), LIQUOR_BOTTLE_GLASS);
-        assert_eq!(buf.get(anchor.x + 11, anchor.y + 6), LIQUOR_BOTTLE_AMBER);
-        assert_eq!(buf.get(anchor.x + 10, anchor.y + 7), LIQUOR_BOTTLE_LABEL);
-        assert_eq!(buf.get(anchor.x + 9, anchor.y + 8), bg);
+        assert_eq!(buf.get(anchor.x + 13, anchor.y + 5), LIQUOR_BOTTLE_CAP);
+        assert_eq!(buf.get(anchor.x + 13, anchor.y + 6), LIQUOR_BOTTLE_GLASS);
+        assert_eq!(buf.get(anchor.x + 14, anchor.y + 7), LIQUOR_BOTTLE_AMBER);
+        assert_eq!(buf.get(anchor.x + 13, anchor.y + 8), LIQUOR_BOTTLE_LABEL);
+        assert_eq!(buf.get(anchor.x + 12, anchor.y + 9), bg);
     }
 }

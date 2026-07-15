@@ -1,18 +1,22 @@
-# 12x16 head-on-desk sleeping pose.
+# 16x20 Pocket Office character sprite.
 @frame 0
-. . . . . . . . . . . .
-. . . . . . . . . . . .
-. . . . . . . . . . . .
-. . . . . . . . . . . .
-. . . . . . . . . . . .
-. . . . H H H H . . . .
-. . . n H H H H n . . .
-. . H H H S S H H H . .
-. S S B H H H H B S S .
-. . B B S S S S B B . .
-. B B B B B B B B B B .
-. . B B B B B B B B . .
-. P P B B B B B B P P .
-. . P P B B B B P P . .
-. . . B B B B B B . . .
-. . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . H H H H H H . . . . .
+. . . . H H H H H H H H . . . .
+. . . n H H H H H H H H n . . .
+. . H H H H S S S S H H H H . .
+. S S S B B H H H H B B S S S .
+. . B B B S S S S S S B B B . .
+. B B B B B B B B B B B B B B .
+. . B B B B B B B B B B B B . .
+. P P B B B B B B B B B B P P .
+. . P P B B B B B B B B P P . .
+. . . B B B B B B B B B B . . .
+. . . . B B . . . . B B . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .
+. . . . . . . . . . . . . . . .

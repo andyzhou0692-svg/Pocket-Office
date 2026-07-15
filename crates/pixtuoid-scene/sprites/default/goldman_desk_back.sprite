@@ -1,0 +1,15 @@
+# 18x12 compact 200West rear workstation layer, authored for large Terminal cells.
+# Brushed-steel monitors join a maple desktop instead of floating as blue blocks.
+@frame 0
+. . E E E E . . . . . . E E E E . .
+. . E I I E . . . . . . E I I E . .
+. . E I I E . . . . . . E I I E . .
+. . E E E E . . . . . . E E E E . .
+. . . . E . . . . . . . . E . . . .
+. . . . E . . . . . . . . E . . . .
+. . . E E E . . . . . . E E E . . .
+. . p p p p p p p p p p p p p p . .
+. p p p p p p p p p p p p p p p p .
+. p v v v v v v v v v v v v v v p .
+. p v . . . . M M M M . . . . v p .
+. p v . . . . M E E M . . . . v p .

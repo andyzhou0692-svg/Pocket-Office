@@ -1,0 +1,10 @@
+# 18x7 compact 200West front workstation layer. Maple trim, chair and legs stay
+# attached to the desktop above; the final transparent row preserves geometry.
+@frame 0
+. p v v v v v v v v v v v v v v p .
+. p v . . . . M E E M . . . . v p .
+. p v . . . . M M M M . . . . v p .
+. p . . . . . M . . M . . . . . p .
+. p . . . . . . . . . . . . . . p .
+. p p . . . . . . . . . . . . p p .
+. . . . . . . . . . . . . . . . . .

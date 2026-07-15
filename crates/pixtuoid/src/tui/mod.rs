@@ -1004,7 +1004,8 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                             } else if renderer.cached_layout().is_some_and(|layout| {
                                 renderer::hit_test_coffee_machine(layout, m.column, m.row)
                             }) {
-                                let _ = open::that("https://buymeacoffee.com/IvanWng97");
+                                // The coffee machine is an ambient office object.
+                                // Clicking it intentionally has no external action.
                             } else if let Some(pixtuoid_scene::pet::PetFrame {
                                 pos: pet_pos,
                                 anim,

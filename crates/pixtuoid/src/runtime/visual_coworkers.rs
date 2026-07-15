@@ -8,10 +8,14 @@ use pixtuoid_core::{AgentId, SceneState};
 
 const SOURCE: &str = "visual-coworker";
 const MAX_VISIBLE_IDLE_AGENTS: usize = 7;
-const RESIDENTS: [(&str, &str); 3] = [
+const ACTIVE_RESIDENT_COUNT: usize = 3;
+const RESIDENTS: [(&str, &str); 6] = [
     ("tom", "Tom (Head of IBD)"),
     ("amy", "Amy (Head of IR)"),
     ("jess", "Jess (Head of Strategy)"),
+    ("alex", "Alex"),
+    ("tristan-pembroke", "Tristan Pembroke"),
+    ("maya", "Maya"),
 ];
 
 #[derive(Clone, Copy)]
@@ -51,13 +55,78 @@ impl VisualCoworkers {
             .max_by_key(|slot| (slot.last_event_at, slot.agent_id));
         let active_resident = vivian.and_then(|slot| {
             matches!(slot.state, ActivityState::Active { .. })
-                .then_some(slot.tool_call_count.saturating_sub(1) as usize % RESIDENTS.len())
+                .then_some(slot.tool_call_count.saturating_sub(1) as usize % ACTIVE_RESIDENT_COUNT)
         });
         let cwd = vivian
             .map(|slot| Arc::clone(&slot.cwd))
             .unwrap_or_else(|| Arc::from(Path::new("/")));
 
+        // The default view opens on floor zero. A long transcript history can
+        // leave the newest idle sessions on upper floors, so keep the single
+        // visual Vivian anchored in the main office without mutating the real
+        // scene. Swap desks with the ground-floor occupant to preserve unique
+        // desk assignments in the render-only clone.
+        if let Some(vivian_slot) = vivian.filter(|slot| slot.floor_idx != 0) {
+            if let Some(target_desk) = rendered.floor_range(0).next() {
+                let target_desk = pixtuoid_core::state::GlobalDeskIndex(target_desk);
+                let displaced = rendered
+                    .agents
+                    .iter()
+                    .find(|(_, slot)| slot.desk_index == target_desk)
+                    .map(|(id, _)| *id);
+                if let Some(displaced_id) = displaced {
+                    if let Some(slot) = rendered.agents.get_mut(&displaced_id) {
+                        slot.desk_index = vivian_slot.desk_index;
+                        slot.floor_idx = vivian_slot.floor_idx;
+                    }
+                }
+                if let Some(slot) = rendered.agents.get_mut(&vivian_slot.agent_id) {
+                    slot.desk_index = target_desk;
+                    slot.floor_idx = 0;
+                }
+            }
+        }
+
+        if vivian.is_none() {
+            if let Some(desk_index) = rendered.next_free_desk() {
+                let agent_id = AgentId::from_parts(SOURCE, "vivian");
+                rendered.agents.insert(
+                    agent_id,
+                    AgentSlot {
+                        agent_id,
+                        source: Arc::from(SOURCE),
+                        session_id: Arc::from("vivian"),
+                        cwd: Arc::clone(&cwd),
+                        label: "Vivian".into(),
+                        state: ActivityState::Idle,
+                        state_started_at: self.started_at,
+                        last_event_at: now,
+                        created_at: self.started_at,
+                        exiting_at: None,
+                        pending_idle_at: None,
+                        desk_index,
+                        floor_idx: rendered.floor_of(desk_index),
+                        tool_call_count: 0,
+                        active_ms: 0,
+                        unknown_cwd: false,
+                        parent_id: None,
+                        pid: None,
+                        model: None,
+                        effort: None,
+                    },
+                );
+            }
+        }
+
         for (index, (key, fallback_name)) in RESIDENTS.iter().enumerate() {
+            let ground_floor_population = rendered
+                .agents
+                .values()
+                .filter(|slot| slot.floor_idx == 0 && slot.exiting_at.is_none())
+                .count();
+            if ground_floor_population >= MAX_VISIBLE_IDLE_AGENTS {
+                break;
+            }
             let Some(desk_index) = rendered.next_free_desk() else {
                 break;
             };
@@ -122,6 +191,7 @@ impl VisualCoworkers {
             let slot = &rendered.agents[id];
             (
                 slot.label.as_ref() == "Vivian",
+                slot.floor_idx == 0,
                 slot.source.as_ref() != SOURCE,
                 slot.last_event_at,
                 slot.agent_id.raw(),
@@ -214,6 +284,98 @@ mod tests {
             .agents
             .insert(id, slot(id, "Vivian", 0, None, state, tool_call_count));
         scene
+    }
+
+    #[test]
+    fn empty_scene_renders_the_seven_person_office_baseline() {
+        let scene = SceneState::new([7; MAX_FLOORS]);
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+
+        assert_eq!(rendered.agents.len(), 7);
+        assert_eq!(
+            rendered
+                .agents
+                .values()
+                .filter(|slot| slot.label.as_ref() == "Vivian")
+                .count(),
+            1,
+            "the empty office must seed exactly one visual Vivian"
+        );
+        assert!(rendered
+            .agents
+            .values()
+            .all(|slot| matches!(slot.state, ActivityState::Idle)));
+        assert!(
+            scene.agents.is_empty(),
+            "rendering must not mutate real sessions"
+        );
+    }
+
+    #[test]
+    fn restart_keeps_seven_visible_on_the_ground_floor() {
+        let mut capacities = [0; MAX_FLOORS];
+        capacities[0] = 8;
+        capacities[1] = 8;
+        let mut scene = SceneState::new(capacities);
+
+        for desk in 0..7 {
+            let id = AgentId::from_parts("codex", &format!("ground-{desk}"));
+            let mut ground = slot(
+                id,
+                &format!("Ground {desk}"),
+                desk,
+                None,
+                ActivityState::Idle,
+                0,
+            );
+            ground.last_event_at = SystemTime::UNIX_EPOCH + Duration::from_secs(desk as u64);
+            scene.agents.insert(id, ground);
+        }
+
+        let vivian = AgentId::from_parts("codex", "vivian-upstairs");
+        let mut upstairs_vivian = slot(vivian, "Vivian", 8, None, ActivityState::Idle, 0);
+        upstairs_vivian.floor_idx = 1;
+        upstairs_vivian.last_event_at = SystemTime::UNIX_EPOCH + Duration::from_secs(100);
+        scene.agents.insert(vivian, upstairs_vivian);
+
+        for offset in 1..7 {
+            let id = AgentId::from_parts("codex", &format!("upstairs-{offset}"));
+            let mut upstairs = slot(
+                id,
+                &format!("Upstairs {offset}"),
+                8 + offset,
+                Some(vivian),
+                ActivityState::Idle,
+                0,
+            );
+            upstairs.floor_idx = 1;
+            upstairs.last_event_at =
+                SystemTime::UNIX_EPOCH + Duration::from_secs(100 + offset as u64);
+            scene.agents.insert(id, upstairs);
+        }
+
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+        let ground = pixtuoid_scene::floor::project_floor_scene(&rendered, 0);
+
+        assert_eq!(
+            ground
+                .agents
+                .values()
+                .filter(|slot| slot.exiting_at.is_none())
+                .count(),
+            7,
+            "the default floor must never restart empty while idle sessions sit upstairs"
+        );
+        assert_eq!(
+            ground
+                .agents
+                .values()
+                .filter(|slot| slot.label.as_ref() == "Vivian")
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -378,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn idle_cap_prefers_real_agents_before_render_only_residents() {
+    fn real_agents_fill_the_office_before_visual_residents_without_overbooking() {
         let mut capacities = [0; MAX_FLOORS];
         capacities[0] = 12;
         let mut scene = SceneState::new(capacities);
@@ -422,7 +584,7 @@ mod tests {
 
         assert_eq!(visible_real, 5);
         assert_eq!(visible_residents, 2);
-        assert_eq!(departing_residents, 1);
+        assert_eq!(departing_residents, 0);
     }
 
     #[test]

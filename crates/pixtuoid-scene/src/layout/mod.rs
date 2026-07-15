@@ -221,8 +221,8 @@ pub const PANTRY_FOOTPRINT_DEPTH: u16 = 3;
 /// side cabinets included) — the +4 overhang rides the aisle, so every
 /// band-EDGE clamp reads `DESK_GROUND_W`, not `DESK_W` (the #549 2px-overflow
 /// drift). Laptop-density pass (2026-07-11): 12→10 / 6→5.
-pub const DESK_W: u16 = 10;
-pub const DESK_H: u16 = 5;
+pub const DESK_W: u16 = 14;
+pub const DESK_H: u16 = 7;
 /// The desk's ground-CONTACT depth (rows) — only the front edge / legs touch
 /// the floor; the surface + monitor OVERHANG north (`ground_y: End`), so a
 /// walker passes BEHIND the monitor and is occluded by the desk's own y-sort
@@ -234,7 +234,7 @@ pub const DESK_H: u16 = 5;
 /// `pub(crate)`: no cross-crate consumer (unlike `DESK_W`/`DESK_H`, which the
 /// binary's hit-test reads) — least-privilege on the semver surface.
 pub(crate) const DESK_FOOT_H: u16 = 2;
-/// Default character sprite width (px). The bundled pack is 12×16; this is the
+/// Default character sprite width (px). The bundled pack is 16×20; this is the
 /// ONE authority every out-of-pixel_painter consumer centers/hit-tests on
 /// (anchors' LABEL fallback, `layout::decor::DESK_WALK_X_OFF`, the tui hit-test
 /// pin box, the floating label centering) — a bare width copied into those sites
@@ -244,17 +244,20 @@ pub(crate) const DESK_FOOT_H: u16 = 2;
 /// Lives in `layout` (not `pixel_painter`) so `layout::decor` can read it
 /// without a module cycle. Pinned to the embedded pack by
 /// `character_sprite_w_matches_the_embedded_pack`.
-pub const CHARACTER_SPRITE_W: u16 = 12;
-/// Default character sprite height in terminal CELLS (the 16 px sprite is 8
+pub const CHARACTER_SPRITE_W: u16 = 16;
+/// Default character sprite height in terminal CELLS (the 20 px sprite is 10
 /// half-block rows). Used by the tui hit-test pin box (cell space).
-pub const CHARACTER_SPRITE_H_CELLS: u16 = 8;
+pub const CHARACTER_SPRITE_H_CELLS: u16 = 10;
 /// Default character sprite height in buffer pixels. Character anchors and
 /// z-keys use the same value so a future proportion change cannot stretch the
 /// hit box away from the painted pose.
 pub const CHARACTER_SPRITE_H: u16 = CHARACTER_SPRITE_H_CELLS * 2;
+/// Desk-relative row where a seated character's feet settle. It tracks the
+/// workstation depth so a sprite-grid change cannot leave the chair behind.
+pub(crate) const DESK_SEAT_Y_OFF: u16 = DESK_H - 1;
 /// Vertical distance from a home desk's top row to the seated sprite's top.
 /// Shared by the painter and the TUI's lightweight click-to-pin hit test.
-pub const DESK_SEATED_Y_OFF: u16 = CHARACTER_SPRITE_H - 4;
+pub const DESK_SEATED_Y_OFF: u16 = CHARACTER_SPRITE_H - DESK_SEAT_Y_OFF;
 /// Elevator-door sprite size in buffer px — the single source for the door's
 /// width (the layout slots the sprite into the back wall and the renderer skips
 /// the window glass it covers) and height (the z-sort anchor row). Both the

@@ -191,7 +191,10 @@ fn meeting_room_fills_and_hosts_group_chitchat() {
         scene.agents.insert(id, slot(id, 0, i, started));
     }
 
-    let mut r = build(160, 56, vec![]);
+    // Keep enough usable desks for a genuinely occupied meeting room. The
+    // higher-detail workstation grid needs more vertical room than the old
+    // compact fixture, otherwise only six agents can render and wander.
+    let mut r = build(160, 72, vec![]);
     r.render(&scene, &pack, now).expect("render");
     let layout = r.cached_layout().expect("layout").clone();
     let mr = layout
@@ -200,7 +203,7 @@ fn meeting_room_fills_and_hosts_group_chitchat() {
 
     // Empty-room pixel baseline (same furniture, no agents) so the region diff
     // isolates the characters.
-    let mut r0 = build(160, 56, vec![]);
+    let mut r0 = build(160, 72, vec![]);
     r0.render(&SceneState::uniform(cap), &pack, now)
         .expect("render");
     let baseline = r0.buf().clone();
