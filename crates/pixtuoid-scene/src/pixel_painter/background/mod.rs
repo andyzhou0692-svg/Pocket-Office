@@ -129,16 +129,17 @@ enum HudsonTraffic {
 }
 
 /// Pick at most one Hudson detail per 20-second cycle. This is deterministic
-/// local animation, not agent state: yachts occupy roughly 1 in 8 cycles and
-/// the suited paddleboard commuter roughly 1 in 24.
+/// local animation, not agent state. Target the four panes visible at the
+/// normal 120-column terminal width; yachts occupy roughly 1 in 4 cycles and
+/// the suited paddleboard commuter roughly 1 in 12.
 fn hudson_traffic(window_idx: u16, elapsed_ms: u64) -> Option<HudsonTraffic> {
     let cycle = elapsed_ms / HUDSON_TRAFFIC_CYCLE_MS;
     let h = pixtuoid_core::id::splitmix64(cycle ^ 0x4855_4453_4f4e_3230);
-    let target_window = ((h >> 16) % 6) as u16;
+    let target_window = ((h >> 16) % 4) as u16;
     if window_idx != target_window {
         return None;
     }
-    match h % 24 {
+    match h % 12 {
         0..=2 => Some(HudsonTraffic::Yacht),
         3 => Some(HudsonTraffic::Paddleboarder),
         _ => None,
@@ -1735,6 +1736,44 @@ mod tests {
         assert!(
             saw_paddleboarder,
             "the suited paddleboard commuter easter egg must remain reachable"
+        );
+    }
+
+    #[test]
+    fn hudson_traffic_targets_the_four_windows_visible_at_normal_terminal_width() {
+        for cycle in 0..240u64 {
+            let elapsed_ms = cycle * HUDSON_TRAFFIC_CYCLE_MS;
+            for window_idx in 4..6 {
+                assert_eq!(
+                    hudson_traffic(window_idx, elapsed_ms),
+                    None,
+                    "cycle {cycle} targeted offscreen window {window_idx}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hudson_traffic_uses_the_balanced_visible_cadence() {
+        let mut yachts = 0usize;
+        let mut paddleboarders = 0usize;
+        for cycle in 0..720u64 {
+            let elapsed_ms = cycle * HUDSON_TRAFFIC_CYCLE_MS;
+            for window_idx in 0..4 {
+                match hudson_traffic(window_idx, elapsed_ms) {
+                    Some(HudsonTraffic::Yacht) => yachts += 1,
+                    Some(HudsonTraffic::Paddleboarder) => paddleboarders += 1,
+                    None => {}
+                }
+            }
+        }
+        assert!(
+            (150..=210).contains(&yachts),
+            "yachts should average near one per four cycles, got {yachts} in 720"
+        );
+        assert!(
+            (45..=80).contains(&paddleboarders),
+            "paddleboarders should average near one per twelve cycles, got {paddleboarders} in 720"
         );
     }
 
