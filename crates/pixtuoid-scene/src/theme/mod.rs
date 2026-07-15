@@ -3,7 +3,9 @@ mod cyberpunk;
 mod dracula;
 mod goldman;
 mod gruvbox;
+mod new_york;
 mod normal;
+mod succession;
 mod tokyo_night;
 
 use pixtuoid_core::sprite::Rgb;
@@ -13,10 +15,14 @@ pub use cyberpunk::CYBERPUNK;
 pub use dracula::DRACULA;
 pub use goldman::GOLDMAN;
 pub use gruvbox::GRUVBOX;
+pub use new_york::NEW_YORK;
 pub use normal::NORMAL;
+pub use succession::SUCCESSION;
 pub use tokyo_night::TOKYO_NIGHT;
 
 pub(crate) const GOLDMAN_THEME_NAME: &str = "200West";
+pub(crate) const NEW_YORK_THEME_NAME: &str = "new-york";
+pub(crate) const SUCCESSION_THEME_NAME: &str = "succession";
 
 /// Light vs Dark classification — drives effects that only look right on
 /// one or the other (e.g. ceiling halos read as soft glow on dark themes
@@ -27,13 +33,16 @@ pub enum ThemeKind {
     Dark,
 }
 
-/// Narrow visual routing for the one location theme that needs more than
-/// palette substitution. Geometry stays shared; the profile only selects
-/// same-footprint character, desk, and window treatments.
+/// Narrow visual routing for location themes that need more than palette
+/// substitution. Geometry stays shared. Goldman selects same-footprint
+/// wardrobe and desk treatments; the other profiles select window scenery.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum VisualProfile {
     Standard,
     Goldman,
+    TokyoTower,
+    CentralPark,
+    EmpireState,
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +64,9 @@ impl Theme {
     pub(crate) fn visual_profile(&self) -> VisualProfile {
         match self.name {
             GOLDMAN_THEME_NAME => VisualProfile::Goldman,
+            "tokyo-night" => VisualProfile::TokyoTower,
+            SUCCESSION_THEME_NAME => VisualProfile::CentralPark,
+            NEW_YORK_THEME_NAME => VisualProfile::EmpireState,
             _ => VisualProfile::Standard,
         }
     }
@@ -267,6 +279,8 @@ pub static ALL_THEMES: &[&Theme] = &[
     &CATPPUCCIN,
     &GRUVBOX,
     &GOLDMAN,
+    &SUCCESSION,
+    &NEW_YORK,
 ];
 
 pub fn theme_by_name(name: &str) -> Option<&'static Theme> {
@@ -307,6 +321,23 @@ mod tests {
             two_hundred_west,
             theme_by_name("goldman").expect("old theme name remains a launch alias")
         ));
+    }
+
+    #[test]
+    fn location_themes_select_their_landmark_profiles() {
+        assert_eq!(TOKYO_NIGHT.visual_profile(), VisualProfile::TokyoTower);
+        assert_eq!(
+            theme_by_name("succession")
+                .expect("Succession theme resolves")
+                .visual_profile(),
+            VisualProfile::CentralPark
+        );
+        assert_eq!(
+            theme_by_name("new-york")
+                .expect("New York theme resolves")
+                .visual_profile(),
+            VisualProfile::EmpireState
+        );
     }
 
     #[test]
@@ -354,6 +385,8 @@ mod tests {
     fn light_themes_marked_light() {
         assert_eq!(NORMAL.kind, ThemeKind::Light);
         assert_eq!(GOLDMAN.kind, ThemeKind::Light);
+        assert_eq!(SUCCESSION.kind, ThemeKind::Light);
+        assert_eq!(NEW_YORK.kind, ThemeKind::Light);
     }
 
     // The window-wall celestial disc (Task 7) must read as a WARM sun and a

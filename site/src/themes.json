@@ -48,5 +48,19 @@
     "blurb": "Hudson banking floor",
     "accent": "#4376a9",
     "accent2": "#dabe91"
+  },
+  {
+    "id": "succession",
+    "name": "Succession",
+    "blurb": "Cold wealth above Central Park",
+    "accent": "#b88f53",
+    "accent2": "#2d2b28"
+  },
+  {
+    "id": "new-york",
+    "name": "New York",
+    "blurb": "Empire State city rhythm",
+    "accent": "#4e6577",
+    "accent2": "#c19537"
   }
 ]

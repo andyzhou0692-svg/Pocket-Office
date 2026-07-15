@@ -86,6 +86,41 @@ const HUDSON_PADDLEBOARD_ORANGE: Rgb = Rgb {
     g: 143,
     b: 74,
 };
+const TOKYO_TOWER_RED: Rgb = Rgb {
+    r: 229,
+    g: 74,
+    b: 74,
+};
+const TOKYO_TOWER_LIGHT: Rgb = Rgb {
+    r: 244,
+    g: 221,
+    b: 192,
+};
+const CENTRAL_PARK_CANOPY: Rgb = Rgb {
+    r: 48,
+    g: 101,
+    b: 61,
+};
+const CENTRAL_PARK_HIGHLIGHT: Rgb = Rgb {
+    r: 75,
+    g: 128,
+    b: 73,
+};
+const CENTRAL_PARK_PATH: Rgb = Rgb {
+    r: 176,
+    g: 157,
+    b: 116,
+};
+const EMPIRE_STATE_LIMESTONE: Rgb = Rgb {
+    r: 202,
+    g: 190,
+    b: 166,
+};
+const EMPIRE_STATE_SHADOW: Rgb = Rgb {
+    r: 132,
+    g: 135,
+    b: 134,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum HudsonTraffic {
@@ -198,6 +233,127 @@ fn paint_hudson_traffic(
             put(left + 4, base_y - 1, paddle);
             put(left + 5, base_y, paddle);
         }
+    }
+}
+
+/// Paint the one location cue assigned to this window profile. The cue stays
+/// inside the existing glass rectangle and below the existing weather pass, so
+/// rain, snow, fog, mullions, and the office layout retain their current rules.
+fn paint_location_landmark(
+    buf: &mut RgbBuffer,
+    x: u16,
+    y: u16,
+    w: u16,
+    h: u16,
+    window_idx: u16,
+    profile: crate::theme::VisualProfile,
+) {
+    let mut put_glass = |dx: u16, dy: u16, color: Rgb| {
+        if dx == 0
+            || dx >= w.saturating_sub(1)
+            || dy == 0
+            || dy >= h.saturating_sub(1)
+            || dx == w / 2
+            || dy == h * 7 / 10
+        {
+            return;
+        }
+        let px = x.saturating_add(dx);
+        let py = y.saturating_add(dy);
+        if px < buf.width() && py < buf.height() {
+            buf.put(px, py, color);
+        }
+    };
+
+    match profile {
+        crate::theme::VisualProfile::TokyoTower if window_idx == 2 => {
+            // A narrow red lattice tower in the right pane. The widening legs,
+            // two warm observation decks, and antenna are readable at 22x30.
+            let center = w * 3 / 4;
+            for dy in 3..h.saturating_sub(3) {
+                let spread = if dy < h / 3 {
+                    1
+                } else if dy < h * 2 / 3 {
+                    2
+                } else {
+                    3
+                };
+                put_glass(center.saturating_sub(spread), dy, TOKYO_TOWER_RED);
+                put_glass(
+                    (center + spread).min(w.saturating_sub(2)),
+                    dy,
+                    TOKYO_TOWER_RED,
+                );
+                if dy % 4 == 0 {
+                    for dx in center.saturating_sub(spread)..=(center + spread) {
+                        put_glass(dx.min(w.saturating_sub(2)), dy, TOKYO_TOWER_RED);
+                    }
+                }
+            }
+            for dx in center.saturating_sub(3)..=(center + 3) {
+                put_glass(dx, h / 3, TOKYO_TOWER_LIGHT);
+                put_glass(dx, h * 2 / 3, TOKYO_TOWER_LIGHT);
+            }
+            for dy in 1..4 {
+                put_glass(center, dy, TOKYO_TOWER_RED);
+            }
+        }
+        crate::theme::VisualProfile::CentralPark => {
+            // Layered tree clusters across every window. A shared global x
+            // coordinate prevents each pane from repeating the same texture.
+            let canopy_top = h * 3 / 5;
+            for dy in canopy_top..h.saturating_sub(1) {
+                for dx in 1..w.saturating_sub(1) {
+                    let global_x = window_idx * w.saturating_sub(2) + dx - 1;
+                    let tree_cell = (global_x / 3) as u64 | (((dy - canopy_top) / 2) as u64) << 16;
+                    let texture = pixtuoid_core::id::splitmix64(tree_cell ^ 0x5041_524b_5452_4545);
+                    let treetop = canopy_top + ((texture >> 9) % 3) as u16;
+                    if dy < treetop {
+                        continue;
+                    }
+                    let winding_path_center = 30 + (dy - canopy_top) / 2;
+                    let on_path = global_x.abs_diff(winding_path_center) <= 1
+                        || global_x.abs_diff(73u16.saturating_sub((dy - canopy_top) / 3)) <= 1;
+                    let color = if on_path {
+                        CENTRAL_PARK_PATH
+                    } else if texture & 3 == 0 {
+                        CENTRAL_PARK_HIGHLIGHT
+                    } else {
+                        CENTRAL_PARK_CANOPY
+                    };
+                    put_glass(dx, dy, color);
+                }
+            }
+        }
+        crate::theme::VisualProfile::EmpireState if window_idx == 2 => {
+            // Stepped shoulders, central shaft, crown, and spire in the right
+            // pane. Alternating limestone and shadow columns preserve depth.
+            let center = w * 3 / 4;
+            for dy in h / 3..h.saturating_sub(1) {
+                let half_width = if dy < h * 9 / 20 {
+                    1
+                } else if dy < h * 3 / 5 {
+                    2
+                } else {
+                    4
+                };
+                for dx in center.saturating_sub(half_width)..=(center + half_width) {
+                    let color =
+                        if dx == center.saturating_sub(half_width) || dx == center + half_width {
+                            EMPIRE_STATE_SHADOW
+                        } else {
+                            EMPIRE_STATE_LIMESTONE
+                        };
+                    put_glass(dx.min(w.saturating_sub(2)), dy, color);
+                }
+            }
+            for dy in 2..h / 3 {
+                put_glass(center, dy, EMPIRE_STATE_LIMESTONE);
+            }
+            put_glass(center.saturating_sub(1), h / 3, EMPIRE_STATE_LIMESTONE);
+            put_glass(center + 1, h / 3, EMPIRE_STATE_LIMESTONE);
+        }
+        _ => {}
     }
 }
 
@@ -859,7 +1015,10 @@ fn paint_floor_to_ceiling_window(
             let pat = SKYLINE_PATTERN[pat_idx] as u16;
             let default_building_h = min_bh + (pat * bh_range) / PATTERN_MAX;
             let (in_building, bldg_y, in_river) = match visual_profile {
-                crate::theme::VisualProfile::Standard => {
+                crate::theme::VisualProfile::Standard
+                | crate::theme::VisualProfile::TokyoTower
+                | crate::theme::VisualProfile::CentralPark
+                | crate::theme::VisualProfile::EmpireState => {
                     let top = glass_h.saturating_sub(default_building_h);
                     (glass_dy >= top, glass_dy.saturating_sub(top), false)
                 }
@@ -953,6 +1112,8 @@ fn paint_floor_to_ceiling_window(
             }
         }
     }
+
+    paint_location_landmark(buf, x, y, w, h, window_idx, visual_profile);
 
     if visual_profile == crate::theme::VisualProfile::Goldman {
         paint_hudson_traffic(buf, x, y, w, h, window_idx, epoch_ms(now));
@@ -1574,6 +1735,87 @@ mod tests {
         assert!(
             saw_paddleboarder,
             "the suited paddleboard commuter easter egg must remain reachable"
+        );
+    }
+
+    fn render_landmark_window(theme: &crate::theme::Theme, window_idx: u16) -> RgbBuffer {
+        let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(12 * 3600);
+        let look = time_of_day_look(now, theme);
+        let (lit_colors, building, sky_row) = window_glass_invariants(30, &look, theme);
+        let mut buf = RgbBuffer::filled(40, 40, Rgb { r: 8, g: 8, b: 10 });
+        paint_floor_to_ceiling_window(
+            &mut buf,
+            0,
+            0,
+            WINDOW_W,
+            30,
+            theme.surface.window_frame,
+            window_idx,
+            now,
+            Weather::Clear,
+            0.0,
+            &lit_colors,
+            building,
+            &sky_row,
+            None,
+            0.0,
+            theme.visual_profile(),
+        );
+        buf
+    }
+
+    fn count_color(buf: &RgbBuffer, color: Rgb) -> usize {
+        (0..buf.height())
+            .flat_map(|y| (0..buf.width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| buf.get(x, y) == color)
+            .count()
+    }
+
+    #[test]
+    fn tokyo_night_window_contains_a_red_tokyo_tower_signature() {
+        let buf = render_landmark_window(&crate::theme::TOKYO_NIGHT, 2);
+        assert!(
+            count_color(
+                &buf,
+                Rgb {
+                    r: 229,
+                    g: 74,
+                    b: 74
+                }
+            ) >= 14,
+            "Tokyo Tower needs a visible red lattice silhouette"
+        );
+    }
+
+    #[test]
+    fn succession_window_contains_a_central_park_canopy() {
+        let buf = render_landmark_window(&crate::theme::SUCCESSION, 0);
+        assert!(
+            count_color(
+                &buf,
+                Rgb {
+                    r: 48,
+                    g: 101,
+                    b: 61
+                }
+            ) >= 24,
+            "Central Park needs a broad green foreground canopy"
+        );
+    }
+
+    #[test]
+    fn new_york_window_contains_an_empire_state_signature() {
+        let buf = render_landmark_window(&crate::theme::NEW_YORK, 2);
+        assert!(
+            count_color(
+                &buf,
+                Rgb {
+                    r: 202,
+                    g: 190,
+                    b: 166
+                }
+            ) >= 16,
+            "the Empire State Building needs a stepped limestone silhouette"
         );
     }
 

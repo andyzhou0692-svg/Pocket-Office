@@ -48,19 +48,17 @@ pub(super) fn paint_character_at(
         },
         || {
             let pal = match theme.visual_profile() {
-                crate::theme::VisualProfile::Standard => {
-                    agent_palette(&pack.palette, agent, glow_tint, burn)
-                }
                 crate::theme::VisualProfile::Goldman => {
                     goldman_agent_palette(&pack.palette, agent, glow_tint, burn)
                 }
+                _ => agent_palette(&pack.palette, agent, glow_tint, burn),
             };
             let recolored = recolor_frame(frame, &pal, &pack.palette);
             let recolored = match theme.visual_profile() {
-                crate::theme::VisualProfile::Standard => recolored,
                 crate::theme::VisualProfile::Goldman => {
                     apply_goldman_shirt_inset(frame, recolored, &pack.palette, anim_name)
                 }
+                _ => recolored,
             };
             let recolored =
                 super::face_overlay::apply_front_face_overlay(recolored, &pal, anim_name);

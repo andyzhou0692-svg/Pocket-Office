@@ -637,8 +637,8 @@ pub(super) fn paint_drawable(
     match &d.kind {
         DrawableKind::DeskBack { desk, screen_glow } => {
             let animation = match theme.visual_profile() {
-                crate::theme::VisualProfile::Standard => "desk_back",
                 crate::theme::VisualProfile::Goldman => "goldman_desk_back",
+                _ => "desk_back",
             };
             if let Some(frame) = pack.animation(animation).and_then(|a| a.frames.first()) {
                 blit_frame(frame, desk.x, desk.y.saturating_sub(9), buf);
@@ -653,8 +653,8 @@ pub(super) fn paint_drawable(
             coffee_steam,
         } => {
             let animation = match theme.visual_profile() {
-                crate::theme::VisualProfile::Standard => "desk_front",
                 crate::theme::VisualProfile::Goldman => "goldman_desk_front",
+                _ => "desk_front",
             };
             if let Some(frame) = pack.animation(animation).and_then(|a| a.frames.first()) {
                 blit_frame(frame, desk.x, desk.y.saturating_sub(1), buf);
