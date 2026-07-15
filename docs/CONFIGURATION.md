@@ -46,7 +46,7 @@ kind = "dog"        # name omitted → "Office Dog"
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `theme` | `"normal"` | Color theme: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox`, `200West`. The former `goldman` name remains an alias. |
+| `theme` | `"normal"` | Color theme: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox`, `200West`, `succession`, `new-york`. The former `goldman` name remains an alias. |
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
 | `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Other real agents receive stable recurring visual names from the built-in local roster while present. |
@@ -105,9 +105,9 @@ reason. No partial override set is rendered.
 
 Press `t` in the TUI to switch themes with a live preview picker (`j`/`k` or
 `↑`/`↓` to navigate); your choice is written back to `config.toml` and persists
-across sessions. Override for a single run with `--theme <name>`. Seven themes ship
+across sessions. Override for a single run with `--theme <name>`. Nine themes ship
 built-in: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`,
-`gruvbox`, `200West` (`goldman` remains an alias).
+`gruvbox`, `200West`, `succession`, `new-york` (`goldman` remains an alias).
 
 ## Custom sprite packs
 

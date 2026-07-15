@@ -283,7 +283,7 @@ impl Office {
     }
 
     /// Recolor the whole office to a theme by name (`"normal"|"cyberpunk"|
-    /// "dracula"|"tokyo-night"|"catppuccin"|"gruvbox"`). Unknown name = no-op.
+    /// "dracula"|"tokyo-night"|"catppuccin"|"gruvbox"|"200West"|"succession"|"new-york"`). Unknown name = no-op.
     /// Flushes the recolor cache so agent sprites repaint on the next frame; the
     /// env recolors on its own (painted fresh each frame from `self.theme`).
     pub fn set_theme(&mut self, name: &str) {
