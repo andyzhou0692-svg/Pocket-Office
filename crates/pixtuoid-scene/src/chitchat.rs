@@ -174,6 +174,43 @@ const GOLDMAN_DIALOGUE: &[&str] = &[
     "I’ll socialize it with the board.",
 ];
 
+const TOKYO_NIGHT_DIALOGUE: &[&str] = &[
+    "Last train or taxi?",
+    "One more quiet pass.",
+    "Konbini run?",
+    "Neon is still on.",
+    "City never really sleeps.",
+    "Ramen after this?",
+    "Keep the lights low.",
+    "Catch the 12:10.",
+];
+
+const SUCCESSION_DIALOGUE: &[&str] = &[
+    "Who owns the room?",
+    "Control the story.",
+    "Numbers first.",
+    "Call the board.",
+    "No surprises.",
+    "Keep it tight.",
+    "Who signed off?",
+    "Optics matter.",
+    "Move before noon.",
+    "This stays inside.",
+];
+
+const NEW_YORK_DIALOGUE: &[&str] = &[
+    "Walk faster.",
+    "Uptown in ten.",
+    "Coffee to go.",
+    "Send it now.",
+    "What’s the ETA?",
+    "Beat the traffic.",
+    "Next train is here.",
+    "Grab a cab.",
+    "Keep it moving.",
+    "Need it yesterday.",
+];
+
 const NEPO_ANALYST_NAME: &str = "Tristan Pembroke";
 const NEPO_DIALOGUE: &[&str] = &[
     "My father will hear of this..",
@@ -198,11 +235,37 @@ pub(crate) static GOLDMAN_BEHAVIOR: BehaviorPack = BehaviorPack {
     nepo_dialogue: Some(NEPO_DIALOGUE),
 };
 
-use crate::theme::GOLDMAN_THEME_NAME;
+pub(crate) static TOKYO_NIGHT_BEHAVIOR: BehaviorPack = BehaviorPack {
+    idle: IdleBehavior::fixed(25, 5),
+    character_habits: false,
+    dialogue: TOKYO_NIGHT_DIALOGUE,
+    nepo_dialogue: None,
+};
+
+pub(crate) static SUCCESSION_BEHAVIOR: BehaviorPack = BehaviorPack {
+    idle: IdleBehavior::fixed(48, 0),
+    character_habits: false,
+    dialogue: SUCCESSION_DIALOGUE,
+    nepo_dialogue: None,
+};
+
+pub(crate) static NEW_YORK_BEHAVIOR: BehaviorPack = BehaviorPack {
+    idle: IdleBehavior::fixed(60, 50),
+    character_habits: false,
+    dialogue: NEW_YORK_DIALOGUE,
+    nepo_dialogue: None,
+};
+
+use crate::theme::{
+    GOLDMAN_THEME_NAME, NEW_YORK_THEME_NAME, SUCCESSION_THEME_NAME, TOKYO_NIGHT_THEME_NAME,
+};
 
 pub(crate) fn behavior_pack_for_theme(theme_name: &str) -> &'static BehaviorPack {
     match theme_name {
         GOLDMAN_THEME_NAME => &GOLDMAN_BEHAVIOR,
+        TOKYO_NIGHT_THEME_NAME => &TOKYO_NIGHT_BEHAVIOR,
+        SUCCESSION_THEME_NAME => &SUCCESSION_BEHAVIOR,
+        NEW_YORK_THEME_NAME => &NEW_YORK_BEHAVIOR,
         _ => &DEFAULT_BEHAVIOR,
     }
 }
@@ -457,6 +520,59 @@ mod tests {
     }
 
     #[test]
+    fn location_themes_select_three_distinct_theme_life_packs() {
+        let packs = [
+            behavior_pack_for_theme(crate::theme::TOKYO_NIGHT.name),
+            behavior_pack_for_theme(crate::theme::SUCCESSION.name),
+            behavior_pack_for_theme(crate::theme::NEW_YORK.name),
+        ];
+
+        for pack in packs {
+            assert!(!std::ptr::eq(pack, &DEFAULT_BEHAVIOR));
+            assert!(!std::ptr::eq(pack, &GOLDMAN_BEHAVIOR));
+        }
+        assert!(!std::ptr::eq(packs[0], packs[1]));
+        assert!(!std::ptr::eq(packs[0], packs[2]));
+        assert!(!std::ptr::eq(packs[1], packs[2]));
+    }
+
+    #[test]
+    fn location_theme_dialogue_is_original_and_isolated() {
+        let tokyo = behavior_pack_for_theme(crate::theme::TOKYO_NIGHT.name);
+        let succession = behavior_pack_for_theme(crate::theme::SUCCESSION.name);
+        let new_york = behavior_pack_for_theme(crate::theme::NEW_YORK.name);
+
+        assert!(tokyo.dialogue.contains(&"Last train or taxi?"));
+        assert!(succession.dialogue.contains(&"Control the story."));
+        assert!(new_york.dialogue.contains(&"Need it yesterday."));
+        assert_ne!(tokyo.dialogue, succession.dialogue);
+        assert_ne!(tokyo.dialogue, new_york.dialogue);
+        assert_ne!(succession.dialogue, new_york.dialogue);
+        assert!(!DEFAULT_BEHAVIOR.dialogue.contains(&"Last train or taxi?"));
+        assert!(!GOLDMAN_BEHAVIOR.dialogue.contains(&"Control the story."));
+    }
+
+    #[test]
+    fn location_theme_movement_reads_quiet_deliberate_and_fast() {
+        let id = aid("/theme-life");
+        let counts = |behavior: IdleBehavior| {
+            let trips = (0..1_000)
+                .filter(|cycle| crate::pose::takes_trip_with_behavior(id, *cycle, behavior))
+                .count();
+            let aimless = (0..1_000)
+                .filter(|cycle| crate::pose::is_aimless_cycle_with_behavior(id, *cycle, behavior))
+                .count();
+            (trips, aimless)
+        };
+        let tokyo = counts(behavior_pack_for_theme(crate::theme::TOKYO_NIGHT.name).idle);
+        let succession = counts(behavior_pack_for_theme(crate::theme::SUCCESSION.name).idle);
+        let new_york = counts(behavior_pack_for_theme(crate::theme::NEW_YORK.name).idle);
+
+        assert!(tokyo.0 < succession.0 && succession.0 < new_york.0);
+        assert!(succession.1 < tokyo.1 && tokyo.1 < new_york.1);
+    }
+
+    #[test]
     fn selectable_two_hundred_west_theme_activates_the_existing_goldman_behavior() {
         let theme = crate::theme::theme_by_name(GOLDMAN_THEME_NAME)
             .expect("200West visual theme is registered");
@@ -468,7 +584,13 @@ mod tests {
 
     #[test]
     fn every_dialogue_pack_is_nonempty() {
-        for pack in [&DEFAULT_BEHAVIOR, &GOLDMAN_BEHAVIOR] {
+        for pack in [
+            &DEFAULT_BEHAVIOR,
+            &GOLDMAN_BEHAVIOR,
+            &TOKYO_NIGHT_BEHAVIOR,
+            &SUCCESSION_BEHAVIOR,
+            &NEW_YORK_BEHAVIOR,
+        ] {
             assert!(!pack.dialogue.is_empty());
         }
     }

@@ -33,12 +33,12 @@ pub use pure::{
 };
 // `resolve_wander_target` stays crate-internal (the motion authority delegates to
 // it); a `pub use` would try to widen its `pub(crate)` visibility.
-#[cfg(test)]
-pub(crate) use pure::resolve_wander_target;
 pub(crate) use pure::{
     derive_with_idle_behavior, resolve_wander_target_with_behavior, takes_trip_with_behavior,
     IdleBehavior, DEFAULT_IDLE_BEHAVIOR,
 };
+#[cfg(test)]
+pub(crate) use pure::{is_aimless_cycle_with_behavior, resolve_wander_target};
 
 use crate::layout::{desk_walk_anchor, Layout, Point, WaypointKind};
 use crate::pathfind::Router;

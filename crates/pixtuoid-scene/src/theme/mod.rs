@@ -23,6 +23,7 @@ pub use tokyo_night::TOKYO_NIGHT;
 pub(crate) const GOLDMAN_THEME_NAME: &str = "200West";
 pub(crate) const NEW_YORK_THEME_NAME: &str = "new-york";
 pub(crate) const SUCCESSION_THEME_NAME: &str = "succession";
+pub(crate) const TOKYO_NIGHT_THEME_NAME: &str = "tokyo-night";
 
 /// Light vs Dark classification — drives effects that only look right on
 /// one or the other (e.g. ceiling halos read as soft glow on dark themes
@@ -64,7 +65,7 @@ impl Theme {
     pub(crate) fn visual_profile(&self) -> VisualProfile {
         match self.name {
             GOLDMAN_THEME_NAME => VisualProfile::Goldman,
-            "tokyo-night" => VisualProfile::TokyoTower,
+            TOKYO_NIGHT_THEME_NAME => VisualProfile::TokyoTower,
             SUCCESSION_THEME_NAME => VisualProfile::CentralPark,
             NEW_YORK_THEME_NAME => VisualProfile::EmpireState,
             _ => VisualProfile::Standard,
