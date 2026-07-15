@@ -100,7 +100,7 @@ impl VisualCoworkers {
                         label: "Vivian".into(),
                         state: ActivityState::Idle,
                         state_started_at: self.started_at,
-                        last_event_at: now,
+                        last_event_at: self.started_at,
                         created_at: self.started_at,
                         exiting_at: None,
                         pending_idle_at: None,
@@ -164,7 +164,7 @@ impl VisualCoworkers {
                     label: label.into(),
                     state,
                     state_started_at,
-                    last_event_at: now,
+                    last_event_at: self.started_at,
                     created_at: self.started_at,
                     exiting_at: None,
                     pending_idle_at: None,
@@ -241,6 +241,10 @@ impl VisualCoworkers {
 mod tests {
     use super::*;
     use pixtuoid_core::state::{GlobalDeskIndex, MAX_FLOORS};
+    use pixtuoid_scene::layout::SceneLayout;
+    use pixtuoid_scene::pose::{
+        derive_state_only, est_wander_cycle_ms, seated_dwell_ms, takes_trip, Pose,
+    };
     use std::time::Duration;
 
     fn slot(
@@ -309,6 +313,43 @@ mod tests {
         assert!(
             scene.agents.is_empty(),
             "rendering must not mutate real sessions"
+        );
+    }
+
+    #[test]
+    fn persistent_idle_resident_reaches_walking_pose_after_desk_dwell() {
+        let layout = SceneLayout::compute(192, 160, Some(7)).expect("office layout");
+        assert!(
+            !layout.waypoints.is_empty(),
+            "test layout needs a destination"
+        );
+
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
+        let started_at = coworkers.started_at;
+        let (key, cycle_n) = RESIDENTS
+            .iter()
+            .find_map(|(key, _)| {
+                let agent_id = AgentId::from_parts(SOURCE, key);
+                (0..32)
+                    .find(|&cycle_n| takes_trip(agent_id, cycle_n))
+                    .map(|cycle_n| (*key, cycle_n))
+            })
+            .expect("at least one resident takes a deterministic trip");
+        let agent_id = AgentId::from_parts(SOURCE, key);
+        let elapsed_ms = cycle_n * est_wander_cycle_ms(agent_id) + seated_dwell_ms(agent_id) + 1;
+        let now = started_at
+            .checked_add(Duration::from_millis(elapsed_ms))
+            .expect("test timestamp");
+        let scene = SceneState::new([7; MAX_FLOORS]);
+        let rendered = coworkers.render_scene(&scene, now);
+        let resident = rendered.agents.get(&agent_id).expect("visual resident");
+
+        assert!(
+            matches!(
+                derive_state_only(resident, now, &layout),
+                Some(Pose::Walking { .. })
+            ),
+            "an idle visual resident must enter its scheduled wander trip"
         );
     }
 
