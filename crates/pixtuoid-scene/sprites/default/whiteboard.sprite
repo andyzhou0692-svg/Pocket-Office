@@ -1,14 +1,15 @@
 # 14x11 portable whiteboard. A rounded dark frame surrounds the off-white
-# writing plane; twin uprights terminate in wheels within the 10px base span.
+# writing plane; broken-value frame corners and denser notes keep its broad
+# surfaces from reading as flat bars. Twin uprights terminate in small wheels.
 @frame 0
-. n n n n n n n n n n n n .
-n w w w w w w w w w w w w n
+. n n n n n M M n n n n n .
+n w w w w w q w w w w w w n
 n w q q q q w w w w w q w n
-n w w w w w w w w w w w w n
+n w w w w q w w w q w w w n
 n w w w q w w q q q w w w n
-n w w w w w w w w w w w w n
+n w w q w w w w w w q w w n
 n w w q q w w q w w q q w n
-n n n n n n n n n n n n n n
+. n n n n n M M n n n n n .
 . . . n . . . . . . n . . .
 . . n n . . . . . . n n . .
 . . M M . . . . . . M M . .

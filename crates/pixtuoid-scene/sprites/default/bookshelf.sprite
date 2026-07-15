@@ -1,7 +1,7 @@
 # 8x12 wood bookshelf with dark-backed bays, separated shelves, varied book
 # groups and a closed bottom drawer.
 @frame 0
-D D D D D D D D
+. D D D D D D .
 D n n n n n n D
 D r b . y l r D
 D d d d d d d D
@@ -12,4 +12,4 @@ D n n n n n n D
 D y . b r y b D
 D d d d d d d D
 D d d K d d D D
-n n n n n n n n
+. n n n n n n .

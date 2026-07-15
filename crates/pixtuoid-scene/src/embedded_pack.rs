@@ -557,6 +557,115 @@ mod tests {
             .collect()
     }
 
+    fn max_opaque_pixels_in_a_row(frame: &pixtuoid_core::sprite::Frame) -> usize {
+        frame
+            .as_slice()
+            .chunks_exact(frame.width() as usize)
+            .map(|row| row.iter().filter(|pixel| pixel.is_some()).count())
+            .max()
+            .unwrap_or_default()
+    }
+
+    fn max_same_color_run_in_a_row(frame: &pixtuoid_core::sprite::Frame) -> usize {
+        frame
+            .as_slice()
+            .chunks_exact(frame.width() as usize)
+            .flat_map(|row| {
+                let mut runs = Vec::new();
+                let mut previous = None;
+                let mut run = 0usize;
+                for &pixel in row {
+                    if pixel.is_some() && pixel == previous {
+                        run += 1;
+                    } else {
+                        if previous.is_some() {
+                            runs.push(run);
+                        }
+                        previous = pixel;
+                        run = usize::from(pixel.is_some());
+                    }
+                }
+                if previous.is_some() {
+                    runs.push(run);
+                }
+                runs
+            })
+            .max()
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn default_people_and_desks_avoid_full_width_color_bands() {
+        const MAX_CHARACTER_ROW: usize = 10;
+        const MAX_DESK_ROW: usize = 12;
+
+        let pack = test_default_pack();
+        for animation_name in [
+            "seated",
+            "typing",
+            "standing",
+            "walking",
+            "walking_back",
+            "walking_coffee",
+            "holding_coffee",
+            "seated_sleeping",
+            "seated_sleeping_alt",
+        ] {
+            let animation = pack
+                .animation(animation_name)
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            for frame in &animation.frames {
+                let widest_row = max_opaque_pixels_in_a_row(frame);
+                assert!(
+                    widest_row <= MAX_CHARACTER_ROW,
+                    "{animation_name} paints {widest_row} of {} pixels in one row; the full-width band reads as a line jutting from the body",
+                    frame.width()
+                );
+            }
+        }
+
+        for animation_name in ["desk", "goldman_desk"] {
+            let frame = pack
+                .animation(animation_name)
+                .and_then(|animation| animation.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            let widest_row = max_opaque_pixels_in_a_row(frame);
+            assert!(
+                widest_row <= MAX_DESK_ROW,
+                "{animation_name} paints {widest_row} of {} pixels in one row; the full-width band flattens the furniture into a stripe",
+                frame.width()
+            );
+        }
+    }
+
+    #[test]
+    fn focal_furniture_avoids_long_single_color_stripes() {
+        let pack = test_default_pack();
+        for animation_name in [
+            "desk",
+            "goldman_desk",
+            "meeting_sofa",
+            "meeting_screen",
+            "whiteboard",
+            "bookshelf",
+            "snack_shelf",
+            "tv_stand",
+            "standing_desk",
+        ] {
+            let frame = pack
+                .animation(animation_name)
+                .and_then(|animation| animation.frames.first())
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            let longest_run = max_same_color_run_in_a_row(frame);
+            let limit = ((frame.width() as usize) * 3).div_ceil(4);
+            assert!(
+                longest_run <= limit,
+                "{animation_name} has a {longest_run}px single-color stripe across a {}px sprite; long flat bars dominate the live terminal at close range",
+                frame.width()
+            );
+        }
+    }
+
     #[test]
     fn front_faces_keep_eyes_and_mouth_on_distinct_terminal_rows_at_both_parities() {
         let pack = test_default_pack();

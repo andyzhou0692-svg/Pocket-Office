@@ -1,11 +1,11 @@
 # 14x8 200West workstation. Pale maple, dual blue screens, a black phone,
 # paper and a separated black task chair preserve its authored identity.
 @frame 0
-. M M M M . . . M M M M . .
-p M I I M p p p M I I M p p
-p M I I M p w w M I I M U U
-p p p p p p q q p p p p U U
-v v v v v v v v v v v v v v
-v v . . . . q q . . . . v v
-v v . . . q q q q . . . v v
-v v . . . q . . q . . . v v
+. M M M M . . M M M M . . .
+. M I I M . . M I I M . . .
+. M I I M . . M I I M . U .
+. . M M p w q p . M M . . .
+. p p p p k k p p U p p p .
+. p p v v v v v v v v p p .
+. v v p p p p p p p p v v .
+. . v v . . . . . . v v . .

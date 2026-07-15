@@ -14,14 +14,20 @@ const FRONT_FACE_ANIMS: &[&str] = &[
 ];
 const MIN_FACE_WIDTH: u16 = 9;
 const MIN_FACE_HEIGHT: u16 = 7;
-const EYE_ACCENT_MIX: f32 = 0.42;
-const CHEEK_ACCENT_MIX: f32 = 0.38;
-const BROW_POINTS: &[(u16, u16)] = &[(4, 2), (7, 2)];
+const EYE_ACCENT_MIX: f32 = 0.18;
 const EYE_POINTS: &[(u16, u16)] = &[(4, 3), (7, 3)];
-const CHEEK_POINTS: &[(u16, u16)] = &[(3, 4), (8, 4)];
-const CLEARED_CRACK_POINTS: &[(u16, u16)] = &[(5, 4), (7, 4), (7, 6)];
+const CLEAR_POINTS: &[(u16, u16)] = &[
+    (4, 2),
+    (7, 2),
+    (3, 4),
+    (5, 4),
+    (7, 4),
+    (8, 4),
+    (5, 5),
+    (7, 6),
+];
 const NOSE_POINT: (u16, u16) = (6, 4);
-const MOUTH_POINTS: &[(u16, u16)] = &[(5, 5), (6, 5)];
+const MOUTH_POINT: (u16, u16) = (6, 5);
 
 pub(super) fn apply_front_face_overlay(
     mut frame: Frame,
@@ -35,8 +41,7 @@ pub(super) fn apply_front_face_overlay(
         return frame;
     }
 
-    let (Some(hair), Some(skin), Some(shadow), Some(eye), Some(mouth), Some(accent)) = (
-        palette.get('H').flatten(),
+    let (Some(skin), Some(shadow), Some(eye), Some(mouth), Some(accent)) = (
         palette.get('S').flatten(),
         palette.get('s').flatten(),
         palette.get('e').flatten(),
@@ -49,24 +54,15 @@ pub(super) fn apply_front_face_overlay(
         return frame;
     }
     let eye_accent = blend_rgb(eye, accent, EYE_ACCENT_MIX);
-    let cheek_accent = blend_rgb(shadow, mouth, CHEEK_ACCENT_MIX);
 
-    for &(x, y) in BROW_POINTS {
-        frame.set(x, y, Some(hair));
-    }
     for &(x, y) in EYE_POINTS {
         frame.set(x, y, Some(eye_accent));
     }
-    for &(x, y) in CHEEK_POINTS {
-        frame.set(x, y, Some(cheek_accent));
-    }
-    for &(x, y) in CLEARED_CRACK_POINTS {
+    for &(x, y) in CLEAR_POINTS {
         frame.set(x, y, Some(skin));
     }
     frame.set(NOSE_POINT.0, NOSE_POINT.1, Some(shadow));
-    for &(x, y) in MOUTH_POINTS {
-        frame.set(x, y, Some(mouth));
-    }
+    frame.set(MOUTH_POINT.0, MOUTH_POINT.1, Some(shadow));
     frame
 }
 

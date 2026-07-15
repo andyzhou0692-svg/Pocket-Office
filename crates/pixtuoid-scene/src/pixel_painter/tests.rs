@@ -613,7 +613,7 @@ fn front_face_overlay_changes_only_the_approved_front_poses() {
 }
 
 #[test]
-fn front_face_overlay_centers_features_and_removes_the_old_shadow_cracks() {
+fn front_face_overlay_keeps_small_scale_features_sparse_and_removes_shadow_cracks() {
     let pack = crate::embedded_pack::test_default_pack();
     let slot = make_slot(
         pixtuoid_core::AgentId::from_parts("codex", "face-geometry"),
@@ -630,27 +630,34 @@ fn front_face_overlay_centers_features_and_removes_the_old_shadow_cracks() {
         "standing",
     );
     let at = |x, y| detailed.get(x, y).copied().flatten();
-    let hair = palette.get('H').flatten();
     let skin = palette.get('S').flatten();
     let shadow = palette.get('s').flatten();
     let eye = palette.get('e').flatten();
-    let mouth = palette.get('m').flatten();
 
-    assert_eq!(at(4, 2), hair, "left brow");
-    assert_eq!(at(7, 2), hair, "right brow");
+    assert_eq!(at(4, 2), skin, "forehead remains clear at this scale");
+    assert_eq!(at(7, 2), skin, "forehead remains clear at this scale");
     assert_eq!(at(4, 3), at(7, 3), "eye accents stay symmetrical");
     assert_ne!(
         at(4, 3),
         eye,
         "eye accent separates the eyes from flat black"
     );
-    assert_eq!(at(3, 4), at(8, 4), "cheek accents stay symmetrical");
-    assert_ne!(at(3, 4), skin, "cheek accent separates from base skin");
+    let eye_accent = at(4, 3).expect("eye accent is painted");
+    assert!(
+        u16::from(eye_accent.r) + u16::from(eye_accent.g) + u16::from(eye_accent.b) < 240,
+        "eye accent remains dark enough to read at half-block scale"
+    );
+    assert_eq!(at(3, 4), skin, "left cheek remains clear");
+    assert_eq!(at(8, 4), skin, "right cheek remains clear");
     assert_eq!(at(6, 4), shadow, "nose shadow is centered");
     assert_eq!(at(5, 4), skin, "old left face crack is cleared");
     assert_eq!(at(7, 4), skin, "old right face crack is cleared");
-    assert_eq!(at(5, 5), mouth, "mouth starts left of center");
-    assert_eq!(at(6, 5), mouth, "mouth finishes right of center");
+    assert_eq!(at(5, 5), skin, "mouth does not become a two-pixel red bar");
+    assert_eq!(
+        at(6, 5),
+        shadow,
+        "mouth is one muted centered pixel, not a red wound"
+    );
     assert_eq!(at(7, 6), skin, "old jaw crack is cleared");
 }
 
@@ -2653,5 +2660,22 @@ fn paint_frame_is_pure_and_byte_identical() {
         chitchat.len(),
         chitchat_before,
         "paint must not start/expire chitchat"
+    );
+}
+
+#[test]
+fn desk_ceiling_pool_stays_tighter_than_the_workstation() {
+    let desk = Point { x: 40, y: 50 };
+    let pool = desk_ceiling_pool(desk);
+    assert_eq!((pool.cx, pool.cy), (desk.x + DESK_W / 2, desk.y - 2));
+    assert!(
+        pool.half_w <= 7,
+        "desk light half-width {} washes neighboring furniture into one horizontal band",
+        pool.half_w
+    );
+    assert!(
+        pool.half_h <= 3,
+        "desk light half-height {} makes the workstation float inside an oversized blob",
+        pool.half_h
     );
 }

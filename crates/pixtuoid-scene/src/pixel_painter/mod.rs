@@ -341,6 +341,15 @@ pub fn render_to_rgb_buffer(ctx: &mut PixelCtx<'_>) -> PixelPassResult {
     }
 }
 
+fn desk_ceiling_pool(desk: Point) -> Ellipse {
+    Ellipse {
+        cx: desk.x + DESK_W / 2,
+        cy: desk.y.saturating_sub(2),
+        half_w: 7,
+        half_h: 3,
+    }
+}
+
 /// The PAINT half of the frame: blit the world the sim already advanced.
 /// Reads the [`SimFrame`] immutably; every positional/lifecycle decision was
 /// made in `sim_step` — this pass only resolves presentation (theme colors,
@@ -416,17 +425,7 @@ fn paint_frame(
     );
     let pool_strength = (0.15 + 0.30 * look.darkness) * indoor_scale;
     for desk in &ctx.layout.home_desks {
-        paint_ceiling_pool(
-            ctx.buf,
-            Ellipse {
-                cx: desk.x + DESK_W / 2,
-                cy: desk.y.saturating_sub(2),
-                half_w: 10,
-                half_h: 5,
-            },
-            pool_strength,
-            ctx.theme,
-        );
+        paint_ceiling_pool(ctx.buf, desk_ceiling_pool(*desk), pool_strength, ctx.theme);
     }
     // Two ceiling fluorescents over the pantry and a third over the
     // corridor so the floor is lit consistently with the lounge_band gone.

@@ -1,11 +1,12 @@
 # 20x7 top-down 3-seat sofa — shared by the meeting room AND the lounge.
-# The light back, boxed arms, three divided cushions, and full dark plinth
-# keep their roles when the lounge placement mirrors this frame vertically.
+# The light back, boxed arms, three divided cushions, and inset feet keep their
+# roles when the lounge placement mirrors this frame vertically. Cushion seams
+# now continue through the broad rows so the sofa does not collapse into bars.
 @frame 0
-. . n n n n n n n n n n n n n n n n . .
-. n G G G G G G G G G G G G G G G G n .
-n n C C C C C C C C C C C C C C C C n n
+. . n n n n n n n G G n n n n n n n . .
+. n G G G G n G G G G G G n G G G G n .
+n n C C C C n C C C C C C n C C C C n n
 n C n G G G G n G G G G n G G G G n C n
 n C n C C C C n C C C C n C C C C n C n
-n n C C C C C C C C C C C C C C C C n n
-. n n n n n n n n n n n n n n n n n n .
+n n C C C C n C C C C C C n C C C C n n
+. n n n . n n n . . . n n n . n n n n .

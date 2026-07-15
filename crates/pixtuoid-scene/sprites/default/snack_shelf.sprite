@@ -1,13 +1,13 @@
 # 7x10 pantry snack shelf — dark-backed bays, thick wood rails and grouped
 # packets. The existing 7x2 south-anchored footprint remains the base.
 @frame 0
-D D D D D D D
+. D D D D D .
 D n n n n n D
 D y y r r b D
-d d d d d d d
+D d d d d d D
 D n n n n n D
 D b b V y y D
-d d d d d d d
+D d d d d d D
 D l l r c c D
 D D d d d D D
-n n n n n n n
+. n n n n n .

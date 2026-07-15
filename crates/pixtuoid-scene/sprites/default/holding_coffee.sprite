@@ -1,18 +1,18 @@
 # 12x16 standing pose holding a coffee cup.
 @frame 0
+. . . . H H H H . . . .
 . . . n H H H H n . . .
-. . n H H H H H H n . .
 . . n H S S S S H n . .
 . . n S e S S e S n . .
-. . n S S s S s S n . .
-. . n S S m s S S n . .
+. . . S S s S s S . . .
+. . . S S m s S S . . .
 . . . n S S S s n . . .
-. . . n B B B B n . . .
-. . B B B B B B B B . .
-. S B B B B B B B B S .
-. . B B B V V V V B . .
-. . . P P V V P P . . .
-. . . P P . . P P . . .
+. . . . B B B B . . . .
+. . . B w w w w B . . .
+. . B B w n n w B B . .
+. S B B w B B w B B S .
+. . B B w B B B V V S .
+. . . P P P P V V S . .
 . . . P P . . P P . . .
 . . P P . . . . P P . .
-. P P . . . . . . P P .
+. . P . . . . . . P . .
