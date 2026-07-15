@@ -13,7 +13,7 @@ import {
 import { usePromise } from "@raycast/utils";
 import { BinaryNotFoundError, getSources, SourceStatus, toggleSource } from "./pixtuoid";
 
-const REPO_URL = "https://github.com/IvanWng97/pixtuoid";
+const REPO_URL = "https://github.com/andyzhou0692-svg/Pocket-Office";
 
 export default function ManageSources() {
   const { data, isLoading, revalidate, error } = usePromise(getSources);
@@ -106,7 +106,7 @@ function ErrorView({ error, onRetry }: { error: Error; onRetry: () => void }) {
         title={notFound ? "Pixtuoid not found" : "Couldn't read sources"}
         description={
           notFound
-            ? "Set the binary path in preferences, or install pixtuoid (cargo install pixtuoid · npm i -g pixtuoid · brew install ivanwng97/pixtuoid/pixtuoid)."
+            ? "Set the binary path in preferences, or build Pocket Office from source and select target/release/pixtuoid."
             : error.message
         }
         actions={

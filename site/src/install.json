@@ -1,31 +1,15 @@
 [
   {
-    "id": "brew",
-    "label": "Homebrew",
-    "blurb": "macOS",
-    "cmds": ["brew install IvanWng97/pixtuoid/pixtuoid"],
-    "readme": true
-  },
-  {
-    "id": "npm",
-    "label": "npm",
-    "blurb": "any OS",
-    "cmds": ["npm install -g pixtuoid"],
-    "readme": true
-  },
-  {
-    "id": "cargo",
-    "label": "Cargo",
-    "cmds": ["cargo install pixtuoid pixtuoid-hook"],
-    "readme": false
-  },
-  {
-    "id": "release",
-    "label": "GitHub Releases",
+    "id": "source",
+    "label": "From source",
+    "blurb": "macOS or Linux",
     "cmds": [
-      "# prebuilt binaries (macOS · Linux · Windows .zip) + Debian .debs:",
-      "# https://github.com/IvanWng97/pixtuoid/releases/latest"
+      "git clone https://github.com/andyzhou0692-svg/Pocket-Office.git",
+      "cd Pocket-Office",
+      "cargo build --release -p pixtuoid",
+      "mkdir -p \"$HOME/.local/bin\"",
+      "install -m 755 target/release/pixtuoid \"$HOME/.local/bin/pocket-office\""
     ],
-    "readme": false
+    "readme": true
   }
 ]

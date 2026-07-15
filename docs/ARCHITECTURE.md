@@ -2,9 +2,9 @@
 
 How a running coding-agent session becomes a moving sprite in the office.
 
-> This file is the **single source** for pixtuoid's architecture overview. It
-> renders on the website at [`/architecture`](https://pixtuoid.dev/architecture)
-> and on GitHub (the diagram below is native Mermaid). `CLAUDE.md` (the agent
+> This file is the **single source** for Pocket Office's architecture overview.
+> It renders in the retained local site and on GitHub (the diagram below is
+> native Mermaid). `CLAUDE.md` (the agent
 > guide) links here; per-crate "sharp edges" live in the nested `CLAUDE.md` files.
 
 ## The shape of it
@@ -57,7 +57,7 @@ A **`Source`** is one of two classes (`source/registry.rs`'s `SourceKind`):
   sprite**; or
 - a **Daemon** — a long-running gateway with no transcript and no desk that
   produces `DaemonPresenceUpdate`s → `SceneState::daemons` → a single
-  **presence-gated wandering mascot** whose *motion* encodes the daemon's
+  **presence-gated wandering mascot** whose _motion_ encodes the daemon's
   liveness.
 
 The OpenClaw gateway is the first daemon — it ambles the office floor as a
@@ -136,7 +136,7 @@ flowchart TB
    publishes a fresh `Arc<SceneState>` on a `watch` channel.
 4. **Render.** `TuiRenderer` (in the binary) borrows the latest scene (O(1), no
    lock) and paints it through **`pixtuoid_scene::pixel_painter::render_to_rgb_buffer`**
-   — a *terminal-agnostic* pixel pass that lives in the engine crate — then
+   — a _terminal-agnostic_ pixel pass that lives in the engine crate — then
    `flush_buffer_to_term` compresses pairs of pixel rows into half-block (`▀`)
    terminal cells.
 
@@ -150,7 +150,7 @@ one `AgentEvent` channel). The reducer task merges those via **`apply_presence`*
 — which is `AgentId`-free and never touches `Reducer::apply` — into
 `SceneState::daemons`. The render pass then draws one mascot per live daemon,
 its motion encoding the `DaemonState` (`Idle` / `Busy` / `Degraded` / `Down`).
-A daemon has no per-session pid, so *silence* is its abrupt-down signal (a TTL
+A daemon has no per-session pid, so _silence_ is its abrupt-down signal (a TTL
 sweep), while the gateway's own process pid is armed for instant `ExitWatch`.
 
 ## Seams & invariants
@@ -190,7 +190,7 @@ These are load-bearing — see `CLAUDE.md` and the nested guides before changing
 - **The hook shim must never block the agent** — always exit 0, 200 ms write
   timeout.
 - **Subagent supervision is a scope tree** (`state/scope.rs`): exit cascades
-  *down* (a parent's `SessionEnd` reaps its subtree), liveness flows *up* (a
+  _down_ (a parent's `SessionEnd` reaps its subtree), liveness flows _up_ (a
   working subagent keeps its ancestors fresh), and permission-blocked subagents
   are exempt from the stale sweep.
 - **The walkable mask is the ground footprint only** — a top-down view, so a
@@ -198,8 +198,7 @@ These are load-bearing — see `CLAUDE.md` and the nested guides before changing
 
 ## Where to go next
 
-- **Configure it:** [`docs/CONFIGURATION.md`](CONFIGURATION.md) ·
-  [live `/config`](https://pixtuoid.dev/config)
+- **Configure it:** [`docs/CONFIGURATION.md`](CONFIGURATION.md)
 - **Contribute:** [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - **Agent/contributor detail:** the workspace `CLAUDE.md` + the nested per-crate
   `CLAUDE.md` files.

@@ -1,6 +1,7 @@
-# npm distribution
+# Retained npm packaging code
 
-Ships pixtuoid's prebuilt binaries via `npm i -g pixtuoid`, using the
+This directory contains the inherited optional-dependency packaging design for
+prebuilt binaries, using the
 **`optionalDependencies` + per-platform-packages** pattern (esbuild / Biome /
 git-cliff). No `postinstall`, no download-on-install, `--ignore-scripts`-safe.
 
@@ -33,22 +34,19 @@ package via `require.resolve` and exec the native binary:
 
 ## Files (committed)
 
-| File | Role |
-|---|---|
-| `pixtuoid/package.json` | launcher manifest (version + the 6 dep pins are `0.0.0` placeholders, stamped at publish) |
-| `pixtuoid/bin/{pixtuoid,pixtuoid-hook,resolve.js}` | the two shims + shared resolver |
-| `generate.mjs` | emits the 6 `@pixtuoid/cli-*` packages from prebuilt binaries + stamps the launcher |
+| File                                               | Role                                                                                      |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `pixtuoid/package.json`                            | launcher manifest (version + the 6 dep pins are `0.0.0` placeholders, stamped at publish) |
+| `pixtuoid/bin/{pixtuoid,pixtuoid-hook,resolve.js}` | the two shims + shared resolver                                                           |
+| `generate.mjs`                                     | emits the 6 `@pixtuoid/cli-*` packages from prebuilt binaries + stamps the launcher       |
 
 The per-platform packages are **generated, not committed** (see `.gitignore`).
 
-## Release flow (the `npm` job in `.github/workflows/release.yml`)
+## Publishing status
 
-On a stable `v*` tag (skipped for `-rc`/`-win` pre-releases, like crates.io +
-homebrew): download the `artifact-<target>` tarballs the build matrix already
-produced → extract both binaries per target → `node generate.mjs --version <tag>
---artifacts <dir>` → `npm publish` the 6 platform packages first, the launcher
-last. The version is sourced from the git tag (single source of truth, same as
-the crates.io publish) — never a separate `package.json`.
+Pocket Office does not currently publish npm packages. The generator and dry-run
+tests remain available for a future distribution decision, but no workflow can
+publish them.
 
 ## Local dry-run (no publish)
 

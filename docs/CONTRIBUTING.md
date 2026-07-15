@@ -31,7 +31,7 @@ workspace run):
 cargo nextest run -p pixtuoid <filter>      # or: cargo test -p pixtuoid --lib <filter>
 ```
 
-> **Don't chain `cargo clippy && cargo test`** — clippy and test use *separate*
+> **Don't chain `cargo clippy && cargo test`** — clippy and test use _separate_
 > build caches, so chaining recompiles the whole workspace twice. Run
 > `just preflight` (the exact CI order), or one check at a time.
 
@@ -55,22 +55,20 @@ Pre-1.0, we read SemVer onto `0.y.z` like this:
 - **patch (`0.y.Z`)** — bug fixes and minor polish only: no new public API, and nothing breaks.
 - **minor (`0.Y.z`)** — everything else: new user-facing features (a source, a theme, a CLI flag) **and** any breaking change to `pixtuoid-core` / `pixtuoid-scene`'s public API.
 
-**What the `semver` gate enforces vs. what's on you.** `cargo semver-checks` (the CI `semver` job, over those two crates) is a *compatibility* gate: it fails a **breaking** change that isn't paired with a minor bump — the "nothing breaks on a patch" half, machine-enforced. It does **not** flag a purely *additive* change shipped as a patch: new public API is backward-compatible, so the tool stays green. The "features also bump minor" half is therefore our **convention**, upheld in review, not by the gate. When a breaking change reddens `semver`, bump the minor **in the same PR** — never weaken the lint to ship a patch. At `1.0` this splits the usual way: additive → minor, breaking → major.
+**What the `semver` gate enforces vs. what's on you.** `cargo semver-checks` (the CI `semver` job, over those two crates) is a _compatibility_ gate: it fails a **breaking** change that isn't paired with a minor bump — the "nothing breaks on a patch" half, machine-enforced. It does **not** flag a purely _additive_ change shipped as a patch: new public API is backward-compatible, so the tool stays green. The "features also bump minor" half is therefore our **convention**, upheld in review, not by the gate. When a breaking change reddens `semver`, bump the minor **in the same PR** — never weaken the lint to ship a patch. At `1.0` this splits the usual way: additive → minor, breaking → major.
 
-### Cutting the release
+### Preparing a release
 
 Recipes are grouped by intent — run `just --list` to see them:
 
-| To… | Run | What it touches |
-| --- | --- | --- |
-| **cut a release** | `just bump X.Y.Z` | every version number (workspace + the inter-crate path-deps — `pixtuoid`/`pixtuoid-web` → `pixtuoid-scene` → `pixtuoid-core` — + `Cargo.lock`) · drafts the in-app release notes · `just preflight` · commits on `release/vX.Y.Z` |
-| **regenerate doc art** | `just gen` (or `just gen-media` for images only) | `docs/images/*` + `site/public/demos/*` (screenshots + `demo.gif`) from a release build, driven by `scripts/media.json` |
+| To…                    | Run                                              | What it touches                                                                                                                                                                                                                   |
+| ---------------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **cut a release**      | `just bump X.Y.Z`                                | every version number (workspace + the inter-crate path-deps — `pixtuoid`/`pixtuoid-web` → `pixtuoid-scene` → `pixtuoid-core` — + `Cargo.lock`) · drafts the in-app release notes · `just preflight` · commits on `release/vX.Y.Z` |
+| **regenerate doc art** | `just gen` (or `just gen-media` for images only) | `docs/images/*` + `site/public/demos/*` (screenshots + `demo.gif`) from a release build, driven by `scripts/media.json`                                                                                                           |
 
-`just bump` rewrites every version number in one shot via `cargo set-version`
-(so the path-dep requirement can't drift — the classic missed edit), drafts the
-`release_notes()` arm from the commit log since the last tag, runs the full
-gate, and lands it on a release branch. It **stops before the tag** — pushing
-the tag is what fires the *irreversible* crates.io publish, so a human owns that:
+`just bump` rewrites every version number in one shot via `cargo set-version`,
+drafts the `release_notes()` arm, runs the full gate and lands the work on a
+release branch.
 
 ```bash
 just setup-tools                            # once per clone — installs cargo-edit (+ the rest)
@@ -78,15 +76,12 @@ just bump 0.5.1                             # bump + draft notes + preflight →
 # curate the drafted release_notes() bullets to ~6 highlights, then `just gen`
 # (the office HUD bakes CARGO_PKG_VERSION, so a bump drifts every committed still)
 # and commit docs/images + site/public/demos — else CI's smoke gen-check reds the PR.
-# then PR → review → merge, then:
-git tag v0.5.1 && git push origin v0.5.1    # fires release.yml → build + crates.io + homebrew
+# then PR → review → merge
 ```
 
-Publishing to crates.io + npm uses **OIDC trusted publishing** — CI carries no
-standing registry tokens. The per-crate (crates.io) and per-package (npm)
-Trusted Publishers, scoped to the `release.yml` workflow, must already be
-configured before the tag is pushed, or that target's publish step fails. See
-[#216](https://github.com/IvanWng97/pixtuoid/issues/216).
+Pocket Office publishing automation is intentionally disabled. Until a release
+channel is explicitly configured, do not push a version tag expecting binaries,
+crates, npm packages or Homebrew artifacts to be published.
 
 ## Conventions (the short version — see [`CLAUDE.md`](../CLAUDE.md) for the full set)
 
@@ -152,7 +147,7 @@ against them before opening the PR:
    added for — then survived #62's dedicated fix-round review too; wired
    in #66.)
 6. **Denylist completeness.** A denylist/strip-set is only as strong as its
-   enumeration: diff it against the platform's *documented* set, never
+   enumeration: diff it against the platform's _documented_ set, never
    memory, and prefer an allowlist where possible — an allowlist can't miss
    a character (PR #206). (`CMD_UNSAFE` shipped missing cmd.exe's
    first-token delimiters — tab, `;`, `,`, `=` — through two dedicated

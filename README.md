@@ -1,74 +1,60 @@
 <p align="center">
-  <img src="docs/images/sprite-banner.png" alt="pixtuoid sprites" width="500" />
+  <img src="docs/images/sprite-banner.png" alt="Pocket Office characters" width="500" />
 </p>
 
-<h1 align="center">pixtuoid</h1>
+<h1 align="center">Pocket Office</h1>
 
 <p align="center">
-  <em>Your AI coding agents, visualized as pixel-art coworkers in a terminal office.</em>
-</p>
-
-<p align="center">
-  <sub><em><b>pix</b>el + <b>tu</b>i + (agent-)<b>oid</b></em></sub>
+  <em>Your AI agents, visualized as pixel-art coworkers in a living terminal office.</em>
 </p>
 
 <p align="center">
-  <a href="https://github.com/IvanWng97/pixtuoid/stargazers"><img src="https://img.shields.io/github/stars/IvanWng97/pixtuoid?style=flat-square" alt="Stars" /></a>
-  <a href="https://github.com/IvanWng97/pixtuoid/releases"><img src="https://img.shields.io/github/v/release/IvanWng97/pixtuoid?label=version&style=flat-square" alt="Version" /></a>
+  <a href="https://github.com/andyzhou0692-svg/Pocket-Office/stargazers"><img src="https://img.shields.io/github/stars/andyzhou0692-svg/Pocket-Office?style=flat-square" alt="Stars" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License" /></a>
-  <a href="https://github.com/IvanWng97/pixtuoid/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/IvanWng97/pixtuoid/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
-  <a href="https://codecov.io/gh/IvanWng97/pixtuoid"><img src="https://img.shields.io/codecov/c/github/IvanWng97/pixtuoid?style=flat-square" alt="Coverage" /></a>
-  <a href="https://claude.ai/code"><img src="https://img.shields.io/badge/Built%20with-Claude%20Code-blueviolet?style=flat-square&logo=anthropic" alt="Built with Claude Code" /></a>
+  <a href="https://github.com/andyzhou0692-svg/Pocket-Office/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/andyzhou0692-svg/Pocket-Office/ci.yml?style=flat-square&label=CI" alt="CI" /></a>
 </p>
 
 <p align="center">
-  <img src="docs/images/demo.gif" alt="pixtuoid animated demo" width="800" />
+  <img src="docs/images/demo.gif" alt="Pocket Office animated demo" width="800" />
 </p>
 
-<p align="center">
-  <a href="https://pixtuoid.dev/"><strong>🖥&#xFE0E; Live demo ↗</strong></a>
-  &nbsp;·&nbsp; <a href="https://pixtuoid.dev/architecture">Architecture</a>
-  &nbsp;·&nbsp; <a href="https://pixtuoid.dev/config">Configuration</a>
-  &nbsp;·&nbsp; <a href="https://pixtuoid.dev/contributing">Contributing</a>
-</p>
+## What it is
 
----
+Pocket Office turns real Claude Code and Codex sessions into coworkers in a small pixel office. Working agents type at their desks, waiting agents ask for attention, idle coworkers wander, chat and visit shared spaces.
 
-## Why?
+It is a local ambient display, not another agent system. The office does not classify your work, call a model or spend tokens to decide what a character should do.
 
-Running several coding agents means alt-tabbing between terminals to find out who's stuck, who's waiting on a permission prompt, and who finished ten minutes ago. **pixtuoid** puts them all in one tiny pixel-art office you can watch from above — every session is a character at a desk: typing while it works, raising a `?` when it needs you, dozing off when it's done.
+## Quick start
 
-A little bit *Black Mirror*, a little bit *The Sims* — and the most glanceable multi-agent dashboard you'll ever use.
-
-## Quick Start
-
-Pick one — Homebrew on macOS, or npm on any OS:
+Build the current release from source:
 
 <!-- install:start · generated from site/src/install.json by `just gen-readme` — edit the JSON, not this block -->
-**Homebrew** (macOS):
+**From source** (macOS or Linux):
 
 ```bash
-brew install IvanWng97/pixtuoid/pixtuoid
-```
-
-**npm** (any OS):
-
-```bash
-npm install -g pixtuoid
+git clone https://github.com/andyzhou0692-svg/Pocket-Office.git
+cd Pocket-Office
+cargo build --release -p pixtuoid
+mkdir -p "$HOME/.local/bin"
+install -m 755 target/release/pixtuoid "$HOME/.local/bin/pocket-office"
 ```
 <!-- install:end -->
 
-Then launch:
+Launch it:
 
 ```bash
-pixtuoid
+pocket-office
 ```
 
-Press `s` to open the **Sources** panel and connect your agent CLI (Claude Code, Codex, Antigravity, Reasonix, …) — pixtuoid wires up the integration for you, no separate install step. In another terminal, start that coding agent. A character walks in from the elevator within a second; disconnect in the same panel and it walks back out. The panel also flags a source whose hooks are connected but broken (run `pixtuoid doctor` for the full health report).
+Press `s` to connect Claude Code, Codex or another supported agent CLI. Start an agent in another terminal and its character will enter the office.
 
-**Keyboard shortcuts:** `q` quit · `p` pause · `s` sources (connect / health) · `t` themes · `Tab` agent dashboard · `?` help · `↑↓/jk/PgUp/PgDn` floors · click an agent to bring its terminal to the front (`f` in the dashboard)
+Useful controls: `q` quit · `p` pause · `s` sources · `t` themes · `Tab` agent dashboard · `?` help · `↑↓/jk/PgUp/PgDn` floors.
 
-**More ways to install** — Cargo, prebuilt binaries, and Debian `.deb`s — are on the **[install guide ↗](https://pixtuoid.dev/#install)**.
+The always-on-top ambient window is available through:
+
+```bash
+pocket-office floating
+```
 
 ## Features
 
@@ -77,9 +63,9 @@ Press `s` to open the **Sources** panel and connect your agent CLI (Claude Code,
 |---|---|---|
 | 🏢 | **Multi-agent office** | Each agent session gets a desk; overflow agents auto-fill new floors |
 | 🛗 | **Multi-floor office** | PageUp/PageDown/↑↓/jk to navigate floors with slide transition |
-| 🪟 | **Floating desktop window** | `pixtuoid floating` opens a frameless, always-on-top desktop window of the office — not just a terminal TUI |
+| 🪟 | **Floating desktop window** | `pocket-office floating` opens a frameless, always-on-top desktop window of the office, not just a terminal TUI |
 | 🦞 | **OpenClaw gateway mascot** | A live OpenClaw gateway shows up as a wandering lobster whose motion tracks gateway health |
-| 🎛️ | **Vibing** | A sun and moon arc the skyline as the day turns, weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog), and six themes reskin the office |
+| 🎛️ | **Vibing** | A sun and moon arc the skyline as the day turns, weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog), and nine themes reskin the office |
 | 🐾 | **Office pets** | A cat or dog (one per floor) roams desks, pantry, sofas; sleeps near idle agents. Click to pet — pixel-art hearts float up |
 | 🗂️ | **Agent tree dashboard** | Tab opens a foldable tree of every floor's agents — badged by CLI, with activity tints and tool-call counts |
 | 🧭 | **Office spaces** | Cubicles, a meeting lounge, and a pantry — the office is laid out in distinct furnished zones, not just a grid of identical desks |
@@ -90,11 +76,9 @@ Press `s` to open the **Sources** panel and connect your agent CLI (Claude Code,
 | <img src="docs/images/pix-icons/shield.png" alt=""> | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block your agent |
 <!-- features:end -->
 
-<p align="center">
-  <a href="https://pixtuoid.dev/#showcase"><strong>▶ See every feature live — floors, themes, weather, pets, the office tour →</strong></a>
-</p>
+Pocket Office adds its own recurring visual coworkers, higher-detail character faces, a seven-person ambient baseline, richer office assets and location themes with distinct scenery and office life. `200West` includes Hudson traffic, occasional yachts and a suited paddleboard commuter. Tokyo Night, Succession and New York each use their own local movement and dialogue treatment.
 
-## Supported Tools
+## Supported tools
 
 <!-- tools:start · generated from site/src/sources.json by `just gen-readme` — edit the JSON, not this table -->
 | Tool | Runs on |
@@ -104,67 +88,40 @@ Press `s` to open the **Sources** panel and connect your agent CLI (Claude Code,
 
 _Also supported: [Antigravity CLI](https://github.com/antiGravity-AI/antigravity-cli), [DeepSeek-Reasonix](https://github.com/esengine/DeepSeek-Reasonix), [CodeWhale](https://github.com/Hmbown/CodeWhale), [Copilot CLI](https://github.com/github/copilot-cli), [opencode](https://github.com/anomalyco/opencode), [Cursor CLI](https://cursor.com/cli), [Hermes Agent](https://hermes-agent.nousresearch.com), [Oh My Pi](https://omp.sh), [OpenClaw](https://github.com/openclaw/openclaw)._
 
-**→ [Full tool × OS support matrix on the site](https://pixtuoid.dev/#tools)**
+**→ [Supported tools and setup notes](https://github.com/andyzhou0692-svg/Pocket-Office#supported-tools)**
 
 _\* experimental — limited testing, unsigned binaries._
 <!-- tools:end -->
 
-> Adding a new tool? Implement the [`Source` trait](#contributing) — or, for a hook-only CLI, just a hook decoder + an install `Target` — then add a row to [`site/src/sources.json`](site/src/sources.json) (its `supported` set is pinned to the code by a test). One file, one channel, done.
-
 ## Configuration
 
-Everything lives in `~/.config/pixtuoid/config.toml` (created on first launch;
-every key optional) — theme, desk cap, custom pet names, sprite packs, and
-validated TUI furniture positions. CLI flags override the file
-(`pixtuoid run --theme dracula`).
+Configuration currently lives at `~/.config/pixtuoid/config.toml`. This inherited path remains stable so existing users and hook integrations do not break. Every key is optional. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for themes, desk capacity, persistent visual names, pets, custom sprite packs and furniture positions.
 
-The setting you'll reach for most is the **theme** — press `t` in the TUI for a
-live-preview picker across six built-in palettes; your pick persists across sessions.
+Examples:
 
-<p align="center">
-  <img src="docs/images/themes-composite.png" alt="the six built-in themes side by side" width="800" />
-</p>
+```bash
+pocket-office run --theme 200West
+pocket-office run --theme tokyo-night
+```
 
-See **[docs/CONFIGURATION.md](docs/CONFIGURATION.md)** for the full key reference
-(defaults, system-managed keys), the custom sprite-pack workflow, and **logging /
-troubleshooting** (diagnostics go to `~/.cache/pixtuoid/log`) — or browse it live
-at **[/config](https://pixtuoid.dev/config)**.
+## How it works
 
-## How It Works
+Agent CLIs emit local lifecycle events through a hook shim or read-only transcript watching. A reducer turns those events into office state and the shared renderer paints the terminal, floating window and web surfaces.
 
-Agent CLIs emit events two ways — a hook shim (a 200ms fire-and-forget write to a Unix socket, or a named pipe on Windows, that can never block your agent) and JSONL transcript watching. Both feed one channel; a reducer folds events into office state; the renderer draws it as half-block pixel art. Five Rust crates, zero terminal deps in the core.
+Pocket Office retains the inherited internal Rust crate and binary names (`pixtuoid*`) for compatibility. The user-facing launch command is `pocket-office`.
 
-**[Full architecture with diagrams →](https://pixtuoid.dev/architecture)** · single source: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+## Privacy and security
 
-## Privacy & Security
-
-pixtuoid is **local-only and telemetry-free** — it makes no network connections,
-ships no analytics or "phone home", and reads your agent transcripts read-only to
-animate the office. Your session data never leaves your machine. The dependency
-set is audited for advisories daily (`cargo-deny`). For the trust boundaries (the
-hook shim, the owner-only socket, and how hook installation edits another tool's
-config), see **[SECURITY.md](SECURITY.md)**.
+Pocket Office is local-only and telemetry-free. It does not send session data to a server and does not make model calls. Read [SECURITY.md](SECURITY.md) for the exact trust boundaries and vulnerability reporting process.
 
 ## Contributing
 
-PRs welcome — especially new themes, sprite/decoration polish, and `Source` adapters for agent CLIs we don't support yet (the ten already wired up are in [Supported Tools](#supported-tools)). See **[CONTRIBUTING.md](docs/CONTRIBUTING.md)** for the build/test workflow, conventions, the review process, and how to add a new agent CLI. Architecture and the load-bearing invariants live in [`CLAUDE.md`](CLAUDE.md).
-
-## Acknowledgments
-
-Inspired by [`pixel-agents`](https://github.com/pablodelucca/pixel-agents) (VS Code), [`clawd-on-desk`](https://github.com/rullerzhou-afk/clawd-on-desk) (desktop pet), and Claude Code's [Buddy](https://dev.to/picklepixel/how-i-reverse-engineered-claude-codes-hidden-pet-system-8l7).
+Contributions are welcome, especially new themes, sprite and decoration polish and agent CLI adapters. Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) before opening a pull request.
 
 ## License
 
-[MIT](LICENSE)
+Pocket Office is available under the [MIT License](LICENSE).
 
-## Star History
+## Origins
 
-<p align="center">
-  <a href="https://www.star-history.com/?repos=IvanWng97%2Fpixtuoid&type=date&legend=top-left">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=IvanWng97/pixtuoid&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=IvanWng97/pixtuoid&type=Date" />
-      <img alt="star history chart for IvanWng97/pixtuoid" src="https://api.star-history.com/svg?repos=IvanWng97/pixtuoid&type=Date" width="640" />
-    </picture>
-  </a>
-</p>
+Pocket Office began as a fork of [Pixtuoid](https://github.com/IvanWng97/pixtuoid) and is independently developed and maintained by Andy Zhou.

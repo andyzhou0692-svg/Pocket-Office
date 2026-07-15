@@ -6,7 +6,7 @@
 // csp-hashes.mjs posture.
 import process from 'node:process';
 
-const API = 'https://api.github.com/repos/IvanWng97/pixtuoid';
+const API = 'https://api.github.com/repos/andyzhou0692-svg/Pocket-Office';
 // Shared with Statusline.astro's PR-feed fetch — ONE bound for every build-time
 // GitHub API call, so an offline/slow CI runner fails both the same way.
 export const GH_FETCH_TIMEOUT_MS = 5000;

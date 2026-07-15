@@ -304,7 +304,7 @@ test('elevator shaft: the ding pulse joins the pix:paused set', async ({ page })
   ).toBe(false);
 });
 
-test('scroll budget: the page fits ~8.6 viewport-heights at 1440×900', async ({ browser }) => {
+test('scroll budget: the page fits ~8.9 viewport-heights at 1440×900', async ({ browser }) => {
   // The spec's original compression target (§4) was 6.5vh — a plan-authoring
   // proxy that turned out to bake in assumptions three LOCKED design
   // decisions invalidate: hold #1 stays full-viewport, the hero stays
@@ -343,12 +343,16 @@ test('scroll budget: the page fits ~8.6 viewport-heights at 1440×900', async ({
   // in absolute terms than Task 4's 0.27vh margin, but this floor's content
   // is now real (an image + real copy, not a placeholder), so a future
   // regression here is a real ballooning, not slack being eaten.
+  // Pocket Office's source-only release replaces one-line package commands
+  // with a five-line clone, build, and install sequence. That adds 0.23vh of
+  // necessary copy without changing any visual section padding. The 8.9 pin
+  // keeps roughly the same 0.07vh regression margin above the measured 8.829.
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
   const page = await ctx.newPage();
   await page.addInitScript(() => sessionStorage.setItem('pix-booted', '1'));
   await page.goto('./');
   await page.waitForLoadState('networkidle');
   const vh = await page.evaluate(() => document.documentElement.scrollHeight / window.innerHeight);
-  expect(vh).toBeLessThanOrEqual(8.6);
+  expect(vh).toBeLessThanOrEqual(8.9);
   await ctx.close();
 });

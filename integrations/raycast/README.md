@@ -1,6 +1,6 @@
-# Pixtuoid for Raycast
+# Pocket Office for Raycast
 
-Manage [Pixtuoid](https://github.com/IvanWng97/pixtuoid) — the terminal-native,
+Manage [Pocket Office](https://github.com/andyzhou0692-svg/Pocket-Office) — the terminal-native,
 pixel-art office that visualizes your running AI coding-agent sessions — without
 leaving Raycast.
 
@@ -21,9 +21,7 @@ does **not** bundle the binary.
 Install the `pixtuoid` binary with any of:
 
 ```sh
-cargo install pixtuoid pixtuoid-hook
-npm i -g pixtuoid
-brew install IvanWng97/pixtuoid/pixtuoid
+cargo build --release -p pixtuoid
 ```
 
 The extension auto-detects it via your login shell's `PATH`, then the common

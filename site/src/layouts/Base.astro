@@ -36,7 +36,7 @@ interface Props {
 }
 
 const {
-  title = 'pixtuoid — your coding agents, alive in a pixel office',
+  title = 'Pocket Office — your coding agents, alive in a pixel office',
   description = 'A terminal-native pixel-art office that visualizes your AI coding agents (Claude Code, Codex, and more) as little animated coworkers — day/night lighting, weather, themes, and pets included.',
   preloadImage,
   jsonLd,
@@ -243,9 +243,9 @@ const jsonLdSafe = jsonLd ? JSON.stringify(jsonLd).replace(/</g, '\\u003c') : nu
   <body>
     <a class="skip-link" href="#main">Skip to content</a>
 
-    <div id="boot" class="boot" role="status" aria-label="Loading pixtuoid">
+    <div id="boot" class="boot" role="status" aria-label="Loading Pocket Office">
       <div class="boot__log">
-        <div class="boot__line">pixtuoid <b>v{version}</b></div>
+        <div class="boot__line">Pocket Office <b>v{version}</b></div>
         <div class="boot__line">▸ booting office… <span class="boot__ok">ok</span></div>
         <div class="boot__line">▸ loading themes… <span class="boot__ok">ok</span></div>
         <div class="boot__line">▸ {CLI_COUNT} CLIs connected… <span class="boot__ok">ok</span></div>

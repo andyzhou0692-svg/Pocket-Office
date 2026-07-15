@@ -20,11 +20,11 @@ const description = c.caption ?? c.featureDesc;
 const defVariant: ShowcaseVariant | null = c.variants.length
   ? (c.variants.find((v: ShowcaseVariant) => v.featured) ?? c.variants[0])
   : null;
-const title = `pixtuoid — CH ${c.ch} ${c.label}` + (defVariant ? ` · ${defVariant.name}` : '');
+const title = `Pocket Office — CH ${c.ch} ${c.label}` + (defVariant ? ` · ${defVariant.name}` : '');
 const imgAlt = defVariant
-  ? `pixtuoid office — ${defVariant.name} (${c.label.toLowerCase()})`
+  ? `Pocket Office — ${defVariant.name} (${c.label.toLowerCase()})`
   : isLive
-    ? `pixtuoid office — live (${c.label.toLowerCase()})`
+    ? `Pocket Office — live (${c.label.toLowerCase()})`
     : '';
 
 // A live channel's default chip per group — the vibe a visitor should land
@@ -74,7 +74,7 @@ function defaultVariant(g: EnrichedVariantGroup): ShowcaseVariant | undefined {
         data-poster={active ? undefined : asset(`demos/${c.asset}-poster.png`)}
         data-mp4={active ? undefined : asset(`demos/${c.asset}.mp4`)}
         data-webm={active ? undefined : asset(`demos/${c.asset}.webm`)}
-        aria-label={`pixtuoid demo: ${description}`}
+        aria-label={`Pocket Office demo: ${description}`}
       >
         {active && <source src={asset(`demos/${c.asset}.webm`)} type="video/webm" />}
         {active && <source src={asset(`demos/${c.asset}.mp4`)} type="video/mp4" />}
@@ -175,8 +175,8 @@ function defaultVariant(g: EnrichedVariantGroup): ShowcaseVariant | undefined {
               class:list={['osd__chip', { 'is-active': v.id === defVariant!.id }]}
               aria-pressed={v.id === defVariant!.id ? 'true' : 'false'}
               data-src={asset(`demos/${v.src}`)}
-              data-title={`pixtuoid — CH ${c.ch} ${c.label} · ${v.name}`}
-              data-alt={`pixtuoid office — ${v.name} (${c.label.toLowerCase()})`}
+              data-title={`Pocket Office — CH ${c.ch} ${c.label} · ${v.name}`}
+              data-alt={`Pocket Office — ${v.name} (${c.label.toLowerCase()})`}
               data-accent={v.accent}
               data-accent2={v.accent2}
               style={v.accent ? `--chip:${v.accent}` : undefined}

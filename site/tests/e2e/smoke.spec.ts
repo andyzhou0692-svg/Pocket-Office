@@ -459,7 +459,11 @@ test('reduced motion: an install copy writes the clipboard but hires nobody', as
   await copy.click();
   await expect(copy).toHaveText(/Copied|Select & copy/);
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-    'brew install IvanWng97/pixtuoid/pixtuoid'
+    'git clone https://github.com/andyzhou0692-svg/Pocket-Office.git\n' +
+      'cd Pocket-Office\n' +
+      'cargo build --release -p pixtuoid\n' +
+      'mkdir -p "$HOME/.local/bin"\n' +
+      'install -m 755 target/release/pixtuoid "$HOME/.local/bin/pocket-office"'
   );
   await page.waitForTimeout(500); // settle window: no late/async hire lands
   expect(await page.evaluate(() => (window as unknown as { __hired: string[] }).__hired)).toEqual(
@@ -846,7 +850,7 @@ test('first visit: splash displays 4-line log with per-line dwell (~390ms)', asy
   await page.goto('./config/'); // NO pix-booted seed — the real first visit
   await expect(page.locator('#boot')).toBeVisible();
   // The splash displays 4 log lines: version, booting, themes, CLI count.
-  await expect(page.locator('#boot .boot__log')).toContainText('pixtuoid');
+  await expect(page.locator('#boot .boot__log')).toContainText('Pocket Office');
   await expect(page.locator('#boot .boot__log')).toContainText('booting office');
   await expect(page.locator('#boot .boot__log')).toContainText('loading themes');
   // Count derived from the SAME manifest Base.astro's CLI_COUNT reads, so a
@@ -929,17 +933,18 @@ test('theme chain: saved choice, URL override, toggle persist, Escape restore, s
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'night');
 });
 
-test('install: tabs swap panels and both clipboard branches deliver', async ({ page, context }) => {
+test('source install copy delivers through clipboard and manual fallback', async ({
+  page,
+  context,
+}) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.addInitScript(() => sessionStorage.setItem('pix-booted', '1'));
-  await page.goto('./'); // no live-office wait — tabs/copy are wasm-independent
-  await page.locator('.install__tab[data-tab="cargo"]').click();
-  await expect(page.locator('.install__tab[data-tab="cargo"]')).toHaveAttribute(
+  await page.goto('./'); // no live-office wait — source copy is wasm-independent
+  await expect(page.locator('.install__tab[data-tab="source"]')).toHaveAttribute(
     'aria-pressed',
     'true'
   );
-  await expect(page.locator('#install-panel-cargo')).toBeVisible();
-  await expect(page.locator('#install-panel-brew')).toBeHidden(); // really swapped out
+  await expect(page.locator('#install-panel-source')).toBeVisible();
   // The happy path SPECIFICALLY (the hire test's regex tolerates the fallback):
   // the flash label AND the clipboard payload round-trip.
   const copy = page.locator('.install__panel.is-active .install__copy');
@@ -948,16 +953,16 @@ test('install: tabs swap panels and both clipboard branches deliver', async ({ p
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
     await copy.getAttribute('data-copy')
   );
-  // Force the manual branch on a fresh load (brew is the default active panel):
+  // Force the manual branch on a fresh load:
   // no Clipboard API → the <code> contents get SELECTED for a manual ⌘C.
   await page.addInitScript(() =>
     Object.defineProperty(navigator, 'clipboard', { value: undefined })
   );
   await page.reload();
-  const brewCopy = page.locator('.install__panel.is-active .install__copy');
-  await brewCopy.click();
-  await expect(brewCopy).toHaveText('Select & copy');
-  expect(await page.evaluate(() => String(getSelection()))).toContain('brew install');
+  const sourceCopy = page.locator('.install__panel.is-active .install__copy');
+  await sourceCopy.click();
+  await expect(sourceCopy).toHaveText('Select & copy');
+  expect(await page.evaluate(() => String(getSelection()))).toContain('git clone');
 });
 
 test('showcase studio: deep-links tune, dial and chips swap hydrated stages, the clip plays', async ({
@@ -1979,7 +1984,7 @@ test('proof split: replay clip plays in view and obeys the page pause', async ({
   );
   await expect.poll(paused).toBe(false);
   // The floating-window coda survives the slot swap.
-  await expect(page.locator('.proof__coda')).toContainText('pixtuoid floating');
+  await expect(page.locator('.proof__coda')).toContainText('pocket-office floating');
   expect(errors()).toEqual([]);
 });
 

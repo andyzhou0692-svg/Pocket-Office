@@ -30,7 +30,7 @@ const install = JSON.parse(readFileSync(join(root, 'site', 'src', 'install.json'
 // cheaply import the astro config (it pulls @astrojs/*), so this is a
 // boundary-separated copy — gen-readme-check catches README drift, not a
 // mismatch against the config, so keep the two in lockstep by hand.
-const SITE = 'https://pixtuoid.dev';
+const REPO = 'https://github.com/andyzhou0692-svg/Pocket-Office';
 const check = process.argv.includes('--check');
 let readme = readFileSync(readmePath, 'utf8');
 const errors = [];
@@ -123,7 +123,7 @@ regenSection(
     '|---|---|',
     ...featured.map((s) => `| ${link(s)} | ${cell(runsOn(s)) || '—'} |`),
     '',
-    alsoLine + `**→ [Full tool × OS support matrix on the site](${SITE}/#tools)**`,
+    alsoLine + `**→ [Supported tools and setup notes](${REPO}#supported-tools)**`,
     ...(hasExperimental ? ['', '_\\* experimental — limited testing, unsigned binaries._'] : []),
   ].join('\n')
 );

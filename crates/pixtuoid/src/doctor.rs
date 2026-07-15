@@ -792,7 +792,7 @@ pub fn run(log_path: &std::path::Path) -> anyhow::Result<String> {
     if any_drift {
         out.push_str(
             " · ⚠ decode drift recorded — may predate a CLI's wire format; report: \
-             https://github.com/IvanWng97/pixtuoid/issues\n",
+             https://github.com/andyzhou0692-svg/Pocket-Office/issues\n",
         );
     } else {
         out.push_str(" · ✓ no decode drift\n");

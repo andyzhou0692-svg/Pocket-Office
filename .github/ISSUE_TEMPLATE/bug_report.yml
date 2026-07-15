@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for the report! pixtuoid is a terminal renderer, so a **screenshot or GIF**
+        Thanks for the report! Pocket Office is a terminal renderer, so a **screenshot or GIF**
         is worth a thousand words — please attach one if the bug is visual.
   - type: textarea
     id: what-happened
@@ -21,7 +21,7 @@ body:
       label: Steps to reproduce
       description: The exact command(s) you ran, and what you did in the TUI.
       placeholder: |
-        1. pixtuoid run --theme dracula --max-desks 4
+        1. pocket-office run --theme dracula --max-desks 4
         2. Started two Claude Code sessions
         3. …
     validations:
@@ -36,8 +36,8 @@ body:
   - type: input
     id: version
     attributes:
-      label: pixtuoid version
-      description: Output of `pixtuoid --version` (or the release tag / commit you built from).
+      label: Pocket Office version
+      description: Output of `pocket-office --version` (or the release tag / commit you built from).
       placeholder: 0.x.y
     validations:
       required: true
@@ -59,9 +59,8 @@ body:
     attributes:
       label: How did you install it?
       options:
-        - Pre-built binary (release)
-        - Cargo (crates.io)
         - From source (cargo build --release)
+        - Other
     validations:
       required: true
   - type: input
@@ -76,7 +75,7 @@ body:
     id: logs
     attributes:
       label: Relevant logs
-      description: Anything printed to stderr, or output from `pixtuoid run --headless`. Will be formatted as code.
+      description: Anything printed to stderr, or output from `pocket-office run --headless`. Will be formatted as code.
       render: shell
     validations:
       required: false

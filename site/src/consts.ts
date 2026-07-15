@@ -4,16 +4,14 @@ import showcaseData from './showcase.json';
 import featuresData from './features.json';
 
 // Shared site constants + a base-path-safe asset/link helper.
-// (The site serves at the origin root of pixtuoid.dev — base '/' — but every
-//  internal URL still goes through asset()/BASE_URL so a base change, like the
-//  old /pixtuoid/ project page, can never silently break links.)
-export const REPO = 'https://github.com/IvanWng97/pixtuoid';
-export const CRATES = 'https://crates.io/crates/pixtuoid';
+// Every internal URL goes through asset()/BASE_URL so a later Pocket Office
+// domain or base-path decision cannot silently break links.
+export const REPO = 'https://github.com/andyzhou0692-svg/Pocket-Office';
 // Deploy origin. The BUILD authority is `site` in astro.config.mjs — `Astro.site`
 // reflects it, and this const is only the type-narrowing fallback for the
 // (build-time unreachable) `Astro.site` undefined arm, shared so the two head
 // consumers (Base.astro canonical/og, index.astro JSON-LD) can't drift apart.
-export const SITE_ORIGIN = 'https://pixtuoid.dev';
+export const SITE_ORIGIN = 'https://andyzhou0692-svg.github.io/Pocket-Office';
 
 const BASE = import.meta.env.BASE_URL;
 export const asset = (p: string): string => `${BASE.replace(/\/$/, '')}/${p.replace(/^\//, '')}`;

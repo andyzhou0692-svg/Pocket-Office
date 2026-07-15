@@ -3,21 +3,21 @@
 ## Supported Versions
 
 Fixes land on the latest released version; there are no maintained back-branches.
-Upgrade to the newest release (`cargo install pixtuoid`, `brew upgrade`, or
-`npm i -g pixtuoid`) to receive security fixes.
+Build the newest Pocket Office release from the repository to receive security
+fixes.
 
 | Version        | Supported |
-|----------------|-----------|
+| -------------- | --------- |
 | latest         | ✅        |
 | older releases | ❌        |
 
 ## Privacy posture
 
-pixtuoid is **local-only and telemetry-free by design**:
+Pocket Office is **local-only and telemetry-free by design**:
 
 - **No network egress.** The binary makes no outbound network connections — no
   analytics, crash-reporting upload, update check, or "phone home". (The crash
-  hook writes a backtrace to a *local* file and only ever offers a pre-filled
+  hook writes a backtrace to a _local_ file and only ever offers a pre-filled
   GitHub URL for you to open manually.) The dependency set is audited daily for
   advisories via `cargo-deny` (see `.github/workflows/audit.yml`).
 - **Your session data stays on your machine.** pixtuoid reads your agent CLIs'
@@ -42,7 +42,7 @@ The components that handle untrusted or privileged input, and how they're bounde
    verifies the pipe **server's** token user SID matches ours
    (`GetNamedPipeServerProcessId` → token compare) before writing — closing the
    same squat-and-intercept vector on the machine-global pipe namespace (#495).
-   It is a *local IPC* — there is no network
+   It is a _local IPC_ — there is no network
    listener. The shim is hardened to **never block the agent**: it always exits
    `0`, within a hard ~200 ms watchdog bound, on any error. It does not execute or
    shell out to anything in the payload.
@@ -56,11 +56,11 @@ The components that handle untrusted or privileged input, and how they're bounde
    labels derive from project-directory path components, read over the user's own
    `0600` socket and transcripts), not by echoing raw bytes to the terminal.
 
-3. **Hook installation** (when you explicitly *connect* a source) edits the agent
+3. **Hook installation** (when you explicitly _connect_ a source) edits the agent
    CLI's own config — e.g. `~/.claude/settings.json` — through a single
    advisory-locked, `fsync` + atomic-rename writer that **preserves the file's
    permissions, follows stow symlinks, and takes a one-time backup** before the
-   first change. Installs are idempotent and reversible (*disconnect* removes the
+   first change. Installs are idempotent and reversible (_disconnect_ removes the
    hook entries via a sentinel). pixtuoid never writes another tool's config
    except on an explicit connect/disconnect.
 
@@ -71,7 +71,7 @@ traversal, or any network egress), please report it.
 ## Reporting a Vulnerability
 
 Report privately via
-[GitHub private vulnerability reporting](https://github.com/IvanWng97/pixtuoid/security/advisories/new).
+[GitHub private vulnerability reporting](https://github.com/andyzhou0692-svg/Pocket-Office/security/advisories/new).
 
 You will receive acknowledgement within 48 hours, and a fix or mitigation plan
 within 7 days for confirmed vulnerabilities.

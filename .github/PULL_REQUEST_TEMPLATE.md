@@ -1,5 +1,5 @@
 <!--
-Thanks for contributing to pixtuoid! Before you open this PR:
+Thanks for contributing to Pocket Office! Before you open this PR:
 - Read CLAUDE.md (root) — architecture invariants & conventions are load-bearing.
 - Run `just preflight` locally (it IS what CI runs: fmt + machete + deny + clippy -D warnings + tests).
 Delete sections that don't apply. Keep it short — the diff speaks for itself.
@@ -49,7 +49,7 @@ pixel painter, attach a cropped snapshot and self-critique:
 - [ ] No `unwrap()` in non-test code; errors propagate via `anyhow`/`thiserror`.
 - [ ] No new `println!`/`eprintln!` on a production path (use `tracing`).
 - [ ] Docs updated in the same commit if I changed module structure, architecture, or public API (`CLAUDE.md` / `README.md`).
-- [ ] Checked against the [recurring pitfalls](https://github.com/IvanWng97/pixtuoid/blob/main/docs/CONTRIBUTING.md#recurring-pitfalls-this-codebases-review-history-distilled): char-safe slicing · no parallel copies without a bridge test · sanitize at the decode boundary · negative branches pinned.
+- [ ] Checked against the [recurring pitfalls](../../docs/CONTRIBUTING.md#recurring-pitfalls-this-codebases-review-history-distilled): char-safe slicing · no parallel copies without a bridge test · sanitize at the decode boundary · negative branches pinned.
 - [ ] `just preflight` passes locally.
 
 ## AI assistance

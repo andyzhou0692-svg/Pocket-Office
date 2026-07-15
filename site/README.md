@@ -1,13 +1,12 @@
-# pixtuoid — website
+# Pocket Office website
 
-The marketing landing page for [pixtuoid](https://github.com/IvanWng97/pixtuoid),
-built with [Astro](https://astro.build). Deploys to GitHub Pages at
-**https://pixtuoid.dev/** (the old project page
-https://ivanwng97.github.io/pixtuoid/ redirects there).
+The retained Astro marketing site for
+[Pocket Office](https://github.com/andyzhou0692-svg/Pocket-Office). Automated
+deployment is disabled until Pocket Office chooses its own site and domain.
 
 Self-contained: this is a Node project that lives in `site/` and is independent
 of the Rust workspace. Its CI (`.github/workflows/site.yml`) runs the same checks
-as `npm run verify`; deploys run via `.github/workflows/pages.yml`.
+as `npm run verify`. Public deployment is intentionally disabled.
 
 ## Develop
 
@@ -59,8 +58,8 @@ gates can't see. CI runs it in `site.yml` after the build step.
 > `/knowledge-base` — the route slug kept from its `KNOWLEDGE-BASE.md` days, no link
 > rot), and `docs/PARALLEL-DELIVERY.md` (rendered as `/parallel-delivery`).
 > Renaming/moving any of them — or breaking the diagram's Mermaid syntax — fails
-> `astro build`; all six are in the `site.yml` / `pages.yml` path filters so a
-> change re-runs CI + redeploys. The root `README.md`'s Features table and install
+> `astro build`; all six are in the `site.yml` path filters so a change re-runs
+> CI. The root `README.md`'s Features table and install
 > commands are sourced from `src/features.json` / `src/install.json` (see below);
 > drift is gated by the `readme` job in `.github/workflows/ci.yml` (`just gen-readme-check`)
 > on every PR, not by `site.yml`.
@@ -73,8 +72,7 @@ gates can't see. CI runs it in `site.yml` after the build step.
 > with the **root README**:
 > `scripts/gen-readme.mjs` regenerates the Features table, the supported-tools
 > glimpse, and the install block between their markers. The install block shows
-> only methods flagged `"readme": true` (Homebrew, npm); the rest (Cargo, GitHub
-> Releases) stay site-only. Edit the JSON → run `just gen-readme`; CI's `readme`
+> only methods flagged `"readme": true`. Edit the JSON → run `just gen-readme`; CI's `readme`
 > job runs `just gen-readme-check` and fails on drift.
 
 > **Generated pixel icons.** `src/assets/pix-icons/` (the sprite-icon PNGs
@@ -240,7 +238,7 @@ need the manifest entry and whatever static screenshots the manifest references.
 
 ## Add a theme
 
-When pixtuoid ships a new in-app theme, the site is a **one-line** update:
+When Pocket Office ships a new in-app theme, the site is a **one-line** update:
 
 1. Add `{ "id": "...", "name": "...", "blurb": "...", "accent": "#...", "accent2": "#..." }`
    to [`src/themes.json`](src/themes.json).
@@ -249,18 +247,8 @@ When pixtuoid ships a new in-app theme, the site is a **one-line** update:
 The switcher chips, the live "N built-in themes" count, the page retint, and the
 render script all pick it up automatically — no component edits.
 
-## Custom domain
+## Deployment
 
-The site lives on **pixtuoid.dev** (`base: '/'`, `site: 'https://pixtuoid.dev'`
-in `astro.config.mjs`). The domain itself is configured in the repo's
-**Settings → Pages** — Actions deploys need no `public/CNAME` file (that's a
-branch-deploy mechanism) — with DNS A/AAAA records on the apex pointing at
-GitHub Pages and `www` CNAME'd to `ivanwng97.github.io`. `robots.txt` and its
-sitemap URL (`src/pages/robots.txt.ts`) derive from the config automatically,
-and now serve at the origin root where crawlers actually read them. GitHub
-redirects the old `ivanwng97.github.io/pixtuoid/` project-page URLs here.
-
-## First deploy (one-time)
-
-In the repo's **Settings → Pages**, set **Source: GitHub Actions**. After that,
-every push to `main` that touches `site/**` redeploys automatically.
+Automated Pages deployment is intentionally disabled. Configure a Pocket
+Office owned domain and add a new deployment workflow only when that launch is
+approved.

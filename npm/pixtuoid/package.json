@@ -11,13 +11,13 @@
     "ai-agents",
     "visualizer"
   ],
-  "homepage": "https://github.com/IvanWng97/pixtuoid",
+  "homepage": "https://github.com/andyzhou0692-svg/Pocket-Office",
   "bugs": {
-    "url": "https://github.com/IvanWng97/pixtuoid/issues"
+    "url": "https://github.com/andyzhou0692-svg/Pocket-Office/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/IvanWng97/pixtuoid.git"
+    "url": "git+https://github.com/andyzhou0692-svg/Pocket-Office.git"
   },
   "license": "MIT",
   "bin": {

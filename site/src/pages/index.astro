@@ -12,7 +12,7 @@ import Install from '../components/Install.astro';
 import Footer from '../components/Footer.astro';
 import Statusline from '../components/Statusline.astro';
 import ElevatorShaft from '../components/ElevatorShaft.astro';
-import { asset, REPO, CRATES, floorById, SITE_ORIGIN } from '../consts';
+import { asset, REPO, floorById, SITE_ORIGIN } from '../consts';
 
 const amenities = floorById('amenities');
 
@@ -23,17 +23,17 @@ const SITE = Astro.site ?? new URL(SITE_ORIGIN);
 const softwareJsonLd = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareApplication',
-  name: 'pixtuoid',
+  name: 'Pocket Office',
   description:
     'A terminal-native pixel-art office that visualizes your AI coding agents (Claude Code, Codex, and more) as animated coworkers.',
   applicationCategory: 'DeveloperApplication',
   operatingSystem: 'macOS, Linux, Windows',
   url: new URL(asset(''), SITE).href,
-  downloadUrl: CRATES,
+  downloadUrl: REPO,
   softwareVersion: __PIXTUOID_VERSION__,
   license: 'https://opensource.org/licenses/MIT',
   codeRepository: REPO,
-  author: { '@type': 'Person', name: 'Ivan Wang', url: REPO },
+  author: { '@type': 'Person', name: 'Andy Zhou', url: REPO },
   offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
 };
 ---

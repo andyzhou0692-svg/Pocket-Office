@@ -1,5 +1,5 @@
 ---
-import { REPO, CRATES, asset } from '../consts';
+import { REPO, asset } from '../consts';
 ---
 
 <footer class="footer">
@@ -13,21 +13,13 @@ import { REPO, CRATES, asset } from '../consts';
         width="32"
         height="32"
       />
-      pixtuoid
+      Pocket Office
     </a>
     <span class="footer__grp"><span class="footer__sep">·</span> MIT</span>
     <span class="footer__grp"><span class="footer__sep">·</span> built in Rust 🦀</span>
     <span class="footer__grp">
       <span class="footer__sep">·</span>
       <a href={REPO} target="_blank" rel="noreferrer">GitHub</a>
-    </span>
-    <span class="footer__grp">
-      <span class="footer__sep">·</span>
-      <a href={CRATES} target="_blank" rel="noreferrer">crates.io</a>
-    </span>
-    <span class="footer__grp">
-      <span class="footer__sep">·</span>
-      <a href={`${REPO}/releases`} target="_blank" rel="noreferrer">Releases</a>
     </span>
     <span class="footer__grp"><span class="footer__sep">·</span> made with Claude Code</span>
     {/* visible only while the clock (not the visitor, not the OS) holds night */}

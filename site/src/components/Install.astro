@@ -1,6 +1,6 @@
 ---
 import { Code } from 'astro:components';
-import { REPO, CRATES, floorById, floorName } from '../consts';
+import { floorById, floorName } from '../consts';
 
 const floor = floorById('install');
 // Single source of truth for install commands → site/src/install.json. The README
@@ -22,7 +22,7 @@ import tabs from '../install.json';
       <p class="eyebrow">{floor.fl} · {floorName(floor)} — get it</p>
       <h2 class="statement statement--md">Move them in.</h2>
       <p class="lead">
-        macOS, Linux &amp; Windows. Install, run <code>pixtuoid</code>, and the office opens.
+        Build it locally, run <code>pocket-office</code>, and the office opens.
       </p>
     </div>
 
@@ -62,10 +62,7 @@ import tabs from '../install.json';
         ))
       }
 
-      <p class="install__note text-scrim">
-        Also on <a href={CRATES} target="_blank" rel="noreferrer">crates.io</a> · prebuilt binaries on
-        <a href={`${REPO}/releases`} target="_blank" rel="noreferrer">Releases</a>.
-      </p>
+      <p class="install__note text-scrim">Public package distribution is not enabled yet.</p>
     </div>
   </div>
 </section>

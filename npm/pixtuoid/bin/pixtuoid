@@ -15,8 +15,8 @@ if (!bin) {
       "-" +
       process.arch +
       ".\n" +
-      "Install with `cargo install pixtuoid pixtuoid-hook`, or download a build:\n" +
-      "https://github.com/IvanWng97/pixtuoid/releases/latest\n"
+      "Build Pocket Office from source:\n" +
+      "https://github.com/andyzhou0692-svg/Pocket-Office\n"
   );
   process.exit(1);
 }

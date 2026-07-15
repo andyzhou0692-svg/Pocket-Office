@@ -13,7 +13,7 @@
   {
     "icon": "🪟",
     "name": "Floating desktop window",
-    "desc": "`pixtuoid floating` opens a frameless, always-on-top desktop window of the office — not just a terminal TUI"
+    "desc": "`pocket-office floating` opens a frameless, always-on-top desktop window of the office, not just a terminal TUI"
   },
   {
     "icon": "🦞",
@@ -24,7 +24,7 @@
   {
     "icon": "🎛️",
     "name": "Vibing",
-    "desc": "A sun and moon arc the skyline as the day turns, weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog), and six themes reskin the office",
+    "desc": "A sun and moon arc the skyline as the day turns, weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog), and nine themes reskin the office",
     "channel": "vibing"
   },
   {

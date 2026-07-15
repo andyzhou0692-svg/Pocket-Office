@@ -13,10 +13,10 @@ version      = "0.15.0"
 edition      = "2021"
 rust-version = "1.89"
 license      = "MIT"
-repository   = "https://github.com/IvanWng97/pixtuoid"
-authors      = ["Ivan Wang <ivanwng97@icloud.com>"]
-description  = "Terminal pixel-art office for AI coding agents"
-homepage     = "https://github.com/IvanWng97/pixtuoid"
+repository   = "https://github.com/andyzhou0692-svg/Pocket-Office"
+authors      = ["Andy Zhou"]
+description  = "Pocket Office: a living pixel-art office for AI agents"
+homepage     = "https://github.com/andyzhou0692-svg/Pocket-Office"
 keywords     = ["terminal", "tui", "pixel-art", "ai-agents", "claude"]
 categories   = ["command-line-utilities", "visualization"]
 

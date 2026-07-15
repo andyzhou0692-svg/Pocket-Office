@@ -581,11 +581,12 @@ pub(crate) fn paint_wall_display(
 /// issue-report URL from this same authority — crash.rs is a `main.rs` module,
 /// a separate crate the lib's `pub(crate)` can't reach (and the pixtuoid lib
 /// target is not a semver surface, so the widening is free).
-pub const REPO_URL: &str = "https://github.com/IvanWng97/pixtuoid";
+pub const REPO_URL: &str = "https://github.com/andyzhou0692-svg/Pocket-Office";
 /// URL shown on the version popup's "More details" line and opened on click:
 /// `REPO_URL` + `/releases`. Kept a full literal (const &str can't `concat!`);
 /// the two are pinned together by `version_popup_url_is_repo_releases`.
-pub(crate) const VERSION_POPUP_URL: &str = "https://github.com/IvanWng97/pixtuoid/releases";
+pub(crate) const VERSION_POPUP_URL: &str =
+    "https://github.com/andyzhou0692-svg/Pocket-Office/releases";
 
 /// The precise screen rect of the board's `★ Star` CTA span, clipped to the
 /// scene (`None` when it clips away on a very narrow terminal). Derived from the

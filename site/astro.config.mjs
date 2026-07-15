@@ -135,7 +135,7 @@ for (const [chId, name] of featureChannelOwner) {
 // Rewrite repo-relative links in rendered markdown (e.g. ../crates/...) to GitHub
 // so docs/CONFIGURATION.md's links resolve on the deployed site.
 function rehypeRepoLinks() {
-  const repo = 'https://github.com/IvanWng97/pixtuoid/blob/main/';
+  const repo = 'https://github.com/andyzhou0692-svg/Pocket-Office/blob/main/';
   const DOC_DIR = 'docs'; // CONFIGURATION.md lives in docs/ — repo-relative links resolve from there
   const SCHEME = /^[a-z][a-z0-9+.-]*:/i; // https: / mailto: / javascript: …
   const DANGEROUS = /^\s*(?:javascript|data|vbscript):/i;
@@ -205,11 +205,10 @@ function cspInlineHashes() {
   };
 }
 
-// Custom domain → https://pixtuoid.dev/ (the domain lives in the repo's
-// Settings → Pages, not in the artifact — Actions deploys need no CNAME file).
-// GitHub redirects the old project page ivanwng97.github.io/pixtuoid/ here.
+// Placeholder origin for local production builds. Automated deployment remains
+// disabled until Pocket Office chooses its own public site and domain.
 export default defineConfig({
-  site: 'https://pixtuoid.dev',
+  site: 'https://andyzhou0692-svg.github.io/Pocket-Office',
   base: '/',
   trailingSlash: 'ignore',
   // Astro 7 flipped the default to 'jsx' (JSX-rule whitespace stripping), which
@@ -242,9 +241,7 @@ export default defineConfig({
       ],
     }),
   },
-  // Sitemap respects `site` + `base` → https://pixtuoid.dev/sitemap-index.xml.
-  // robots.txt (prerendered by src/pages/robots.txt.ts) serves at the origin
-  // root on the custom domain, so crawlers pick the sitemap up from it directly.
+  // Sitemap respects `site` + `base`; robots.txt derives the same origin.
   integrations: [sitemap(), cspInlineHashes()],
   // Prefetch same-site links on hover — the docs pages are tiny static HTML,
   // so hover-to-tap latency covers the fetch. The injected prefetch client is

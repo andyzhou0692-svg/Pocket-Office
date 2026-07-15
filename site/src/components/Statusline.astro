@@ -21,7 +21,7 @@ import {
 import { GH_FETCH_TIMEOUT_MS } from '../../config/gh-stars.mjs';
 
 interface Props {
-  /** Doc-shell variant (§6): render "~ pixtuoid docs · /<doc>" as the left
+  /** Doc-shell variant (§6): render "~ pocket-office docs · /<doc>" as the left
    * segment instead of the index-only organs (floor lift, PR feed, env
    * readouts, keys hint). wb-1's #sl-install chip block renders in BOTH
    * variants (it sits outside the conditional). */
@@ -59,7 +59,7 @@ if (!doc) {
     const headers: Record<string, string> = { accept: 'application/vnd.github+json' };
     if (process.env.GITHUB_TOKEN) headers.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
     const res = await fetch(
-      'https://api.github.com/repos/IvanWng97/pixtuoid/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=12',
+      'https://api.github.com/repos/andyzhou0692-svg/Pocket-Office/pulls?state=closed&base=main&sort=updated&direction=desc&per_page=12',
       { headers, signal: AbortSignal.timeout(GH_FETCH_TIMEOUT_MS) }
     );
     if (res.ok) {
@@ -110,7 +110,7 @@ const badgeColor = (who: string): string | undefined => {
 <div class="statusline" id="statusline">
   {
     doc ? (
-      <span class="sl__path">~ pixtuoid docs · /{doc}</span>
+      <span class="sl__path">~ pocket-office docs · /{doc}</span>
     ) : (
       <>
         <nav class="sl__nav" aria-label="Floors">

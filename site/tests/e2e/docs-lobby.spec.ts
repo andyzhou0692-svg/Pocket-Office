@@ -21,7 +21,7 @@ test('docs mount the statusline: route path left, install chip right, no landing
   await page.goto('./config');
   const bar = page.locator('#statusline');
   await expect(bar).toBeVisible();
-  await expect(bar).toContainText('~ pixtuoid docs · /config');
+  await expect(bar).toContainText('~ pocket-office docs · /config');
   // wb-1's right-end chip block mounts on every variant
   await expect(bar.locator('#sl-install')).toBeAttached();
   // the landing organs (floor lift, feed, env readouts) are index-only
@@ -32,7 +32,7 @@ test('docs mount the statusline: route path left, install chip right, no landing
 
 test('404 mounts the statusline too', async ({ page }) => {
   await page.goto('./no-such-desk');
-  await expect(page.locator('#statusline')).toContainText('~ pixtuoid docs · /404');
+  await expect(page.locator('#statusline')).toContainText('~ pocket-office docs · /404');
 });
 
 test('the docs sidebar is an elevator panel: current-doc LED + a building bank from FLOORS', async ({

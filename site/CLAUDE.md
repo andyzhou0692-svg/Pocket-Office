@@ -26,12 +26,12 @@ rename/move of any of them FAILS the build:
   `src/content.config.ts` + a `src/pages/*.astro` per route. **Adding a rendered
   doc is the inverse of a rename — a new `glob` collection, a `src/pages/*.astro`,
   a `DOCS` entry + `current` union arm in `layouts/Docs.astro` (sidebar + pager),
-  a `Nav.astro` link, and both path filters.**
+  a `Nav.astro` link, and the path filter.**
 
-All six are in the `site.yml` / `pages.yml` **path filters**, so editing one
-re-runs the site CI + redeploys. **Renaming a rendered doc is a multi-point
-edit** — the `glob` pattern, the page's `sourcePath`, the nav label, the two
-path filters, and the doc itself (the `KNOWLEDGE-BASE → KNOWLEDGE-ENGINEERING`
+All six are in the `site.yml` **path filters**, so editing one re-runs the site
+quality gate. Public deployment is intentionally disabled. **Renaming a rendered
+doc is a multi-point edit** — the `glob` pattern, the page's `sourcePath`, the
+nav label, the path filter, and the doc itself (the `KNOWLEDGE-BASE → KNOWLEDGE-ENGINEERING`
 rename is the worked example: the *route slug* `/knowledge-base` was kept to
 avoid link rot while the file + display name changed). `ARCHITECTURE.md`'s
 Mermaid diagram becomes an inline SVG at build via `rehype-mermaid`, which is
@@ -39,7 +39,7 @@ Mermaid diagram becomes an inline SVG at build via `rehype-mermaid`, which is
 
 **wb-5 (Lobby + Docs):** the five doc routes now mount the Statusline **doc
 variant** (index-only organs — floor lift, PR feed, env readouts, keys hint —
-omitted; the left segment renders `~ pixtuoid docs · /<route>` instead; the
+  omitted; the left segment renders `~ pocket-office docs · /<route>` instead; the
 build-time PR-feed fetch is skipped entirely for doc pages, so the doc
 pages (the five routes plus 404) don't each re-hit the GitHub API at build). `Docs.astro`'s sidebar is
 now an elevator panel (`.hw-panel` + `.led-dot`) with a DOCS wing plus a
@@ -288,5 +288,5 @@ change, `just site-check` is the relevant one; `just site-e2e` (Playwright vs
 the PRODUCTION build via `astro preview` — the official Astro posture) pins the
 page's RUNTIME contracts (`__pixLights`/`pix:onair`/`data-lit` seams, the
 digit-key scrollspy, the docs-nav variant, reduced-motion) plus a console-error
-watchdog, where tsc/knip/build are blind. CI is `site.yml` / `pages.yml` (NOT
-the Rust `ci.yml`).
+watchdog, where tsc/knip/build are blind. CI is `site.yml` (NOT the Rust
+`ci.yml`). Public deployment remains disabled.

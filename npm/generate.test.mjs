@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Tests for generate.mjs — the per-platform package generator. Runs via the
 // zero-dep built-in runner: `node --test npm/generate.test.mjs` (also wired as a
-// pre-step of release.yml's npm job, so a broken generator fails the release
-// BEFORE anything is published).
+// standalone dry-run coverage for the retained npm packaging code. Public npm
+// publishing is disabled until Pocket Office chooses a distribution channel.
 //
 // Strategy: spawn the real script against a throwaway --npm-dir + fake binaries,
 // then assert on what it wrote. No mocking — we exercise the actual semver guard,
@@ -28,12 +28,49 @@ const SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "generate.mjs");
 // The same 6-row matrix generate.mjs ships — kept here independently so the test
 // fails loudly if the production table is edited without updating the contract.
 const TARGETS = [
-  { rust: "aarch64-apple-darwin", pkg: "darwin-arm64", os: "darwin", cpu: "arm64", win: false },
-  { rust: "x86_64-apple-darwin", pkg: "darwin-x64", os: "darwin", cpu: "x64", win: false },
-  { rust: "x86_64-unknown-linux-musl", pkg: "linux-x64", os: "linux", cpu: "x64", win: false },
-  { rust: "aarch64-unknown-linux-gnu", pkg: "linux-arm64", os: "linux", cpu: "arm64", win: false, libc: ["glibc"] },
-  { rust: "x86_64-pc-windows-msvc", pkg: "win32-x64", os: "win32", cpu: "x64", win: true },
-  { rust: "aarch64-pc-windows-msvc", pkg: "win32-arm64", os: "win32", cpu: "arm64", win: true },
+  {
+    rust: "aarch64-apple-darwin",
+    pkg: "darwin-arm64",
+    os: "darwin",
+    cpu: "arm64",
+    win: false,
+  },
+  {
+    rust: "x86_64-apple-darwin",
+    pkg: "darwin-x64",
+    os: "darwin",
+    cpu: "x64",
+    win: false,
+  },
+  {
+    rust: "x86_64-unknown-linux-musl",
+    pkg: "linux-x64",
+    os: "linux",
+    cpu: "x64",
+    win: false,
+  },
+  {
+    rust: "aarch64-unknown-linux-gnu",
+    pkg: "linux-arm64",
+    os: "linux",
+    cpu: "arm64",
+    win: false,
+    libc: ["glibc"],
+  },
+  {
+    rust: "x86_64-pc-windows-msvc",
+    pkg: "win32-x64",
+    os: "win32",
+    cpu: "x64",
+    win: true,
+  },
+  {
+    rust: "aarch64-pc-windows-msvc",
+    pkg: "win32-arm64",
+    os: "win32",
+    cpu: "arm64",
+    win: true,
+  },
 ];
 
 // Build a temp tree: a minimal launcher package.json + an artifacts dir holding
@@ -76,7 +113,15 @@ function scaffold(t, { skip } = {}) {
 function run(npmDir, artifacts, version) {
   return spawnSync(
     process.execPath,
-    [SCRIPT, "--version", version, "--artifacts", artifacts, "--npm-dir", npmDir],
+    [
+      SCRIPT,
+      "--version",
+      version,
+      "--artifacts",
+      artifacts,
+      "--npm-dir",
+      npmDir,
+    ],
     { encoding: "utf8" },
   );
 }
@@ -86,12 +131,18 @@ test("stamps launcher + all 6 platform packages with the asymmetric libc gate", 
   const r = run(npmDir, artifacts, "1.2.3");
   assert.equal(r.status, 0, r.stderr);
 
-  const launcher = JSON.parse(readFileSync(join(npmDir, "pixtuoid", "package.json"), "utf8"));
+  const launcher = JSON.parse(
+    readFileSync(join(npmDir, "pixtuoid", "package.json"), "utf8"),
+  );
   assert.equal(launcher.version, "1.2.3", "launcher version stamped");
 
   for (const tg of TARGETS) {
     const name = `@pixtuoid/cli-${tg.pkg}`;
-    assert.equal(launcher.optionalDependencies[name], "1.2.3", `${name} pinned in launcher`);
+    assert.equal(
+      launcher.optionalDependencies[name],
+      "1.2.3",
+      `${name} pinned in launcher`,
+    );
 
     const pkgPath = join(npmDir, "@pixtuoid", `cli-${tg.pkg}`, "package.json");
     assert.ok(existsSync(pkgPath), `${name} package.json written`);
@@ -107,9 +158,15 @@ test("stamps launcher + all 6 platform packages with the asymmetric libc gate", 
 
     // Each package ships BOTH binaries, with the .exe suffix only on win32.
     const ext = tg.win ? ".exe" : "";
-    assert.deepEqual(pkg.files.sort(), ["pixtuoid" + ext, "pixtuoid-hook" + ext].sort());
+    assert.deepEqual(
+      pkg.files.sort(),
+      ["pixtuoid" + ext, "pixtuoid-hook" + ext].sort(),
+    );
     for (const f of pkg.files) {
-      assert.ok(existsSync(join(npmDir, "@pixtuoid", `cli-${tg.pkg}`, f)), `${f} copied`);
+      assert.ok(
+        existsSync(join(npmDir, "@pixtuoid", `cli-${tg.pkg}`, f)),
+        `${f} copied`,
+      );
     }
   }
 });
@@ -125,15 +182,22 @@ test("rejects a non-semver version without writing", (t) => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /non-semver/);
   // launcher must be untouched on a guard failure
-  const launcher = JSON.parse(readFileSync(join(npmDir, "pixtuoid", "package.json"), "utf8"));
+  const launcher = JSON.parse(
+    readFileSync(join(npmDir, "pixtuoid", "package.json"), "utf8"),
+  );
   assert.equal(launcher.version, "0.0.0");
 });
 
 test("throws when a target's prebuilt binary is missing", (t) => {
-  const { npmDir, artifacts } = scaffold(t, { skip: "x86_64-unknown-linux-musl" });
+  const { npmDir, artifacts } = scaffold(t, {
+    skip: "x86_64-unknown-linux-musl",
+  });
   const r = run(npmDir, artifacts, "1.2.3");
   assert.notEqual(r.status, 0);
-  assert.match(r.stderr, /missing prebuilt binary for x86_64-unknown-linux-musl/);
+  assert.match(
+    r.stderr,
+    /missing prebuilt binary for x86_64-unknown-linux-musl/,
+  );
 });
 
 // The target set lives in THREE hand-maintained places that can't share one
@@ -145,27 +209,38 @@ test("throws when a target's prebuilt binary is missing", (t) => {
 // "can't centralize across a boundary → pin with a test" rule); the extract step
 // self-guards (generate.mjs throws on a missing artifact) and homebrew is an
 // intentional subset, so those two are comment-pinned, not asserted.
-test("release.yml build matrix targets == npm TARGETS (npm ships every built platform)", () => {
-  const releaseYml = readFileSync(
-    join(dirname(SCRIPT), "..", ".github", "workflows", "release.yml"),
-    "utf8",
-  );
-  // Isolate the `build:` job (the `deb:` job carries its own smaller matrix):
-  // slice from the 2-space `build:` header to the next 2-space job key.
-  const buildStart = releaseYml.indexOf("\n  build:\n");
-  assert.notEqual(buildStart, -1, "release.yml has a build: job");
-  const afterBuild = releaseYml.slice(buildStart + 1);
-  const nextJob = afterBuild.search(/\n  [a-z][\w-]*:\n/);
-  const buildBlock = nextJob === -1 ? afterBuild : afterBuild.slice(0, nextJob + 1);
-  const matrixTargets = [...buildBlock.matchAll(/^\s+- target:\s*(\S+)/gm)].map((m) => m[1]);
-  assert.ok(
-    matrixTargets.length >= 4,
-    `parsed only ${matrixTargets.length} matrix targets — the build-job slice/regex drifted`,
-  );
-  assert.deepEqual(
-    [...matrixTargets].sort(),
-    TARGETS.map((t) => t.rust).sort(),
-    "release.yml build matrix targets must match npm TARGETS — a new build target the " +
-      "generator doesn't know ships NOWHERE on npm (silent). Update both (+ homebrew if desktop).",
-  );
-});
+const RELEASE_WORKFLOW = join(
+  dirname(SCRIPT),
+  "..",
+  ".github",
+  "workflows",
+  "release.yml",
+);
+test(
+  "release workflow build matrix targets == npm TARGETS",
+  { skip: !existsSync(RELEASE_WORKFLOW) },
+  () => {
+    const releaseYml = readFileSync(RELEASE_WORKFLOW, "utf8");
+    // Isolate the `build:` job (the `deb:` job carries its own smaller matrix):
+    // slice from the 2-space `build:` header to the next 2-space job key.
+    const buildStart = releaseYml.indexOf("\n  build:\n");
+    assert.notEqual(buildStart, -1, "release.yml has a build: job");
+    const afterBuild = releaseYml.slice(buildStart + 1);
+    const nextJob = afterBuild.search(/\n  [a-z][\w-]*:\n/);
+    const buildBlock =
+      nextJob === -1 ? afterBuild : afterBuild.slice(0, nextJob + 1);
+    const matrixTargets = [
+      ...buildBlock.matchAll(/^\s+- target:\s*(\S+)/gm),
+    ].map((m) => m[1]);
+    assert.ok(
+      matrixTargets.length >= 4,
+      `parsed only ${matrixTargets.length} matrix targets — the build-job slice/regex drifted`,
+    );
+    assert.deepEqual(
+      [...matrixTargets].sort(),
+      TARGETS.map((t) => t.rust).sort(),
+      "release.yml build matrix targets must match npm TARGETS — a new build target the " +
+        "generator doesn't know ships NOWHERE on npm (silent). Update both.",
+    );
+  },
+);

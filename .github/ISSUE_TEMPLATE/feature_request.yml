@@ -11,7 +11,7 @@ body:
     id: problem
     attributes:
       label: What's the problem or use case?
-      description: What are you trying to do that pixtuoid doesn't support today?
+      description: What are you trying to do that Pocket Office doesn't support today?
     validations:
       required: true
   - type: textarea

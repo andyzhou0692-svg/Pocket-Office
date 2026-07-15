@@ -163,8 +163,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       # No rust-toolchain: this only exercises the Node generator's unit test —
-      # the same `just npm-check` release.yml gates `npm publish` on, run here at
-      # PR time so a generate.mjs regression can't first surface at tag-push.
+      # Retained dry-run coverage for the dormant npm package generator.
       - uses: actions/setup-node@v6
         with:
           node-version: 22
