@@ -184,7 +184,8 @@ def run_gif(job, out_dirs, work, intermediates):
     for d in out_dirs:
         dst = d / f"{job['id']}.gif"
         snap(dst, cols=job["cols"], rows=job["rows"], hour=job["hour"], day=job.get("day"),
-             theme=job.get("theme"), gif={"duration": job["duration"], "fps": job["fps"]})
+             theme=job.get("theme"), extra=job.get("extra", ()),
+             gif={"duration": job["duration"], "fps": job["fps"]})
         # Palette reduction (NOT --lossy: it breaks gifsicle's inter-frame diff and
         # ships a bigger file). These gifsicle params are the established tuning.
         subprocess.run(

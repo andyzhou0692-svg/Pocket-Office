@@ -89,12 +89,16 @@
   ],
   "cols": 192,
   "rows": 64,
-  "hour": 19,
+  "hour": 15,
   "day": 1,
-  "theme": "normal",
+  "theme": "200West",
   "duration": 15,
   "fps": 10,
-  "colors": 128
+  "colors": 128,
+  "extra": [
+   "--meeting",
+   "3"
+  ]
  },
  {
   "id": "day",
