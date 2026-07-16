@@ -475,8 +475,30 @@ pub(super) fn goldman_agent_palette(
     glow_tint: Option<Rgb>,
     burn: crate::burn::BurnTier,
 ) -> Palette {
-    let palette = agent_palette(base, agent, glow_tint, burn);
-    let suit = GOLDMAN_SUITS[outfit_seed_for(agent) as usize % GOLDMAN_SUITS.len()];
+    let mut palette = agent_palette(base, agent, glow_tint, burn);
+    let profile = super::character_profile::profile_for(agent);
+    let (profile_hair, profile_skin) = profile.colors();
+    let final_skin = if let Some(tint) = glow_tint {
+        blend_rgb(profile_skin, tint, 0.18)
+    } else {
+        profile_skin
+    };
+    let skin_shadow = blend_rgb(
+        final_skin,
+        Rgb {
+            r: 78,
+            g: 48,
+            b: 36,
+        },
+        0.14,
+    );
+    palette = palette
+        .with_override('S', Some(final_skin))
+        .with_override('s', Some(skin_shadow));
+    if burn == crate::burn::BurnTier::Normal {
+        palette = palette.with_override('H', Some(profile_hair));
+    }
+    let suit = GOLDMAN_SUITS[profile.suit_index() % GOLDMAN_SUITS.len()];
     palette
         .with_override('B', Some(suit.shirt))
         .with_override('P', Some(suit.pants))

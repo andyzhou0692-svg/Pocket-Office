@@ -793,6 +793,122 @@ fn goldman_front_pose_gets_a_pale_shirt_but_back_pose_does_not() {
         .contains(&Some(GOLDMAN_SHIRT)));
 }
 
+fn named_200west_slot(key: &str, label: &str) -> AgentSlot {
+    let mut slot = make_slot(
+        pixtuoid_core::AgentId::from_parts("visual-coworker", key),
+        ActivityState::Idle,
+    );
+    slot.source = Arc::from("visual-coworker");
+    slot.session_id = Arc::from(key);
+    slot.label = label.into();
+    slot
+}
+
+#[test]
+fn named_200west_cast_has_stable_gender_appropriate_profiles() {
+    use super::character_profile::{profile_for, GenderPresentation};
+
+    let cases = [
+        ("tom", "Tom (Head of IBD)", GenderPresentation::Masculine),
+        (
+            "tristan-pembroke",
+            "Tristan Pembroke",
+            GenderPresentation::Masculine,
+        ),
+        ("alex", "Alex", GenderPresentation::Masculine),
+        ("vivian", "Vivian", GenderPresentation::Feminine),
+        ("amy", "Amy (Head of IR)", GenderPresentation::Feminine),
+        (
+            "jess",
+            "Jess (Head of Strategy)",
+            GenderPresentation::Feminine,
+        ),
+        ("maya", "Maya", GenderPresentation::Feminine),
+    ];
+
+    let mut variants = std::collections::HashSet::new();
+    for (key, label, expected_gender) in cases {
+        let profile = profile_for(&named_200west_slot(key, label));
+        assert_eq!(
+            profile.gender(),
+            expected_gender,
+            "wrong profile for {label}"
+        );
+        assert!(
+            variants.insert(profile),
+            "each recurring resident needs a distinct visual profile: {label}"
+        );
+    }
+}
+
+#[test]
+fn named_200west_cast_renders_seven_distinct_front_silhouettes() {
+    use super::character_profile::apply_200west_profile;
+
+    let pack = crate::embedded_pack::test_default_pack();
+    let frame = pack
+        .animation("standing")
+        .and_then(|animation| animation.frames.first())
+        .expect("standing pose exists");
+    let cast = [
+        ("tom", "Tom (Head of IBD)"),
+        ("tristan-pembroke", "Tristan Pembroke"),
+        ("alex", "Alex"),
+        ("vivian", "Vivian"),
+        ("amy", "Amy (Head of IR)"),
+        ("jess", "Jess (Head of Strategy)"),
+        ("maya", "Maya"),
+    ];
+
+    let mut rendered = std::collections::HashSet::new();
+    for (key, label) in cast {
+        let slot = named_200west_slot(key, label);
+        let palette =
+            goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+        let recolored = recolor_frame(frame, &palette, &pack.palette);
+        let profiled = apply_200west_profile(recolored, &palette, &slot, "standing");
+        let silhouette: Vec<bool> = profiled.as_slice().iter().map(Option::is_some).collect();
+        assert!(
+            rendered.insert(silhouette),
+            "{label} must have a unique front silhouette, not only a recolor"
+        );
+    }
+    assert_eq!(rendered.len(), cast.len());
+}
+
+#[test]
+fn named_200west_cast_uses_multiple_tailored_suit_tones() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let cast = [
+        ("tom", "Tom (Head of IBD)"),
+        ("tristan-pembroke", "Tristan Pembroke"),
+        ("alex", "Alex"),
+        ("vivian", "Vivian"),
+        ("amy", "Amy (Head of IR)"),
+        ("jess", "Jess (Head of Strategy)"),
+        ("maya", "Maya"),
+    ];
+    let suit_tones: std::collections::HashSet<_> = cast
+        .into_iter()
+        .map(|(key, label)| {
+            goldman_agent_palette(
+                &pack.palette,
+                &named_200west_slot(key, label),
+                None,
+                crate::burn::BurnTier::Normal,
+            )
+            .get('B')
+            .flatten()
+            .expect("200West jacket color")
+        })
+        .collect();
+
+    assert!(
+        suit_tones.len() >= 3,
+        "the named cast should not all wear the same cwd-keyed suit"
+    );
+}
+
 /// Helper — build a minimal Drawable for sort-order tests. Uses the
 /// MeetingTable variant since it carries no borrowed data.
 fn drawable(anchor_y: u16) -> Drawable<'static> {

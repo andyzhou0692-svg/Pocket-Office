@@ -62,6 +62,14 @@ pub(super) fn paint_character_at(
             };
             let recolored =
                 super::face_overlay::apply_front_face_overlay(recolored, &pal, anim_name);
+            let recolored = match theme.visual_profile() {
+                crate::theme::VisualProfile::Goldman => {
+                    super::character_profile::apply_200west_profile(
+                        recolored, &pal, agent, anim_name,
+                    )
+                }
+                _ => recolored,
+            };
             if flip_x {
                 recolored.mirror_horizontal()
             } else {

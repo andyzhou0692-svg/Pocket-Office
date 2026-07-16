@@ -581,6 +581,43 @@ mod tests {
     }
 
     #[test]
+    fn idle_cap_never_caps_thirty_working_agents() {
+        let mut scene = SceneState::new([16; MAX_FLOORS]);
+        let mut active_ids = Vec::new();
+        for desk in 0..30 {
+            let id = AgentId::from_parts("codex", &format!("working-{desk}"));
+            let mut working = slot(
+                id,
+                &format!("Working {desk}"),
+                desk,
+                None,
+                ActivityState::Active {
+                    tool_use_id: None,
+                    detail: None,
+                    kind: ToolKind::Other,
+                },
+                1,
+            );
+            working.floor_idx = scene.floor_of(working.desk_index);
+            scene.agents.insert(id, working);
+            active_ids.push(id);
+        }
+
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+
+        assert_eq!(
+            rendered
+                .agents
+                .values()
+                .filter(|slot| matches!(slot.state, ActivityState::Active { .. }))
+                .count(),
+            30
+        );
+        assert!(active_ids.iter().all(|id| rendered.agents.contains_key(id)));
+    }
+
+    #[test]
     fn real_agents_fill_the_office_before_visual_residents_without_overbooking() {
         let mut capacities = [0; MAX_FLOORS];
         capacities[0] = 12;

@@ -78,6 +78,7 @@ pub struct MascotFrame {
 mod ambient;
 mod anchors;
 mod background;
+mod character_profile;
 mod debug_overlay;
 mod drawable;
 mod effects;
