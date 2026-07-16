@@ -38,7 +38,7 @@ impl ClaudeCodeSource {
     // The resolved hook-socket path. It stays on `ClaudeCodeSource` (CC no longer
     // binds the socket — the `HookRouter` does — but this is the shim↔daemon
     // parity bridge anchor, pinned by tests/socket_path_parity.rs). The driver
-    // resolves it here and hands it to `HookRouter::new`.
+    // resolves it here and hands it to `HookRouter::bind`.
     pub fn default_socket_path() -> PathBuf {
         if let Ok(p) = std::env::var("PIXTUOID_SOCKET") {
             // Set-but-empty/whitespace = unset (the #172 RUST_LOG policy): an

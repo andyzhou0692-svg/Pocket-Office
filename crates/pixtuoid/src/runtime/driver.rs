@@ -89,7 +89,8 @@ async fn run_async(cfg: RunConfig) -> Result<()> {
         projects_root,
         codex_sessions_root,
         Some(presence_tx),
-    );
+    )
+    .await?;
 
     let (tx, rx) =
         mpsc::channel::<(Transport, AgentEvent)>(pixtuoid_core::source::EVENT_CHANNEL_CAPACITY);
@@ -164,12 +165,12 @@ async fn run_async(cfg: RunConfig) -> Result<()> {
 /// Codex's sessions root), so this stays imperative rather than a registry-driven
 /// loop — invariant #3's per-source-typed seam. Hook-only sources + the daemon
 /// (OpenClaw) are absent by design — they ride the router's shared socket.
-pub(crate) fn build_source_set(
+pub(crate) async fn build_source_set(
     socket_path: PathBuf,
     projects_root: Option<PathBuf>,
     codex_sessions_root: Option<PathBuf>,
     presence_tx: Option<daemon::PresenceSender>,
-) -> Vec<Box<dyn DynSource>> {
+) -> Result<Vec<Box<dyn DynSource>>> {
     let mut cc_src = ClaudeCodeSource::default_paths();
     if let Some(p) = projects_root {
         cc_src.projects_root = p;
@@ -195,18 +196,19 @@ pub(crate) fn build_source_set(
     // The HookRouter owns the ONE shared hook socket every source's hooks ride;
     // it is the tee producer + the daemon-presence demux. CC/Codex are now pure
     // transcript watchers (consumers of the un-claim handle).
-    let hook_router = HookRouter::new(socket_path)
+    let hook_router = HookRouter::bind(socket_path)
+        .await?
         .with_child_end_unclaims(Some(child_end_unclaims))
         .with_presence_tx(presence_tx);
 
-    vec![
+    Ok(vec![
         Box::new(hook_router) as Box<dyn DynSource>,
         Box::new(cc_src),
         Box::new(ag_src),
         Box::new(codex_src),
         Box::new(copilot_src),
         Box::new(omp_src),
-    ]
+    ])
 }
 
 /// The source id an event would register/refresh — so the Connection gate can
@@ -441,18 +443,33 @@ mod tests {
     // (`line_decoder().is_some()`); it reads names off the real boxes, so it
     // can't drift from a hand-maintained second list. Hook-only sources + the
     // daemon (OpenClaw) are absent by design (they ride the router's socket).
-    #[test]
-    fn build_source_set_wires_every_transcript_bearing_source_plus_the_hook_router() {
+    #[tokio::test]
+    async fn build_source_set_wires_every_transcript_bearing_source_plus_the_hook_router() {
         use pixtuoid_core::source::{registry::descriptor_for, REGISTERED_SOURCES};
         use std::collections::BTreeSet;
 
-        let sources = build_source_set(PathBuf::from("/tmp/pixtuoid-test.sock"), None, None, None);
+        #[cfg(unix)]
+        let (_endpoint_guard, endpoint) = {
+            let dir = tempfile::tempdir().unwrap();
+            let endpoint = dir.path().join("pixtuoid-test.sock");
+            (Some(dir), endpoint)
+        };
+        #[cfg(windows)]
+        let (_endpoint_guard, endpoint) = (
+            None::<tempfile::TempDir>,
+            PathBuf::from(format!(
+                r"\\.\pipe\pixtuoid-source-set-test-{}",
+                std::process::id()
+            )),
+        );
+
+        let sources = build_source_set(endpoint, None, None, None).await.unwrap();
         let built: BTreeSet<&str> = sources.iter().map(|s| s.name()).collect();
 
         // The HookRouter (infrastructure — owns the shared socket, NOT a
-        // registered CLI) must be in the set so its fatal-bind death surfaces via
-        // `spawn_with_health` (#157); it has no descriptor, so it's excluded from
-        // the transcript-coverage check below.
+        // registered CLI) must be in the set so hook events keep flowing after
+        // its startup bind; it has no descriptor, so it's excluded from the
+        // transcript-coverage check below.
         assert!(
             built.contains("hook-router"),
             "the shared-socket HookRouter must be spawned (else hook signals never decode)"
@@ -473,6 +490,25 @@ mod tests {
             "run_async's transcript-source wiring diverged from the registry: a \
              transcript-bearing source is registered but not built (it would never \
              spawn), or a built source isn't registered"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn build_source_set_rejects_a_duplicate_endpoint_before_spawn() {
+        use pixtuoid_core::source::hook::{HookSocketListener, SocketBusy};
+
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("pixtuoid-test.sock");
+        let _owner = HookSocketListener::bind(socket.clone()).await.unwrap();
+
+        let err = build_source_set(socket, None, None, None)
+            .await
+            .err()
+            .expect("duplicate endpoint ownership must abort source construction");
+        assert!(
+            err.downcast_ref::<SocketBusy>().is_some(),
+            "duplicate startup must preserve typed SocketBusy: {err:#}"
         );
     }
 

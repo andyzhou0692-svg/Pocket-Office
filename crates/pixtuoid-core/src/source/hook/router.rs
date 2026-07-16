@@ -14,8 +14,6 @@
 //! apply); `source_set_includes_the_hook_router` closes the spawned-but-untested
 //! gap.
 
-use std::path::PathBuf;
-
 use anyhow::Result;
 
 use crate::source::jsonl::ChildEndUnclaims;
@@ -24,7 +22,7 @@ use crate::source::{AgentEvent, Source, TaggedReceiver, TaggedSender, Transport}
 use super::{HookPidWatch, HookSocketListener, PresenceSender, SocketBusy};
 
 /// Infrastructure name — NOT a registered source (no descriptor/badge). Used by
-/// `spawn_with_health` to attribute a fatal bind error in the footer.
+/// `spawn_with_health` to attribute a fatal listener exit in the footer.
 pub(crate) const SOURCE_NAME: &str = "hook-router";
 
 /// Producer half of the #246 child-end un-claim side-channel (see
@@ -63,8 +61,13 @@ pub(crate) async fn tee_child_end_unclaims(
 /// decode loop, interposes the #246 tee, and feeds the daemon-presence side
 /// channel. Builder fields mirror the old `ClaudeCodeSource` plumbing exactly —
 /// they just live on their honest owner now.
+enum HookEndpoint {
+    Pending(std::path::PathBuf),
+    Bound(HookSocketListener),
+}
+
 pub struct HookRouter {
-    socket_path: PathBuf,
+    endpoint: HookEndpoint,
     /// The #246 child-end un-claim PRODUCER handle (the tee). The runtime shares
     /// ONE handle with the CC + Codex watchers (the CONSUMERS). `None` disables
     /// the tee (bare test construction).
@@ -76,12 +79,27 @@ pub struct HookRouter {
 }
 
 impl HookRouter {
-    pub fn new(socket_path: PathBuf) -> Self {
+    /// Construct a router that binds when its source task starts. Kept for API
+    /// and behavior compatibility, including its legacy quiet exit when another
+    /// owner already holds the endpoint. Application startup uses
+    /// [`HookRouter::bind`] so a duplicate is rejected before any renderer opens.
+    pub fn new(socket_path: std::path::PathBuf) -> Self {
         Self {
-            socket_path,
+            endpoint: HookEndpoint::Pending(socket_path),
             child_end_unclaims: None,
             presence_tx: None,
         }
+    }
+
+    /// Claim the shared hook endpoint before any renderer starts. Keeping the
+    /// bound listener inside the router makes endpoint ownership a single,
+    /// race-free startup decision instead of a later source-task side effect.
+    pub async fn bind(socket_path: impl Into<std::path::PathBuf>) -> Result<Self> {
+        Ok(Self {
+            endpoint: HookEndpoint::Bound(HookSocketListener::bind(socket_path).await?),
+            child_end_unclaims: None,
+            presence_tx: None,
+        })
     }
 
     /// Wire the #246 child-end un-claim producer (the driver passes the shared
@@ -104,22 +122,16 @@ impl Source for HookRouter {
     }
 
     async fn run(self: Box<Self>, tx: TaggedSender) -> Result<()> {
-        // SocketBusy (another live instance owns the endpoint) takes ONLY the
-        // hook plane down, never the transcript sources: the listener returns
-        // Ok(()) (no `SourceDeath` — the hooks belong to the owning instance,
-        // and the CC/Codex/... watchers run as independent tasks). Every other
-        // bind error is fatal → `SourceDeath` (free, because this is a Source).
-        let socket = match HookSocketListener::bind(self.socket_path.clone()).await {
-            Ok(s) => s,
-            Err(e) if e.downcast_ref::<SocketBusy>().is_some() => {
-                tracing::warn!(
-                    "{e:#}; hook plane disabled — hook-borne signals (permission \
-                     Waiting, instant lifecycle, daemon presence) belong to the \
-                     owning instance; transcript sources keep running"
-                );
-                return Ok(());
-            }
-            Err(e) => return Err(e),
+        let socket = match self.endpoint {
+            HookEndpoint::Pending(path) => match HookSocketListener::bind(path).await {
+                Ok(socket) => socket,
+                Err(error) if error.downcast_ref::<SocketBusy>().is_some() => {
+                    tracing::warn!("{error:#}; legacy HookRouter::new owner stays inactive");
+                    return Ok(());
+                }
+                Err(error) => return Err(error),
+            },
+            HookEndpoint::Bound(socket) => socket,
         };
         // #246: route hook events through the un-claim tee when the side-channel
         // is wired (the runtime always wires it; `None` is bare test
@@ -232,30 +244,23 @@ mod tests {
             .unwrap();
     }
 
-    /// `name()` is the footer attribution for a fatal bind (`spawn_with_health`
-    /// publishes `SourceDeath { source: name }`) — a blank or drifted name
-    /// makes that death message unattributable.
+    /// `name()` is the footer attribution for a fatal listener exit
+    /// (`spawn_with_health` publishes `SourceDeath { source: name }`) — a blank
+    /// or drifted name makes that death message unattributable.
     #[test]
     fn router_name_is_the_infrastructure_source_name() {
-        assert_eq!(
-            HookRouter::new(PathBuf::from("/tmp/x.sock")).name(),
-            SOURCE_NAME
-        );
+        let router = HookRouter::new(std::path::PathBuf::from("unused.sock"));
+        assert_eq!(router.name(), SOURCE_NAME);
     }
 
-    /// Only `SocketBusy` degrades to the quiet hook-plane-off Ok(()); every
-    /// OTHER bind failure must surface as Err → `SourceDeath` (a guard→true
-    /// mutation would swallow a permanently broken socket path silently).
+    /// Bind failures surface during construction, before the router can be
+    /// spawned and before any renderer opens.
     #[cfg(unix)]
     #[tokio::test]
-    async fn fatal_bind_error_is_err_not_quiet_degradation() {
+    async fn fatal_bind_error_is_a_startup_error() {
         let dir = tempfile::tempdir().unwrap();
         let bad = dir.path().join("no-such-dir").join("hook.sock");
-        let (tx, _rx) = tokio::sync::mpsc::channel(4);
-        let res = Box::new(HookRouter::new(bad)).run(tx).await;
-        assert!(
-            res.is_err(),
-            "a non-Busy bind failure must be Err (SourceDeath fuel), got {res:?}"
-        );
+        let res = HookRouter::bind(bad).await;
+        assert!(res.is_err(), "a bind failure must abort startup");
     }
 }

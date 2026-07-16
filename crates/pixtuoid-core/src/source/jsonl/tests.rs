@@ -1728,6 +1728,22 @@ fn cc_task_result_line(tuid: &str) -> String {
         + "\n"
 }
 
+fn cc_tool_use_line(tuid: &str, name: &str) -> String {
+    serde_json::json!({
+        "type": "assistant",
+        "cwd": "/repo/head",
+        "message": {
+            "role": "assistant",
+            "content": [
+                { "type": "tool_use", "id": tuid, "name": name,
+                  "input": { "file_path": "/repo/head/src/lib.rs" } }
+            ]
+        }
+    })
+    .to_string()
+        + "\n"
+}
+
 /// `CC_HEAD_LINE` + filler past MAX_PENDING_BYTES + the given tail lines —
 /// the whole body is one oversized first-sight pending span.
 fn oversized_body(tail_lines: &[String]) -> String {
@@ -1752,6 +1768,27 @@ fn task_start_tuids(events: &[(Transport, AgentEvent)]) -> Vec<String> {
                 ..
             } if d.is_task() => {
                 assert_eq!(*t, Transport::Jsonl, "synthesized starts are Jsonl-tagged");
+                Some(tuid.clone())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn ordinary_start_tuids(events: &[(Transport, AgentEvent)]) -> Vec<String> {
+    events
+        .iter()
+        .filter_map(|(transport, event)| match event {
+            AgentEvent::ActivityStart {
+                tool_use_id: Some(tuid),
+                detail,
+                ..
+            } if !detail.as_ref().is_some_and(|d| d.is_task()) => {
+                assert_eq!(
+                    *transport,
+                    Transport::Jsonl,
+                    "synthesized starts are Jsonl-tagged"
+                );
                 Some(tuid.clone())
             }
             _ => None,
@@ -1845,11 +1882,90 @@ async fn oversized_attach_matched_task_is_not_seeded() {
     );
 }
 
+#[tokio::test]
+async fn oversized_first_registration_seeds_unmatched_ordinary_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("working-big.jsonl");
+    let full = oversized_body(&[cc_tool_use_line("tu_read", "Read")]);
+    tokio::fs::write(&path, &full).await.unwrap();
+    let cursors = Arc::new(Mutex::new(HashMap::new()));
+    let seen = Arc::new(Mutex::new(HashMap::new()));
+
+    let events = walk_oversized_cc(&path, Duration::from_secs(3600), &cursors, &seen).await;
+
+    assert_eq!(
+        ordinary_start_tuids(&events),
+        vec!["tu_read".to_string()],
+        "an ordinary tool still in flight when the transcript is first registered must be restored"
+    );
+}
+
+#[tokio::test]
+async fn oversized_first_registration_does_not_seed_matched_ordinary_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("finished-big.jsonl");
+    let full = oversized_body(&[
+        cc_tool_use_line("tu_read", "Read"),
+        cc_task_result_line("tu_read"),
+    ]);
+    tokio::fs::write(&path, &full).await.unwrap();
+    let cursors = Arc::new(Mutex::new(HashMap::new()));
+    let seen = Arc::new(Mutex::new(HashMap::new()));
+
+    let events = walk_oversized_cc(&path, Duration::from_secs(3600), &cursors, &seen).await;
+
+    assert!(
+        ordinary_start_tuids(&events).is_empty(),
+        "a completed ordinary tool must not be reconstructed, got {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn oversized_midrun_skip_does_not_seed_unmatched_ordinary_tool() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("midrun-working.jsonl");
+    let full = oversized_body(&[cc_tool_use_line("tu_read", "Read")]);
+    tokio::fs::write(&path, &full).await.unwrap();
+    let cursors = Arc::new(Mutex::new(HashMap::from([(
+        path.clone(),
+        CC_HEAD_LINE.len() as u64,
+    )])));
+    let seen = Arc::new(Mutex::new(HashMap::from([(path.clone(), true)])));
+
+    let events = walk_oversized_cc(&path, Duration::from_secs(3600), &cursors, &seen).await;
+
+    assert!(
+        ordinary_start_tuids(&events).is_empty(),
+        "a later oversized skip must not synthesize ordinary tools, got {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn oversized_midrun_skip_still_seeds_unmatched_task() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("midrun-delegating.jsonl");
+    let full = oversized_body(&[cc_task_dispatch_line("tu_task")]);
+    tokio::fs::write(&path, &full).await.unwrap();
+    let cursors = Arc::new(Mutex::new(HashMap::from([(
+        path.clone(),
+        CC_HEAD_LINE.len() as u64,
+    )])));
+    let seen = Arc::new(Mutex::new(HashMap::from([(path.clone(), true)])));
+
+    let events = walk_oversized_cc(&path, Duration::from_secs(3600), &cursors, &seen).await;
+
+    assert_eq!(
+        task_start_tuids(&events),
+        vec!["tu_task".to_string()],
+        "the existing Task recovery must remain active on later oversized skips"
+    );
+}
+
 /// The oversized skip is STRICT (`pending > MAX_PENDING_BYTES`): a span of
 /// EXACTLY 1 MiB pending still replays through the normal decode path —
 /// activity events included. A `>`→`>=` flip would divert the boundary span
 /// into the skip branch (registration + Task-seeding only, the backlog's
-/// ordinary activity silently dropped).
+/// ordinary activity would be reconstructed rather than replayed wholesale).
 #[tokio::test]
 async fn pending_span_of_exactly_max_bytes_replays_instead_of_skipping() {
     let bash_line = serde_json::json!({
@@ -2641,7 +2757,7 @@ fn oversized_body_bytes(tail_chunks: &[Vec<u8>]) -> Vec<u8> {
 const CC_HEAD_LINE_BYTES: &[u8] = b"{\"type\":\"assistant\",\"cwd\":\"/repo/head\"}\n";
 const FILLER_LINE_BYTES: &[u8] = b"{\"type\":\"assistant\"}\n";
 
-/// `scan_pending_tasks`' line loop (lines 557-565): an empty line is skipped
+/// `scan_pending_activity`'s line loop: an empty line is skipped
 /// and a non-UTF8 line is skipped before decode, so a corrupt fragment in the
 /// oversized tail window can't break Task seeding — a complete dispatch after
 /// them still seeds. A mutant that decoded the empty/non-utf8 line would panic
@@ -2667,7 +2783,7 @@ async fn task_scan_skips_empty_and_non_utf8_lines_and_still_seeds_a_dispatch() {
     );
 }
 
-/// `scan_pending_tasks`' decode-error arm (lines 566-571): a line that parses
+/// `scan_pending_activity`'s decode-error arm: a line that parses
 /// as JSON but whose decoder returns Err is debug-logged and skipped
 /// (`continue`), not fatal to the rest of the Task scan — a valid dispatch
 /// later in the window still seeds. A `?`/unwrap mutant would abort the scan

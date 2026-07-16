@@ -15,8 +15,8 @@ use pixtuoid_core::source::Transport;
 use pixtuoid_core::AgentId;
 
 use crate::{
-    backdate, cc_session_start_line, cc_subagent_line, cc_tool_use_line, cc_watcher,
-    vouch_snapshot, write_lines,
+    backdate, cc_session_start_line, cc_subagent_line, cc_tool_result_line, cc_tool_use_line,
+    cc_watcher, vouch_snapshot, write_lines,
 };
 
 /// S2 + S6 — THE acceptance test for "attach shows exactly the live set".
@@ -254,10 +254,10 @@ async fn delegating_parent_attach_registers_parent_and_links_subagent() {
 /// #222 — the oversized delegating-parent attach: like S3, but the parent
 /// transcript has > MAX_PENDING_BYTES pending at attach, so the backlog is
 /// skipped to EOF instead of replayed. The in-flight Agent dispatch sits in
-/// the last 256 KiB (TASK_SCAN_BYTES) with no tool_result — the tail scan
+/// the last 256 KiB activity window with no tool_result — the tail scan
 /// must re-emit it as a Task ActivityStart, EXACTLY ONCE across the initial
-/// seed + rescan + poll cycles, while the completed Bash backlog stays
-/// un-replayed. The parent registers via the bounded head read (#204) and the
+/// seed + rescan + poll cycles, while the matched Bash backlog stays absent.
+/// The parent registers via the bounded head read (#204) and the
 /// fresh subagent links to it.
 #[tokio::test]
 async fn oversized_delegating_parent_attach_replays_pending_dispatch() {
@@ -275,7 +275,7 @@ async fn oversized_delegating_parent_attach_replays_pending_dispatch() {
         "{}\n",
         cc_session_start_line(parent_uuid, "/Users/me/bigdeleg")
     );
-    let backlog_line = format!(
+    let backlog_start = format!(
         "{}\n",
         cc_tool_use_line(
             parent_uuid,
@@ -285,8 +285,10 @@ async fn oversized_delegating_parent_attach_replays_pending_dispatch() {
             serde_json::json!({"command": "ls"}),
         )
     );
+    let backlog_end = format!("{}\n", cc_tool_result_line(parent_uuid, "tu_backlog"));
     while contents.len() <= (1usize << 20) + 4096 {
-        contents.push_str(&backlog_line);
+        contents.push_str(&backlog_start);
+        contents.push_str(&backlog_end);
     }
     contents.push_str(&format!(
         "{}\n",
@@ -393,7 +395,86 @@ async fn oversized_delegating_parent_attach_replays_pending_dispatch() {
         .count();
     assert_eq!(
         backlog_replays, 0,
-        "the completed Bash backlog must not be replayed — this is a Task-seeding scan, not a replay"
+        "the matched Bash backlog must not be reconstructed — this is pending-state recovery, not a replay"
+    );
+    handle.abort();
+}
+
+/// Opening Pocket Office against an already large transcript restores the
+/// ordinary tool that is still running at EOF, without replaying completed
+/// history or emitting the reconstructed start again on later scans.
+#[tokio::test]
+async fn oversized_attach_restores_one_unmatched_ordinary_tool() {
+    let dir = TempDir::new().unwrap();
+    let projects_root = dir.path().to_path_buf();
+    let proj = projects_root.join("-Users-me-active");
+    tokio::fs::create_dir_all(&proj).await.unwrap();
+    let session_id = "ac000000-0000-7000-8000-0000000000ac";
+    let transcript = proj.join(format!("{session_id}.jsonl"));
+
+    let mut contents = format!(
+        "{}\n",
+        cc_session_start_line(session_id, "/Users/me/active")
+    );
+    let filler = "{\"type\":\"assistant\"}\n";
+    while contents.len() <= (1usize << 20) + 4096 {
+        contents.push_str(filler);
+    }
+    contents.push_str(&format!(
+        "{}\n",
+        cc_tool_use_line(
+            session_id,
+            "/Users/me/active",
+            "tu_done",
+            "Read",
+            serde_json::json!({"file_path": "/tmp/done"}),
+        )
+    ));
+    contents.push_str(&format!("{}\n", cc_tool_result_line(session_id, "tu_done")));
+    contents.push_str(&format!(
+        "{}\n",
+        cc_tool_use_line(
+            session_id,
+            "/Users/me/active",
+            "tu_live",
+            "Bash",
+            serde_json::json!({"command": "sleep 30"}),
+        )
+    ));
+    tokio::fs::write(&transcript, contents).await.unwrap();
+
+    let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(64);
+    let watcher = cc_watcher(projects_root);
+    let handle = tokio::spawn(async move { watcher.run(tx).await });
+
+    let mut starts = Vec::new();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    while tokio::time::Instant::now() < deadline {
+        if let Ok(Some((transport, AgentEvent::ActivityStart { tool_use_id, .. }))) =
+            tokio::time::timeout(Duration::from_millis(100), rx.recv()).await
+        {
+            starts.push((transport, tool_use_id));
+            if starts
+                .iter()
+                .any(|(_, id)| id.as_deref() == Some("tu_live"))
+            {
+                break;
+            }
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    while let Ok(Some((transport, event))) =
+        tokio::time::timeout(Duration::from_millis(50), rx.recv()).await
+    {
+        if let AgentEvent::ActivityStart { tool_use_id, .. } = event {
+            starts.push((transport, tool_use_id));
+        }
+    }
+
+    assert_eq!(
+        starts,
+        vec![(Transport::Jsonl, Some("tu_live".to_string()))],
+        "attach must restore exactly the unmatched ordinary tool once"
     );
     handle.abort();
 }

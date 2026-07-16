@@ -154,7 +154,7 @@ pub(crate) fn send_line(endpoint: &str, line: &[u8]) {
             Ok(mut f) => {
                 // #495: before writing, verify the pipe SERVER runs as US — a
                 // co-located user who squatted our predictable default pipe (so
-                // our daemon's create failed → SocketBusy degrade) would else
+                // our daemon's create failed → SocketBusy startup refusal) would else
                 // receive the payload (cwd, tool names). Scoped to our default
                 // rendezvous; an explicit PIXTUOID_SOCKET pipe is the user's
                 // trust call (parity with the Unix owned_tmp_socket_dir scope).
@@ -181,8 +181,8 @@ pub(crate) fn send_line(endpoint: &str, line: &[u8]) {
 /// named-pipe SERVER (the process that created the pipe) runs as OUR user before
 /// the shim writes the hook payload. Windows named pipes are a machine-global,
 /// unprivileged namespace, so a co-located user can pre-create our predictable
-/// `\\.\pipe\pixtuoid-{USERNAME}` (making our daemon's create fail → the hook
-/// plane silently degrades) and receive the payload. Comparing the connected
+/// `\\.\pipe\pixtuoid-{USERNAME}` (making our daemon's create fail and startup
+/// refuse the endpoint) and receive the payload. Comparing the connected
 /// server's token user SID to ours closes that. EVERYTHING here fails CLOSED
 /// (any FFI failure ⇒ `false` ⇒ drop) and never panics — invariant #5.
 ///

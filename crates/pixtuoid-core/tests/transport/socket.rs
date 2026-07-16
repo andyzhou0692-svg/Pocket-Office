@@ -176,8 +176,7 @@ async fn listener_survives_non_utf8_read_error() {
 // an anonymous inode forever, with every hook-borne signal vanishing). The
 // live owner holds the exclusive lock on the sibling `<sock>.lock`, so the
 // second bind's try-lock fails and it returns the typed SocketBusy naming the
-// path — which HookRouter::run downcasts to degrade the hook plane to a quiet
-// Ok(()) (no SourceDeath; see hook_router_socket_busy_exits_clean_without_death).
+// path, which application startup propagates before opening a renderer.
 #[tokio::test]
 async fn bind_bails_when_a_live_listener_holds_the_path() {
     let dir = TempDir::new().unwrap();
@@ -194,11 +193,11 @@ async fn bind_bails_when_a_live_listener_holds_the_path() {
     assert!(
         err.downcast_ref::<pixtuoid_core::source::hook::SocketBusy>()
             .is_some(),
-        "the busy bind must be the typed SocketBusy so the source can degrade: {err:#}"
+        "the busy bind must be the typed SocketBusy so app startup can refuse it: {err:#}"
     );
     let msg = format!("{err:#}");
     assert!(
-        msg.contains("another pixtuoid instance"),
+        msg.contains("Pocket Office is already running"),
         "error must say what is wrong: {msg}"
     );
     assert!(
@@ -451,39 +450,50 @@ async fn long_path_fallback_binds_owner_only() {
     drop(listener);
 }
 
-// HookRouter is the socket's honest owner (it lifts off ClaudeCodeSource). The
-// SocketBusy degradation under the split: a SECOND instance whose hook bind
-// loses to a live daemon takes ONLY the hook plane down — `run` returns Ok(())
-// with NO SourceDeath (the transcript sources run as independent tasks). This
-// is the negative complement of `fatal_source_exit_is_published_on_the_health_
-// channel` (manager.rs): the GRACEFUL path must push nothing. Pinned via
-// `spawn_with_health` so a regression to `Err(SocketBusy)` would spuriously
-// fire the #157 footer death every time a 2nd instance launches.
+// HookRouter is the socket's honest owner (it lifts off ClaudeCodeSource). A
+// SECOND app instance must lose ownership during startup, before any renderer
+// opens. The typed SocketBusy is preserved so the binary can report the
+// contended endpoint while custom --socket paths remain independent.
 #[tokio::test]
-async fn hook_router_socket_busy_exits_clean_without_death() {
+async fn hook_router_socket_busy_is_a_preflight_error() {
     use pixtuoid_core::source::hook::HookRouter;
-    use pixtuoid_core::source::manager::{SourceDeath, SourceManager};
 
     let dir = TempDir::new().unwrap();
     let sock = dir.path().join("pixtuoid.sock");
     // The "first instance": occupy the socket and keep it alive.
     let _owner = HookSocketListener::bind(sock.clone()).await.unwrap();
 
-    let (tx, _rx) = mpsc::channel::<(Transport, AgentEvent)>(8);
-    let (deaths_tx, deaths_rx) = tokio::sync::watch::channel(Vec::<SourceDeath>::new());
-    let handles = SourceManager::new()
-        .with_source(Box::new(HookRouter::new(sock)))
-        .spawn_with_health(tx, deaths_tx);
-    for h in handles {
-        tokio::time::timeout(Duration::from_secs(10), h)
-            .await
-            .expect("router must exit promptly on SocketBusy")
-            .unwrap();
-    }
+    let err = HookRouter::bind(sock.clone())
+        .await
+        .err()
+        .expect("a second router must fail before it can be spawned");
     assert!(
-        deaths_rx.borrow().is_empty(),
-        "SocketBusy must degrade quietly (Ok) — no SourceDeath, the hook plane just goes dark"
+        err.downcast_ref::<pixtuoid_core::source::hook::SocketBusy>()
+            .is_some(),
+        "the startup failure must preserve typed SocketBusy: {err:#}"
     );
+    assert!(
+        err.to_string()
+            .starts_with("Pocket Office is already running"),
+        "duplicate launch must explain the app-level outcome directly: {err:#}"
+    );
+}
+
+// Public compatibility seam: direct library callers of HookRouter::new still
+// get the legacy quiet exit on a busy endpoint. Pocket Office app launches use
+// HookRouter::bind above and therefore fail before opening a renderer.
+#[tokio::test]
+async fn hook_router_new_keeps_legacy_busy_behavior() {
+    use pixtuoid_core::source::hook::HookRouter;
+    use pixtuoid_core::source::Source;
+
+    let dir = TempDir::new().unwrap();
+    let sock = dir.path().join("pixtuoid.sock");
+    let _owner = HookSocketListener::bind(sock.clone()).await.unwrap();
+    let (tx, _rx) = mpsc::channel(4);
+
+    let result = Box::new(HookRouter::new(sock)).run(tx).await;
+    assert!(result.is_ok(), "legacy lazy construction must stay quiet");
 }
 
 // The #246 tee now rides HookRouter (its honest owner): a SubagentStop on the
@@ -502,7 +512,10 @@ async fn hook_router_tee_captures_child_ends_from_the_shared_socket() {
     let sock = dir.path().join("pixtuoid.sock");
 
     let unclaims = ChildEndUnclaims::new();
-    let router = HookRouter::new(sock.clone()).with_child_end_unclaims(Some(unclaims.clone()));
+    let router = HookRouter::bind(sock.clone())
+        .await
+        .unwrap()
+        .with_child_end_unclaims(Some(unclaims.clone()));
     let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(32);
     let task = tokio::spawn(async move { Box::new(router).run(tx).await });
     sleep(Duration::from_millis(50)).await;

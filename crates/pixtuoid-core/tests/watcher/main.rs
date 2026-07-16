@@ -106,6 +106,19 @@ fn cc_tool_use_line(
     })
 }
 
+fn cc_tool_result_line(uuid: &str, tool_use_id: &str) -> serde_json::Value {
+    serde_json::json!({
+        "type": "user",
+        "sessionId": uuid,
+        "message": {
+            "role": "user",
+            "content": [
+                { "type": "tool_result", "tool_use_id": tool_use_id, "content": "done" }
+            ]
+        }
+    })
+}
+
 fn cc_subagent_line(stem: &str, cwd: &str, tool_use_id: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "assistant",

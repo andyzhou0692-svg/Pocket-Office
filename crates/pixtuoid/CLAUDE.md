@@ -181,8 +181,11 @@ src/
 │                       source still exits; `cascade_exit` is source-agnostic (parent_id BFS) so a disconnect of
 │                       a delegating parent takes its whole subtree while a DIFFERENT connected source's subtree
 │                       is untouched. Reconnect = a fresh `SessionStart` resurrects-in-place once the old slot GCs.
-│                       `build_source_set` is the ONE source-construction site: it mints the HookRouter (the
-│                       Source that owns the shared hook socket — every CLI's hooks ride it), the transcript
+│                       `build_source_set` is the ONE source-construction site: it PREBINDS the shared hook
+│                       endpoint before any TUI, headless loop, or floating renderer starts, then retains that
+│                       live listener inside the HookRouter (the Source that owns the shared hook socket — every
+│                       CLI's hooks ride it); a typed SocketBusy therefore aborts a duplicate app launch instead
+│                       of opening a transcript-only office. It also mints the transcript
 │                       watchers (CC/Antigravity/Codex/Copilot/omp), and the ONE shared ChildEndUnclaims handle (#246)
 │                       — handed to the HookRouter (hook-tee PRODUCER) + ClaudeCodeSource & CodexSource (watcher
 │                       CONSUMERS). Daemon presence (OpenClaw) rides a source-tagged sibling channel into
@@ -278,8 +281,9 @@ src/
 ├── floating/           `pixtuoid floating` — the frameless, always-on-top DESKTOP WINDOW (winit + softbuffer,
 │                       binary-only; pixtuoid-core stays window-free, invariant #1). ALL floating-only source
 │                       lives here: mod.rs (run: reuses the SAME pipeline as the TUI — build_source_set [the
-│                       ONE source-construction site] + reducer_task, both relaxed to pub(crate) — spawned on
-│                       a bg runtime, NEVER block_on [winit owns the main thread]; an EventLoopProxy bridges
+│                       ONE source-construction site] + reducer_task, both relaxed to pub(crate) — it briefly
+│                       block_on's ONLY the startup socket prebind before entering the background runtime and
+│                       constructing the winit event loop; an EventLoopProxy bridges
 │                       scene changes → redraw), offscreen.rs (OfficeRenderer — owns one
 │                       pixtuoid_scene::floor::FloorSession, the scene-owned painter session over the shared
 │                       render_floor seam (#423; eviction is structural — render() runs it); moved here from tui/ as it's floating-only; the testable unit;

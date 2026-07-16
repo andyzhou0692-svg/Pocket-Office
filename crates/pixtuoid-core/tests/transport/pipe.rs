@@ -291,8 +291,8 @@ async fn clients_reconnect_after_open_close_churn() {
 
 /// Binding two listeners on the same pipe name must fail: the first instance
 /// held `first_pipe_instance(true)`, so the second attempt gets ACCESS_DENIED
-/// — mapped to the typed SocketBusy (Unix parity) so ClaudeCodeSource::run
-/// can degrade to transcript-only instead of killing the whole CC source.
+/// — mapped to the typed SocketBusy (Unix parity) so application startup can
+/// refuse the duplicate before opening a renderer.
 #[tokio::test]
 async fn second_listener_on_same_name_fails_with_typed_socket_busy() {
     let name = pipe_name("squat");
@@ -304,7 +304,7 @@ async fn second_listener_on_same_name_fails_with_typed_socket_busy() {
     assert!(
         err.downcast_ref::<pixtuoid_core::source::hook::SocketBusy>()
             .is_some(),
-        "the busy bind must be the typed SocketBusy so the source can degrade: {err:#}"
+        "the busy bind must be the typed SocketBusy so app startup can refuse it: {err:#}"
     );
     assert!(
         format!("{err:#}").contains(&name),
@@ -312,36 +312,42 @@ async fn second_listener_on_same_name_fails_with_typed_socket_busy() {
     );
 }
 
-// HookRouter SocketBusy degradation, Windows twin of socket.rs's
-// hook_router_socket_busy_exits_clean_without_death: a 2nd instance whose pipe
-// create loses ACCESS_DENIED (mapped to the typed SocketBusy) takes ONLY the
-// hook plane down — `run` returns Ok(()) with NO SourceDeath. Pinned via
-// spawn_with_health so a regression to `Err(SocketBusy)` would spuriously fire
-// the #157 footer death every time a 2nd instance launches.
+// Windows twin of socket.rs's startup ownership policy: a 2nd instance whose
+// pipe create loses ACCESS_DENIED must fail before any renderer opens.
 #[tokio::test]
-async fn hook_router_socket_busy_exits_clean_without_death() {
+async fn hook_router_socket_busy_is_a_preflight_error() {
     use pixtuoid_core::source::hook::HookRouter;
-    use pixtuoid_core::source::manager::{SourceDeath, SourceManager};
 
     let name = pipe_name("router-busy");
     // The "first instance": occupy the pipe name and keep it alive.
     let _owner = HookSocketListener::bind(&name).await.unwrap();
 
-    let (tx, _rx) = mpsc::channel::<(Transport, AgentEvent)>(8);
-    let (deaths_tx, deaths_rx) = tokio::sync::watch::channel(Vec::<SourceDeath>::new());
-    let handles = SourceManager::new()
-        .with_source(Box::new(HookRouter::new(std::path::PathBuf::from(&name))))
-        .spawn_with_health(tx, deaths_tx);
-    for h in handles {
-        tokio::time::timeout(Duration::from_secs(10), h)
-            .await
-            .expect("router must exit promptly on SocketBusy")
-            .unwrap();
-    }
+    let err = HookRouter::bind(std::path::PathBuf::from(&name))
+        .await
+        .err()
+        .expect("a second router must fail before it can be spawned");
     assert!(
-        deaths_rx.borrow().is_empty(),
-        "SocketBusy must degrade quietly (Ok) — no SourceDeath, the hook plane just goes dark"
+        err.downcast_ref::<pixtuoid_core::source::hook::SocketBusy>()
+            .is_some(),
+        "the startup failure must preserve typed SocketBusy: {err:#}"
     );
+}
+
+// Public compatibility seam, Windows twin: direct HookRouter::new callers keep
+// the legacy quiet exit while Pocket Office app startup uses strict prebinding.
+#[tokio::test]
+async fn hook_router_new_keeps_legacy_busy_behavior() {
+    use pixtuoid_core::source::hook::HookRouter;
+    use pixtuoid_core::source::Source;
+
+    let name = pipe_name("router-legacy-busy");
+    let _owner = HookSocketListener::bind(&name).await.unwrap();
+    let (tx, _rx) = tokio::sync::mpsc::channel(4);
+
+    let result = Box::new(HookRouter::new(std::path::PathBuf::from(name)))
+        .run(tx)
+        .await;
+    assert!(result.is_ok(), "legacy lazy construction must stay quiet");
 }
 
 // The #246 tee, Windows twin of socket.rs's
@@ -360,7 +366,9 @@ async fn hook_router_tee_captures_child_ends_from_the_shared_socket() {
     let name = pipe_name("tee");
 
     let unclaims = ChildEndUnclaims::new();
-    let router = HookRouter::new(std::path::PathBuf::from(&name))
+    let router = HookRouter::bind(std::path::PathBuf::from(&name))
+        .await
+        .unwrap()
         .with_child_end_unclaims(Some(unclaims.clone()));
     let (tx, mut rx) = mpsc::channel::<(Transport, AgentEvent)>(32);
     let task = tokio::spawn(async move { Box::new(router).run(tx).await });

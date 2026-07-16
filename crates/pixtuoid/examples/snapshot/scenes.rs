@@ -43,16 +43,23 @@ pub(crate) async fn capture_live_scene(
     // ultracode reports as xhigh) that the transcript alone can't provide in
     // real time. Same latent-gap class as the id-deriver above — "--live"
     // without hooks was silently activity-poor. SocketBusy (a running
-    // pixtuoid owns the socket) degrades to transcript-only, like the app.
+    // pixtuoid owns the socket) degrades this optional capture to transcript-only.
     let hook_handle = {
         use pixtuoid_core::source::hook::HookRouter;
         use pixtuoid_core::source::DynSource;
         let socket = pixtuoid_core::source::claude_code::ClaudeCodeSource::default_socket_path();
-        let router: Box<dyn DynSource> = Box::new(HookRouter::new(socket));
         let tx = tx_hook;
         tokio::spawn(async move {
-            if let Err(e) = router.run(tx).await {
-                eprintln!("hook listener unavailable ({e}); transcript-only capture");
+            match HookRouter::bind(socket).await {
+                Ok(router) => {
+                    let router: Box<dyn DynSource> = Box::new(router);
+                    if let Err(e) = router.run(tx).await {
+                        eprintln!("hook listener unavailable ({e}); transcript-only capture");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("hook listener unavailable ({e}); transcript-only capture");
+                }
             }
         })
     };

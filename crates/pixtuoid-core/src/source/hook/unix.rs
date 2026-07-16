@@ -170,11 +170,11 @@ impl Listener {
         match lock.try_lock() {
             Ok(()) => {}
             Err(std::fs::TryLockError::WouldBlock) => {
-                // A live owner holds the lock. Typed so the CC source can
-                // degrade to transcript-only instead of dying wholesale. This
+                // A live owner holds the lock. Typed so application startup can
+                // refuse a duplicate before opening any renderer. This
                 // also closes the old simultaneous-start rename TOCTOU: of
                 // two racing first starts exactly one acquires the lock; the
-                // loser degrades instead of leaving an anonymous listener.
+                // loser exits instead of leaving an anonymous listener.
                 return Err(anyhow::Error::new(super::SocketBusy {
                     path: path.to_path_buf(),
                 }));

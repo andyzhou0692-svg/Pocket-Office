@@ -29,11 +29,9 @@ pub(crate) const CONN_TIMEOUT: std::time::Duration = std::time::Duration::from_s
 /// Typed marker for "another live instance owns the hook endpoint" — bind's
 /// ONE recoverable failure (Unix: the sibling `<sock>.lock` advisory lock is
 /// held by a live owner; Windows: CreateNamedPipeW fails ACCESS_DENIED
-/// against the owner's `first_pipe_instance`). `HookRouter::run` downcasts for
-/// it and degrades the HOOK PLANE to a quiet `Ok(())` (no `SourceDeath`) instead
-/// of dying — so a second instance takes ONLY the hook plane down while the
-/// transcript watchers (CC/Codex/…) keep running as independent `SourceManager`
-/// tasks. Every other bind error stays fatal → `SourceDeath`.
+/// against the owner's `first_pipe_instance`). `HookRouter::bind` preserves this
+/// error so a second app instance fails before any renderer opens. Every other
+/// bind error is also a startup failure.
 #[derive(Debug)]
 pub struct SocketBusy {
     pub path: PathBuf,
@@ -43,8 +41,8 @@ impl std::fmt::Display for SocketBusy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "another pixtuoid instance is listening on {} — close it first, or run this one \
-             with PIXTUOID_SOCKET pointing at a different path",
+            "Pocket Office is already running on {} — close it first, or choose a different \
+             --socket path for an intentionally separate instance",
             self.path.display()
         )
     }

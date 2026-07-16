@@ -71,22 +71,23 @@ pub fn run(cfg: RunConfig) -> Result<()> {
         .enable_all()
         .build()
         .context("building the floating tokio runtime")?;
-    // Enter the runtime on the main thread so the source set's internal `tokio::spawn`s
-    // (presence watch, source manager) have a runtime context. We never `block_on` here.
-    let _guard = rt.enter();
 
     // --- the live pipeline (mirrors runtime::driver::run_async; build_source_set is the
     //     shared ONE source-construction site, reused not duplicated) ---
     let connected = ConnectedSources::new(connected);
     let socket_path = socket.unwrap_or_else(ClaudeCodeSource::default_socket_path);
     let (presence_tx, presence_rx) = mpsc::unbounded_channel();
-    let presence_exit_watch = daemon::spawn_presence_exit_watch(presence_tx.clone());
-    let sources = build_source_set(
-        socket_path,
+    let sources = rt.block_on(build_source_set(
+        socket_path.clone(),
         projects_root,
         codex_sessions_root,
-        Some(presence_tx),
-    );
+        Some(presence_tx.clone()),
+    ))?;
+    // Enter the runtime on the main thread so the source set's internal `tokio::spawn`s
+    // (presence watch, source manager) have a runtime context. The endpoint is already
+    // claimed above, before the window event loop or renderer is constructed.
+    let _guard = rt.enter();
+    let presence_exit_watch = daemon::spawn_presence_exit_watch(presence_tx.clone());
     let (tx, rx) =
         mpsc::channel::<(Transport, AgentEvent)>(pixtuoid_core::source::EVENT_CHANNEL_CAPACITY);
     // Boot capacity from the WINDOW at the SAME geometry the window renders (office

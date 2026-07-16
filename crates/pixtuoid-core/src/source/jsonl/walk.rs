@@ -278,20 +278,25 @@ pub(super) async fn walk_jsonl(path: &Path, decoders: SourceDecoders, ctx: &Watc
         // child-end-RELEASED claim (`false`, #246) re-registers here like an
         // absent one.
         let registered = seen.lock().await.get(path) == Some(&true);
-        if !registered {
+        let first_registration = if registered {
+            false
+        } else {
             let head_cwd = read_head_cwd(path, MAX_PENDING_BYTES, cwd_extractor_for(source)).await;
-            emit_first_sight(path, source, decoders, seen, tx, head_cwd).await;
-        }
-        // #222: the skipped span may bury an IN-FLIGHT Agent/Task dispatch —
-        // tail-scan the last TASK_SCAN_BYTES for unmatched Task starts and
-        // re-emit exactly those, restoring subagent-leak suppression + b1
-        // (see scan_pending_tasks for the full WHY). Only when the file is
-        // registered after the decision above (no slot → JSONL events for an
-        // unknown id are reducer no-ops; skip the wasted 256 KiB decode).
-        // Runs AFTER emit_first_sight so the registration precedes the
-        // synthesized starts on the channel.
+            emit_first_sight(path, source, decoders, seen, tx, head_cwd).await
+        };
+        // A first registration reconstructs any unmatched tool start in the
+        // bounded tail so an already-working session is Active immediately at
+        // attach. Later oversized skips retain the narrower #222 Task-only
+        // recovery: synthesizing ordinary tools mid-run could resurrect work
+        // whose live hook completion raced beyond this file snapshot.
+        // Runs after registration so the synthesized starts have a slot.
         if seen.lock().await.get(path) == Some(&true) {
-            scan_pending_tasks(path, decoders, ctx).await;
+            let scope = if first_registration {
+                PendingActivityScope::AllTools
+            } else {
+                PendingActivityScope::TasksOnly
+            };
+            scan_pending_activity(path, decoders, ctx, scope).await;
         }
         return;
     }
@@ -445,7 +450,8 @@ pub(super) async fn park_if_truncated_below_cursor(path: &Path, ctx: &WatchCtx<'
 /// Takes the `seen` lock ONLY to claim first-sight, then drops it before the
 /// awaited sends — holding it across `tx.send` would block on a slow consumer
 /// for no reason (the flag flip is the entire critical section). Mirrors the
-/// narrow `cursors` locking in `walk_jsonl`.
+/// narrow `cursors` locking in `walk_jsonl`. Returns true only to the pass that
+/// acquired the claim, allowing startup reconstruction to remain race-safe.
 async fn emit_first_sight(
     path: &Path,
     source: &Arc<str>,
@@ -453,14 +459,14 @@ async fn emit_first_sight(
     seen: &Arc<Mutex<HashMap<PathBuf, bool>>>,
     tx: &TaggedSender,
     cwd: Option<PathBuf>,
-) {
+) -> bool {
     // `Some(true)` = the claim is already held this life. `None` (never
     // registered / fully retired by an exit un-claim) and `Some(false)` (a
     // claim RELEASED by the child-end un-claim, #246) both register — a
     // released path's next append IS the revival the release exists for.
     let already_claimed = seen.lock().await.insert(path.to_path_buf(), true) == Some(true);
     if already_claimed {
-        return;
+        return false;
     }
     // session_id comes from the SAME deriver as the AgentId — the hook
     // transport's slots carry the bare session UUID (CC/Codex), and
@@ -496,6 +502,7 @@ async fn emit_first_sight(
             },
         ))
         .await;
+    true
 }
 
 /// Read at most `limit` bytes from the START of a file and extract `cwd` from
@@ -519,7 +526,7 @@ async fn read_head_cwd(path: &Path, limit: u64, extract: CwdExtractor) -> Option
 /// Read at most `bytes` from the END of a file (clamped to file size).
 /// `None` on any I/O error — callers treat that as "nothing to scan" (log +
 /// continue, never panic). Shared by `check_session_ended` (8 KiB ended-marker
-/// scan) and `scan_pending_tasks` (the #222 Task scan) so the two bounded
+/// scan) and `scan_pending_activity` so the two bounded
 /// tail reads can't drift apart.
 async fn read_tail(path: &Path, bytes: u64) -> Option<Vec<u8>> {
     let meta = tokio::fs::metadata(path).await.ok()?;
@@ -541,13 +548,26 @@ async fn check_session_ended(path: &Path, checker: SessionEndChecker) -> bool {
     }
 }
 
-/// How far back from EOF the oversized-skip Task scan looks (#222). Bounds
-/// both the I/O and the decode work; survivors are at most the parallel-
-/// dispatch ceiling in practice, so no further cap is needed.
+/// How far back from EOF the oversized-skip activity scan looks. Bounds both
+/// the I/O and decode work. Survivors are at most the live tool concurrency in
+/// practice, so no further cap is needed.
 pub(super) const TASK_SCAN_BYTES: u64 = 256 * 1024;
 
-/// #222: tail-scan an oversized skipped span for IN-FLIGHT Task dispatches
-/// and re-emit exactly their `ActivityStart`s. Mid-attach to a delegating
+#[derive(Clone, Copy)]
+enum PendingActivityScope {
+    /// Startup registration: restore any tool that is still in flight.
+    AllTools,
+    /// Mid-run skip: retain the existing #222 delegation-only recovery.
+    TasksOnly,
+}
+
+/// Tail-scan an oversized skipped span for in-flight activity and re-emit its
+/// unmatched `ActivityStart`s. On first registration this includes ordinary
+/// tools, making an already-working session Active immediately at attach. On
+/// later oversized skips it includes Task dispatches only, preserving #222
+/// without inventing ordinary mid-run activity.
+///
+/// Mid-attach to a delegating
 /// session whose backlog exceeds `MAX_PENDING_BYTES` seeds the cursor at EOF,
 /// so the in-flight `Agent` dispatch tool_use line is never decoded — and its
 /// PreToolUse hook predates attach — leaving the reducer's `active_tasks`
@@ -567,10 +587,10 @@ pub(super) const TASK_SCAN_BYTES: u64 = 256 * 1024;
 /// deeper than `TASK_SCAN_BYTES` of subsequent traffic keeps the pre-#222
 /// skip behavior — bounded, documented residual.
 ///
-/// `decode_line` also emits OTHER events from these lines (Rename, plain
-/// ActivityStarts, SessionStart…) — everything except the unmatched Task
-/// starts is DISCARDED. This is a Task-seeding scan, not a replay: replaying
-/// 256 KiB of activity would animate a burst of stale tools.
+/// `decode_line` also emits OTHER events from these lines (Rename,
+/// SessionStart…) — everything except the scope-selected unmatched starts is
+/// discarded. This is state reconstruction, not a replay: completed tools
+/// and non-activity events never animate.
 ///
 /// Hook-wins dedup (#150): the synthesized events are Jsonl-tagged. On
 /// mid-attach no hook record for these tuids exists (the hooks predate the
@@ -579,10 +599,16 @@ pub(super) const TASK_SCAN_BYTES: u64 = 256 * 1024;
 /// record — the dedup eating the synthesized start then is CORRECT: the hook
 /// copy already seeded `active_tasks`.
 ///
-/// Codex/Antigravity rollouts produce no Task ActivityStarts from line
-/// decode (Codex subagents wire via the SubagentStart/Stop hooks), so the
-/// scan is a structural no-op for them.
-async fn scan_pending_tasks(path: &Path, decoders: SourceDecoders, ctx: &WatchCtx<'_>) {
+/// Codex/Antigravity rollouts produce no Task ActivityStarts from line decode
+/// (Codex subagents wire via the SubagentStart/Stop hooks), so their later-skip
+/// scan is a structural no-op. First registration can still restore ordinary
+/// activity when that source's decoder emits it.
+async fn scan_pending_activity(
+    path: &Path,
+    decoders: SourceDecoders,
+    ctx: &WatchCtx<'_>,
+    scope: PendingActivityScope,
+) {
     let Some(buf) = read_tail(path, TASK_SCAN_BYTES).await else {
         return;
     };
@@ -598,7 +624,7 @@ async fn scan_pending_tasks(path: &Path, decoders: SourceDecoders, ctx: &WatchCt
     // `file_len > TASK_SCAN_BYTES` guard was provably constant-true here
     // and its false arm untestable dead code.
     let _ = lines.next();
-    // Unmatched Task dispatches in file order. A Vec keeps the order; a
+    // Unmatched activity starts in file order. A Vec keeps the order; a
     // duplicate ActivityStart for a seen tuid is skipped (HashSet semantics)
     // and a completion removes its start wherever it sits.
     let mut pending: Vec<(String, AgentEvent)> = Vec::new();
@@ -623,9 +649,11 @@ async fn scan_pending_tasks(path: &Path, decoders: SourceDecoders, ctx: &WatchCt
             match &ev {
                 AgentEvent::ActivityStart {
                     tool_use_id: Some(tuid),
-                    detail: Some(d),
+                    detail,
                     ..
-                } if d.is_task() => {
+                } if matches!(scope, PendingActivityScope::AllTools)
+                    || detail.as_ref().is_some_and(|d| d.is_task()) =>
+                {
                     if !pending.iter().any(|(t, _)| t == tuid) {
                         pending.push((tuid.clone(), ev));
                     }
@@ -642,7 +670,7 @@ async fn scan_pending_tasks(path: &Path, decoders: SourceDecoders, ctx: &WatchCt
     }
     for (tuid, ev) in pending {
         debug!(
-            "re-emitting in-flight Task dispatch {tuid} from the oversized tail of {}",
+            "re-emitting in-flight activity {tuid} from the oversized tail of {}",
             path.display()
         );
         if ctx.tx.send((Transport::Jsonl, ev)).await.is_err() {

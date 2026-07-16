@@ -128,9 +128,9 @@ impl Listener {
         let sd = OwnerOnlySd::new()?;
         // first_pipe_instance: if another process already owns this name,
         // creation fails ACCESS_DENIED — mapped to the typed SocketBusy
-        // below (Unix lock-arbitration parity) so the CC source degrades to
-        // transcript-only instead of silently queueing behind the owner OR
-        // dying wholesale. reject_remote_clients is the tokio default;
+        // below (Unix lock-arbitration parity) so application startup refuses
+        // the duplicate instead of silently queueing behind the owner.
+        // reject_remote_clients is the tokio default;
         // pinned here explicitly. The server stays DUPLEX (tokio default) —
         // the shim's client opens read+write, so an inbound-only pipe would
         // reject it with ACCESS_DENIED (silent event drop).
@@ -145,9 +145,8 @@ impl Listener {
             // ERROR_ACCESS_DENIED (5): almost always another instance holding
             // first_pipe_instance on this name — the one recoverable bind
             // failure. A genuine ACL denial (restricted token / AppContainer)
-            // is indistinguishable and also degrades; accepted trade-off, the
-            // JSONL watcher stays alive either way. Every other create error
-            // stays fatal.
+            // is indistinguishable and also refuses startup; accepted trade-off.
+            // Every other create error stays fatal.
             Err(e)
                 if e.kind() == std::io::ErrorKind::PermissionDenied
                     || e.raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) =>
