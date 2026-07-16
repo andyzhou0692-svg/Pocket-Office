@@ -9,7 +9,7 @@
   "rows": 64,
   "hour": 19,
   "day": 1,
-  "theme": "normal",
+  "theme": "200West",
   "scale": 2
  },
  {
@@ -22,7 +22,7 @@
   "rows": 64,
   "hour": 19,
   "day": 1,
-  "theme": "normal",
+  "theme": "200West",
   "scale": 2,
   "extra": [
    "--dashboard"
@@ -38,7 +38,7 @@
   "rows": 64,
   "hour": 19,
   "day": 1,
-  "theme": "normal",
+  "theme": "200West",
   "scale": 2,
   "extra": [
    "--connection"
@@ -46,16 +46,15 @@
  },
  {
   "id": "themes-composite",
-  "kind": "composite",
+  "kind": "render",
   "targets": [
    "docs"
   ],
-  "over": "@themes.json",
-  "slant": -0.2,
   "cols": 192,
   "rows": 64,
   "hour": 19,
-  "day": 1
+  "day": 1,
+  "theme": "200West"
  },
  {
   "id": "reference",
@@ -69,13 +68,13 @@
   "frames": [
    {
     "name": "reference-screenshot",
-    "theme": "normal",
+    "theme": "200West",
     "hour": 19,
     "weather": "clear"
    },
    {
     "name": "reference-night",
-    "theme": "cyberpunk",
+    "theme": "200West",
     "hour": 3,
     "weather": "clear"
    }
@@ -108,7 +107,8 @@
   ],
   "cols": 200,
   "rows": 90,
-  "hour": 13
+  "hour": 13,
+  "theme": "200West"
  },
  {
   "id": "agent-tree",
@@ -119,6 +119,7 @@
   "cols": 200,
   "rows": 90,
   "hour": 20,
+  "theme": "200West",
   "extra": [
    "--dashboard"
   ]
@@ -143,6 +144,7 @@
   "cols": 200,
   "rows": 90,
   "hour": 3,
+  "theme": "200West",
   "extra": [
    "--empty"
   ]
@@ -172,7 +174,8 @@
   "frames": [
    {
     "name": "hero-poster",
-    "hour": 17
+    "hour": 17,
+    "theme": "200West"
    }
   ]
  },
@@ -213,6 +216,7 @@
   "duration": 10,
   "fps": 15,
   "hour": 17,
+  "theme": "200West",
   "extra": [
    "--max-desks",
    "16",
@@ -235,6 +239,7 @@
   "duration": 12,
   "fps": 15,
   "hour": 14,
+  "theme": "200West",
   "extra": [
    "--pets",
    "cat"
@@ -251,6 +256,7 @@
   "duration": 16,
   "fps": 15,
   "hour": 15,
+  "theme": "200West",
   "poster": 12,
   "crop": "760:640:0:300",
   "extra": [
@@ -286,7 +292,7 @@
   "cols": 120,
   "rows": 52,
   "hour": 21,
-  "theme": "tokyo-night",
+  "theme": "200West",
   "duration": 26,
   "fps": 12,
   "poster": 10.0,

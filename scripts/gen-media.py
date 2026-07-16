@@ -52,8 +52,17 @@ DIFF_DIR = ROOT / "target/gen-check-diff"
 # video encodes (presence-gated, non-byte-stable) — handlers read this flag.
 CHECK_MODE = False
 # Committed files under docs/images/ that this pipeline does NOT generate
-# (a live-agent capture and a hand-made banner) — never compared in --check.
-NOT_GENERATED = {"screenshot-real.png", "sprite-banner.png"}
+# (live-agent captures and hand-made comparison art) — never compared in --check.
+NOT_GENERATED = {
+    "screenshot-real.png",
+    "sprite-banner.png",
+    "2dpig-live-200west-jess.png",
+    "2dpig-live-200west-office.png",
+    "2dpig-live-200west-terminal-120x31.png",
+    "2dpig-live-200west-vivian.png",
+    "black-transparent-glasses-200west-office.png",
+    "black-transparent-glasses-amy.png",
+}
 
 
 def build_once():
@@ -206,6 +215,7 @@ def run_matrix(job, out_dirs, work, intermediates):
 def run_clip(job, out_dirs, work, intermediates):
     gif = work / f"{job['id']}.gif"
     snap(gif, cols=job["cols"], rows=job["rows"], hour=job["hour"],
+         day=job.get("day"), theme=job.get("theme"), weather=job.get("weather"),
          extra=job.get("extra", ()), gif={"duration": job["duration"], "fps": job["fps"]})
     fps = job["fps"]
     cid = job["id"]

@@ -33,7 +33,8 @@ use crate::{CELL_H, CELL_W};
 // office_w = 960px): 760 / (760 + 960) ≈ 0.44.
 const PANEL_W: u32 = 760;
 const TALL_PANEL_H: u32 = 400; // terminal panel height (tall layout)
-const HEADER_H: u32 = 32; // chrome strip: "captured..." / "pixtuoid"
+const HEADER_H: u32 = 32; // chrome strip: "captured..." / product name
+const OFFICE_CHROME_TITLE: &str = "Pocket Office";
 const PAD: u32 = 16;
 const LINE_H: u32 = 28;
 const ANNOT_FONT_PX: f32 = 16.0; // coral annotation callouts — same AA face as the panel
@@ -438,7 +439,7 @@ const DOT_PITCH: i32 = CHROME_DOT_PX as i32 + 1; // dot advance + a 1px gap
 const DOT_GAP_AFTER: i32 = 6; // clearance between the 3rd dot and the title
 
 /// `is_panel` gates the traffic-light dots + the title size — only the left
-/// "captured..." panel is a typed terminal window; the "pixtuoid" office chrome
+/// "captured..." panel is a typed terminal window; the office chrome
 /// renders the SAME AA face at the annotation size, without the dots.
 fn chrome(img: &mut RgbaImage, x: u32, y: u32, w: u32, title: &str, is_panel: bool) {
     fill(img, x, y, w, HEADER_H, CHROME_BG);
@@ -524,12 +525,19 @@ pub(crate) fn compose_frame(
     let (panel_origin, panel_size, office_origin) = match layout {
         ProofLayout::Wide => {
             chrome(&mut img, 0, 0, PANEL_W, &panel_title, true);
-            chrome(&mut img, PANEL_W, 0, ow, "pixtuoid", false);
+            chrome(&mut img, PANEL_W, 0, ow, OFFICE_CHROME_TITLE, false);
             ((0, HEADER_H), (PANEL_W, oh), (PANEL_W, HEADER_H))
         }
         ProofLayout::Tall => {
             chrome(&mut img, 0, 0, ow, &panel_title, true);
-            chrome(&mut img, 0, HEADER_H + TALL_PANEL_H, ow, "pixtuoid", false);
+            chrome(
+                &mut img,
+                0,
+                HEADER_H + TALL_PANEL_H,
+                ow,
+                OFFICE_CHROME_TITLE,
+                false,
+            );
             (
                 (0, HEADER_H),
                 (ow, TALL_PANEL_H),
@@ -737,6 +745,11 @@ pub(crate) fn render_proof(job: &ProofJob) -> Result<()> {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[test]
+    fn office_chrome_uses_the_public_product_name() {
+        assert_eq!(OFFICE_CHROME_TITLE, "Pocket Office");
+    }
 
     fn fixture_path() -> PathBuf {
         // The example lives in crates/pixtuoid; the fixture is core's — one hop up.

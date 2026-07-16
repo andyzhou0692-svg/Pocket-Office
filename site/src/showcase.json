@@ -11,17 +11,6 @@
     "status": "live"
   },
   {
-    "id": "openclaw",
-    "label": "OPENCLAW",
-    "kind": "clip",
-    "asset": "openclaw",
-    "w": 1120,
-    "h": 960,
-    "caption": "a live OpenClaw gateway walks in as a lobster — its wander is the daemon's pulse: idle ambles, busy shuttles, failing flushes red, shutdown heads for the elevator.",
-    "duration": "0:09",
-    "status": "live"
-  },
-  {
     "id": "dashboard",
     "label": "DASHBOARD",
     "kind": "variant-set",
