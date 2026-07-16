@@ -529,6 +529,67 @@ mod tests {
     }
 
     #[test]
+    fn front_desk_pose_lower_legs_descend_without_flaring_outward() {
+        let pack = test_default_pack();
+        let pants = pack
+            .palette
+            .get('P')
+            .flatten()
+            .expect("embedded pack carries the pants color");
+
+        for animation_name in ["seated", "typing"] {
+            let animation = pack
+                .animation(animation_name)
+                .unwrap_or_else(|| panic!("embedded pack carries {animation_name}"));
+            for frame in &animation.frames {
+                let pants_columns = |y| {
+                    (0..frame.width())
+                        .filter(|&x| frame.get(x, y).copied().flatten() == Some(pants))
+                        .collect::<Vec<_>>()
+                };
+
+                assert_eq!(
+                    pants_columns(17),
+                    vec![5, 6, 9, 10],
+                    "{animation_name} shins should sit directly below the body"
+                );
+                assert_eq!(
+                    pants_columns(18),
+                    vec![5, 6, 9, 10],
+                    "{animation_name} feet should continue straight down instead of kicking outward"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn standing_lower_legs_stay_below_the_hips_without_splaying() {
+        let pack = test_default_pack();
+        let frame = pack
+            .animation("standing")
+            .and_then(|animation| animation.frames.first())
+            .expect("embedded pack carries a standing pose");
+        let pants = pack
+            .palette
+            .get('P')
+            .flatten()
+            .expect("embedded pack carries the pants color");
+        let pants_columns = |y| {
+            (0..frame.width())
+                .filter(|&x| frame.get(x, y).copied().flatten() == Some(pants))
+                .collect::<Vec<_>>()
+        };
+
+        for y in 17..=19 {
+            assert_eq!(
+                pants_columns(y),
+                vec![4, 5, 6, 9, 10, 11],
+                "standing row {y} should form two vertical legs below the hips"
+            );
+        }
+    }
+
+    #[test]
     fn workstation_sprites_do_not_collapse_into_stacked_full_width_bands() {
         let pack = test_default_pack();
         for animation_name in ["desk_front", "goldman_desk_front"] {
