@@ -156,6 +156,13 @@ pub(super) fn profile_for(agent: &AgentSlot) -> CharacterProfile {
             "amy" => CharacterProfile::Amy,
             "jess" => CharacterProfile::Jess,
             "maya" => CharacterProfile::Maya,
+            "daniel" | "leo" | "marcus" | "owen" | "theo" => CharacterProfile::Tom,
+            "ethan" | "ryan" | "julian" | "simon" => CharacterProfile::Alex,
+            "noah" | "miles" => CharacterProfile::Tristan,
+            "sophie" | "isabel" | "camille" => CharacterProfile::Amy,
+            "nina" | "priya" | "ava" => CharacterProfile::Jess,
+            "grace" | "zoe" => CharacterProfile::Maya,
+            "chloe" | "elena" => CharacterProfile::Vivian,
             _ => {
                 const POOL: [CharacterProfile; 7] = [
                     CharacterProfile::Tom,
@@ -217,13 +224,28 @@ fn apply_front_silhouette(
     let shirt = palette.get('w').flatten().unwrap_or(skin);
 
     // Strip the base sprite's oversized outer cheek columns for every 200West
-    // profile. Feminine faces are then framed by hair and taper to a six-pixel
-    // chin; masculine faces keep a wider jaw but lose the old square corners.
+    // profile. Feminine faces are then framed by hair and taper through four
+    // narrowing rows to a two-pixel chin; masculine faces keep a wider jaw but
+    // lose the old square corners.
     clear(frame, &[(2, 3), (13, 3), (2, 4), (13, 4), (2, 5), (13, 5)]);
     if profile.gender() == GenderPresentation::Feminine {
         paint_vertical(frame, 3, 3, 8, hair);
         paint_vertical(frame, 12, 3, 8, hair);
-        paint(frame, &[(3, 9), (4, 9), (11, 9), (12, 9)], hair);
+        paint(frame, &[(4, 7), (11, 7)], hair);
+        paint(frame, &[(4, 8), (5, 8), (10, 8), (11, 8)], hair);
+        clear(
+            frame,
+            &[
+                (3, 9),
+                (4, 9),
+                (5, 9),
+                (6, 9),
+                (9, 9),
+                (10, 9),
+                (11, 9),
+                (12, 9),
+            ],
+        );
     } else {
         clear(frame, &[(3, 9), (12, 9)]);
     }

@@ -842,6 +842,80 @@ fn named_200west_cast_has_stable_gender_appropriate_profiles() {
 }
 
 #[test]
+fn recurring_200west_names_never_cross_gender_pools() {
+    use super::character_profile::{profile_for, GenderPresentation};
+
+    let masculine = [
+        "Alex",
+        "Tristan Pembroke",
+        "Daniel",
+        "Ethan",
+        "Leo",
+        "Marcus",
+        "Ryan",
+        "Noah",
+        "Owen",
+        "Julian",
+        "Miles",
+        "Theo",
+        "Simon",
+    ];
+    let feminine = [
+        "Maya", "Sophie", "Nina", "Grace", "Chloe", "Isabel", "Priya", "Zoe", "Elena", "Camille",
+        "Ava",
+    ];
+
+    for (index, label) in masculine.into_iter().enumerate() {
+        let slot = named_200west_slot(&format!("male-{index}"), label);
+        assert_eq!(
+            profile_for(&slot).gender(),
+            GenderPresentation::Masculine,
+            "{label} received a feminine avatar"
+        );
+    }
+    for (index, label) in feminine.into_iter().enumerate() {
+        let slot = named_200west_slot(&format!("female-{index}"), label);
+        assert_eq!(
+            profile_for(&slot).gender(),
+            GenderPresentation::Feminine,
+            "{label} received a masculine avatar"
+        );
+    }
+}
+
+#[test]
+fn feminine_200west_face_tapers_to_a_pointed_chin() {
+    use super::character_profile::apply_200west_profile;
+
+    let pack = crate::embedded_pack::test_default_pack();
+    let frame = pack
+        .animation("standing")
+        .and_then(|animation| animation.frames.first())
+        .expect("standing pose exists");
+    let slot = named_200west_slot("amy", "Amy (Head of IR)");
+    let palette = goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let hair = palette.get('H').flatten().expect("200West hair color");
+    let recolored = recolor_frame(frame, &palette, &pack.palette);
+    let profiled = apply_200west_profile(recolored, &palette, &slot, "standing");
+    let visible_face_width = |y| {
+        (0..profiled.width())
+            .filter(|&x| matches!(profiled.get(x, y), Some(Some(color)) if *color != hair))
+            .count()
+    };
+
+    assert_eq!(
+        [
+            visible_face_width(5),
+            visible_face_width(7),
+            visible_face_width(8),
+            visible_face_width(9),
+        ],
+        [8, 6, 4, 2],
+        "the feminine face must narrow continuously from cheek to chin"
+    );
+}
+
+#[test]
 fn named_200west_cast_renders_seven_distinct_front_silhouettes() {
     use super::character_profile::apply_200west_profile;
 
