@@ -1067,21 +1067,10 @@ test('VIBING channel: live office paints, is pause-gated, chips drive it', async
   await expect(stormChip).toHaveAttribute('aria-pressed', 'true');
   await expect.poll(vibingShot, { timeout: 5_000 }).not.toBe(beforeWeather);
 
-  // Theme chip: cyberpunk activates + retints the page, and does NOT touch
-  // the weather group's own active chip (the per-group-retint guard).
-  const coralBefore = await page.evaluate(() =>
-    getComputedStyle(document.documentElement).getPropertyValue('--coral')
-  );
-  const themeChip = page.locator('[data-stage="vibing"] .osd__chip[data-theme="cyberpunk"]');
-  await themeChip.click();
-  await expect(themeChip).toHaveClass(/is-active/);
-  await expect(themeChip).toHaveAttribute('aria-pressed', 'true');
-  await expect
-    .poll(() =>
-      page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--coral'))
-    )
-    .not.toBe(coralBefore);
-  await expect(stormChip).toHaveClass(/is-active/); // weather group untouched by the theme retint
+  // 200West is the only public office theme, so the live demo exposes no
+  // alternate-theme chips while weather remains interactive.
+  await expect(page.locator('[data-stage="vibing"] .osd__chip[data-theme]')).toHaveCount(0);
+  await expect(stormChip).toHaveClass(/is-active/);
 
   // Slider: scrubbing the time updates the readout + aria-valuetext, flips the
   // sun/moon `data-phase` via the ENGINE's `Office.is_day` boundary (the [5,20)

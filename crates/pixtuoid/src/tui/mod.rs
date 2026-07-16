@@ -87,7 +87,6 @@ enum KeyAction {
     ToggleHelp,
     CloseHelp,
     DismissVersionPopup,
-    OpenThemePicker,
     /// Preview the theme at this index (picker navigation; index is pre-clamped).
     ThemePreview(usize),
     /// Enter in the picker: persist + close on this index.
@@ -391,7 +390,6 @@ fn dispatch_key(
     }
     match code {
         KeyCode::Char('p') => KeyAction::TogglePause,
-        KeyCode::Char('t') => KeyAction::OpenThemePicker,
         KeyCode::Char('?') => KeyAction::ToggleHelp,
         KeyCode::Tab => KeyAction::ToggleDashboard,
         // `s` opens the Sources panel (connection + health + live). Renamed from
@@ -701,7 +699,6 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                             KeyAction::ToggleHelp => ui.toggle_help(),
                             KeyAction::CloseHelp => ui.close_help(),
                             KeyAction::DismissVersionPopup => ui.dismiss_version_popup(),
-                            KeyAction::OpenThemePicker => ui.open_theme_picker(),
                             KeyAction::ThemePreview(i) => {
                                 ui.preview_theme(i);
                                 renderer.set_theme(theme::ALL_THEMES[i]);
@@ -1148,7 +1145,7 @@ mod dispatch_tests {
     }
 
     #[test]
-    fn normal_quit_pause_picker_help() {
+    fn normal_quit_pause_and_help() {
         assert_eq!(
             dispatch_key(KeyCode::Char('q'), NONE, modal(), nav()),
             KeyAction::Quit
@@ -1167,7 +1164,7 @@ mod dispatch_tests {
         );
         assert_eq!(
             dispatch_key(KeyCode::Char('t'), NONE, modal(), nav()),
-            KeyAction::OpenThemePicker
+            KeyAction::None
         );
         assert_eq!(
             dispatch_key(KeyCode::Char('?'), NONE, modal(), nav()),

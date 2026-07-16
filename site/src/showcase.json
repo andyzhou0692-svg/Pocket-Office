@@ -101,10 +101,7 @@
     "default": true,
     "poster": "vibing-poster.png",
     "timeSlider": true,
-    "variantGroups": [
-      { "key": "weather", "label": "weather", "variantsRef": "weather" },
-      { "key": "theme", "label": "vibe", "variantsRef": "themes", "retint": true }
-    ],
+    "variantGroups": [{ "key": "weather", "label": "weather", "variantsRef": "weather" }],
     "caption": "live — you're driving this one",
     "status": "live"
   }

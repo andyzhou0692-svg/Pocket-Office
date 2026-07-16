@@ -238,6 +238,7 @@ impl UiState {
         self.version_popup = false;
     }
 
+    #[cfg(test)]
     pub(crate) fn open_theme_picker(&mut self) {
         self.theme_picker = Some(self.saved_theme_idx);
     }

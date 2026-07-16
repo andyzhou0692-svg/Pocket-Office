@@ -427,36 +427,13 @@ pub fn resolve_max_desks(config: &AppConfig, warnings: &mut Vec<String>) -> Opti
     }
 }
 
-/// Resolve CLI + config into the one `&'static Theme` the runtime uses
-/// (CLI > config > `NORMAL`). The asymmetry is deliberate: a `--theme` typo is
-/// explicit user intent and hard-errors (listing valid names), while a config
-/// typo soft-warns and falls back so a stale config file never bricks startup.
-pub fn resolve_theme(
-    config: &AppConfig,
-    cli_theme: Option<&str>,
-    warnings: &mut Vec<String>,
-) -> Result<&'static pixtuoid_scene::theme::Theme> {
-    use pixtuoid_scene::theme::{theme_by_name, ALL_THEMES, NORMAL};
-
-    // Validate the config theme even when the CLI overrides it — the warn is
-    // the only signal that a persisted theme in config.toml has gone stale.
-    let config_theme = config.theme.as_deref().and_then(|t| {
-        let theme = theme_by_name(t);
-        if theme.is_none() {
-            tracing::warn!(theme = %t, "unknown theme in config — ignoring");
-            warnings.push(format!(
-                "unknown theme {t:?} in config — ignoring (falling back to the default)"
-            ));
-        }
-        theme
-    });
-    if let Some(name) = cli_theme {
-        return theme_by_name(name).ok_or_else(|| {
-            let valid: Vec<&str> = ALL_THEMES.iter().map(|t| t.name).collect();
-            anyhow::anyhow!("unknown theme: {name}. Valid: {}", valid.join(", "))
-        });
-    }
-    Ok(config_theme.unwrap_or(&NORMAL))
+/// Return the one public product theme.
+///
+/// The legacy config field and the private theme registry remain readable so
+/// older config files and dormant artwork stay compatible, but neither can
+/// change the public Pocket Office build while the product is fixed to 200West.
+pub fn resolve_theme(_config: &AppConfig) -> &'static pixtuoid_scene::theme::Theme {
+    &pixtuoid_scene::theme::GOLDMAN
 }
 
 /// Resolve config into the office's [`Pet`]s. `[[pets]]` absent → all kinds
@@ -611,16 +588,18 @@ mod tests {
     }
 
     #[test]
-    fn resolve_theme_collects_unknown_config_theme_warning() {
+    fn legacy_theme_config_is_ignored_without_warning() {
         let cfg = AppConfig {
             theme: Some("not-a-theme".into()),
             ..AppConfig::default()
         };
-        let mut w = Vec::new();
-        let theme = resolve_theme(&cfg, None, &mut w).unwrap();
-        assert_eq!(theme.name, "normal", "falls back");
-        assert_eq!(w.len(), 1);
-        assert!(w[0].contains("unknown theme \"not-a-theme\""), "got: {w:?}");
+        let w: Vec<String> = Vec::new();
+        let theme = resolve_theme(&cfg);
+        assert_eq!(theme.name, "200West");
+        assert!(
+            w.is_empty(),
+            "a dormant legacy setting should be silent: {w:?}"
+        );
     }
 
     #[test]
@@ -765,96 +744,13 @@ mod tests {
     }
 
     #[test]
-    fn resolve_cli_wins_over_config() {
+    fn public_build_always_resolves_two_hundred_west() {
         let cfg = AppConfig {
             theme: Some("normal".into()),
             ..AppConfig::default()
         };
-        let theme = resolve_theme(&cfg, Some("dracula"), &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "dracula");
-    }
-
-    #[test]
-    fn resolve_config_wins_over_default() {
-        let cfg = AppConfig {
-            theme: Some("gruvbox".into()),
-            ..AppConfig::default()
-        };
-        let theme = resolve_theme(&cfg, None, &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "gruvbox");
-    }
-
-    #[test]
-    fn resolve_all_none_uses_default() {
-        let cfg = AppConfig::default();
-        let theme = resolve_theme(&cfg, None, &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "normal");
-    }
-
-    #[test]
-    fn resolve_invalid_config_theme_falls_back_to_default() {
-        let cfg = AppConfig {
-            theme: Some("does-not-exist".into()),
-            ..AppConfig::default()
-        };
-        let theme = resolve_theme(&cfg, None, &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "normal");
-    }
-
-    #[test]
-    fn resolve_invalid_cli_theme_hard_errors() {
-        let cfg = AppConfig::default();
-        let err = resolve_theme(&cfg, Some("definitely-not-a-theme"), &mut Vec::new()).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("unknown theme"), "got: {msg}");
-        for t in pixtuoid_scene::theme::ALL_THEMES {
-            assert!(
-                msg.contains(t.name),
-                "should list every valid theme, missing {:?} in: {msg}",
-                t.name
-            );
-        }
-    }
-
-    #[test]
-    fn resolve_valid_cli_wins_even_when_config_theme_invalid() {
-        let cfg = AppConfig {
-            theme: Some("does-not-exist".into()),
-            ..AppConfig::default()
-        };
-        let theme = resolve_theme(&cfg, Some("dracula"), &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "dracula");
-    }
-
-    #[test]
-    fn resolve_invalid_cli_theme_errors_even_with_valid_config() {
-        // A CLI typo must NOT silently fall back to the config theme — explicit
-        // user intent on the command line fails loudly.
-        let cfg = AppConfig {
-            theme: Some("gruvbox".into()),
-            ..AppConfig::default()
-        };
-        assert!(resolve_theme(&cfg, Some("definitely-not-a-theme"), &mut Vec::new()).is_err());
-    }
-
-    #[test]
-    fn full_config_flow_file_drives_theme() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        std::fs::write(&path, "theme = \"cyberpunk\"\n").unwrap();
-        let cfg = load(&path, &mut Vec::new());
-        let theme = resolve_theme(&cfg, None, &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "cyberpunk");
-    }
-
-    #[test]
-    fn full_config_flow_cli_overrides_file() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        std::fs::write(&path, "theme = \"cyberpunk\"\n").unwrap();
-        let cfg = load(&path, &mut Vec::new());
-        let theme = resolve_theme(&cfg, Some("dracula"), &mut Vec::new()).unwrap();
-        assert_eq!(theme.name, "dracula");
+        let theme = resolve_theme(&cfg);
+        assert_eq!(theme.name, "200West");
     }
 
     // --- max-desks cap flow -----------------------------------------------

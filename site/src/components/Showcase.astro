@@ -247,7 +247,7 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
     syncVideos();
 
     // ---- VIBING demo: a live pixtuoid office (wasm) driven by the time
-    // slider + weather/theme chips. `syncCanvas` mirrors syncVideos' gate —
+    // slider + weather chips. `syncCanvas` mirrors syncVideos' gate —
     // active + visible + unpaused + motion allowed — and is called from the
     // SAME four sites syncVideos is (the pix:paused listener above, the
     // IntersectionObserver callback above, the mq change listener above, and
@@ -262,7 +262,6 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
     const vibingTimeWrap = vibingStage && vibingStage.querySelector('.vibing__time');
     const vibingWeather =
       vibingStage && vibingStage.querySelector('.stage__osd[data-group="weather"]');
-    const vibingTheme = vibingStage && vibingStage.querySelector('.stage__osd[data-group="theme"]');
     const VIBING_SEED = 11; // fixed u32 — distinct from OfficeBackdrop's page office (seed 3)
     let vWasm = null;
     let vOffice = null;
@@ -352,18 +351,14 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
           return mod.default().then(function (w) {
             vWasm = w;
             vOffice = new mod.Office(VIBING_SEED);
-            // Apply the currently-active weather AND theme chips so the booted
-            // office matches what the OSD reports. Weather: the `clear` chip is
+            // The public Pocket Office is fixed to 200West. Apply the product
+            // theme before the first painted frame, then apply the active
+            // weather chip so the office matches what the OSD reports. The `clear` chip is
             // is-active (matches vibing-poster.png, gen'd --weather clear) but a
-            // fresh Office is weather_override=None (clock-based). Theme: a chip
-            // clicked DURING this async boot skipped its `if (vOffice)` set_theme
-            // yet still set is-active/aria-pressed + retinted — re-applying the
-            // active theme here keeps aria-pressed consistent with the rendered
-            // office (WCAG 4.1.2); `normal` (the default) is a harmless no-op.
+            // fresh Office is weather_override=None (clock-based).
+            vOffice.set_theme('200West');
             const w0 = vibingStage.querySelector('.osd__chip[data-weather].is-active');
             if (w0) vOffice.set_weather(w0.dataset.weather);
-            const t0 = vibingStage.querySelector('.osd__chip[data-theme].is-active');
-            if (t0) vOffice.set_theme(t0.dataset.theme);
             // Engine is live now → sync the slider's sun/moon to it (the SSR
             // `data-phase` default held until this point).
             setSliderPhase(scrubHour);
@@ -406,37 +401,6 @@ const countWord = COUNT_WORDS[channels.length] ?? String(channels.length);
         });
       });
     }
-    if (vibingTheme) {
-      vibingTheme.addEventListener('click', function (e) {
-        const chip = e.target.closest('.osd__chip[data-theme]');
-        if (!chip) return;
-        if (vOffice) vOffice.set_theme(chip.dataset.theme);
-        vibingTheme.querySelectorAll('.osd__chip').forEach(function (x) {
-          const on = x === chip;
-          x.classList.toggle('is-active', on);
-          x.setAttribute('aria-pressed', on ? 'true' : 'false');
-        });
-        if (vibingTheme.dataset.retint && chip.dataset.accent) {
-          retintPage(chip.dataset.accent, chip.dataset.accent2);
-        }
-      });
-      if (vibingTheme.dataset.retint) {
-        // a real theme change elsewhere (Nav toggle / Escape / dracula egg /
-        // the `t` key) clears this preview's pressed state — same contract as
-        // the generic gallery chips below (neither dispatches pix:theme
-        // itself: this IS a decorative preview, not the real site theme, and
-        // dispatching it would immediately self-clear the is-active state
-        // just set above, plus wrongly tell Base.astro's listener a real
-        // theme change happened).
-        document.addEventListener('pix:theme', function () {
-          vibingTheme.querySelectorAll('.osd__chip').forEach(function (x) {
-            x.classList.remove('is-active');
-            x.setAttribute('aria-pressed', 'false');
-          });
-        });
-      }
-    }
-
     // ---- demo picking (hidden-swap; view-transition crossfade when available)
     function tune(id, silent) {
       const next = studio.querySelector('[data-stage="' + id + '"]');

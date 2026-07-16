@@ -17,6 +17,7 @@
 //! `t0_ms` on a FIXED reference calendar date (not "now"), so the same hour
 //! always resolves to the same epoch regardless of the machine or day the
 //! render runs — see `hour_to_t0_ms`. `--weather <name>` forces
+//! `--theme <name>` selects the office palette. `--weather <name>` forces
 //! `Office::set_weather` before stepping, for a specific-condition poster
 //! (e.g. a clear dusk) independent of whatever the natural weather clock
 //! would pick at that instant.
@@ -33,7 +34,7 @@ use chrono::TimeZone;
 use pixtuoid_web::Office;
 
 const USAGE: &str = "usage: hero_still <out.png> [--width W] [--height H] \
-(--t0-ms EPOCH_MS | --hour 0-23) [--advance-ms MS] [--weather NAME] [--seed N] \
+(--t0-ms EPOCH_MS | --hour 0-23) [--advance-ms MS] [--theme NAME] [--weather NAME] [--seed N] \
 (<out.png> and the flags may appear in any order)";
 
 // Recognized flags, each followed by one value token — used to skip past
@@ -46,6 +47,7 @@ const FLAGS_WITH_VALUE: &[&str] = &[
     "--t0-ms",
     "--advance-ms",
     "--hour",
+    "--theme",
     "--weather",
     "--seed",
 ];
@@ -116,6 +118,7 @@ fn main() -> ExitCode {
     let height: u32 = arg(&args, "--height").unwrap_or(DEFAULT_HEIGHT);
     let advance_ms: u64 = arg(&args, "--advance-ms").unwrap_or(DEFAULT_ADVANCE_MS);
     let seed: u32 = arg(&args, "--seed").unwrap_or(DEFAULT_SEED);
+    let theme: Option<String> = arg(&args, "--theme");
     let weather: Option<String> = arg(&args, "--weather");
 
     let t0_ms: f64 = match (arg::<u64>(&args, "--t0-ms"), arg::<u32>(&args, "--hour")) {
@@ -140,6 +143,9 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    if let Some(name) = theme {
+        office.set_theme(&name);
+    }
     if let Some(name) = weather {
         office.set_weather(Some(name));
     }

@@ -19,10 +19,6 @@ pub struct Cli {
     /// ($RUST_LOG remains the escape hatch for full directive syntax.)
     #[arg(long, global = true, value_enum, default_value = "info")]
     pub log_level: LogLevel,
-
-    /// Color theme: normal, cyberpunk, dracula, tokyo-night, catppuccin, gruvbox, 200West, succession, new-york.
-    #[arg(long, global = true)]
-    pub theme: Option<String>,
 }
 
 /// The source-input flags shared VERBATIM by `run` and `floating` (the two
@@ -179,9 +175,8 @@ impl LogLevel {
 }
 
 impl Cli {
-    pub fn cmd_or_default(self) -> (LogLevel, Option<String>, Cmd) {
+    pub fn cmd_or_default(self) -> (LogLevel, Cmd) {
         let level = self.log_level;
-        let theme = self.theme;
         let cmd = self.cmd.unwrap_or(Cmd::Run {
             source: SourceArgs {
                 socket: None,
@@ -192,7 +187,7 @@ impl Cli {
             max_desks: None,
             headless: false,
         });
-        (level, theme, cmd)
+        (level, cmd)
     }
 }
 
@@ -271,15 +266,19 @@ mod tests {
     }
 
     #[test]
+    fn public_cli_rejects_theme_switching() {
+        assert!(Cli::try_parse_from(["pixtuoid", "--theme", "normal"]).is_err());
+        assert!(Cli::try_parse_from(["pixtuoid", "run", "--theme", "200West"]).is_err());
+    }
+
+    #[test]
     fn cmd_or_default_returns_run_when_no_subcommand() {
         let cli = Cli {
             cmd: None,
             log_level: LogLevel::Info,
-            theme: None,
         };
-        let (level, theme, cmd) = cli.cmd_or_default();
+        let (level, cmd) = cli.cmd_or_default();
         assert_eq!(level, LogLevel::Info);
-        assert!(theme.is_none());
         assert!(matches!(
             cmd,
             Cmd::Run {
@@ -297,11 +296,9 @@ mod tests {
                 pack_dir: PathBuf::from("/some/pack"),
             }),
             log_level: LogLevel::Debug,
-            theme: Some("cyberpunk".into()),
         };
-        let (level, theme, cmd) = cli.cmd_or_default();
+        let (level, cmd) = cli.cmd_or_default();
         assert_eq!(level, LogLevel::Debug);
-        assert_eq!(theme.as_deref(), Some("cyberpunk"));
         assert!(matches!(cmd, Cmd::ValidatePack { .. }));
     }
 

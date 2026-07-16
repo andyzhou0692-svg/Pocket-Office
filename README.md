@@ -48,7 +48,7 @@ pocket-office
 
 Press `s` to connect Claude Code, Codex or another supported agent CLI. Start an agent in another terminal and its character will enter the office.
 
-Useful controls: `q` quit · `p` pause · `s` sources · `t` themes · `Tab` agent dashboard · `?` help · `↑↓/jk/PgUp/PgDn` floors.
+Useful controls: `q` quit · `p` pause · `s` sources · `Tab` agent dashboard · `?` help · `↑↓/jk/PgUp/PgDn` floors.
 
 The always-on-top ambient window is available through:
 
@@ -65,7 +65,7 @@ pocket-office floating
 | 🛗 | **Multi-floor office** | PageUp/PageDown/↑↓/jk to navigate floors with slide transition |
 | 🪟 | **Floating desktop window** | `pocket-office floating` opens a frameless, always-on-top desktop window of the office, not just a terminal TUI |
 | 🦞 | **OpenClaw gateway mascot** | A live OpenClaw gateway shows up as a wandering lobster whose motion tracks gateway health |
-| 🎛️ | **Vibing** | A sun and moon arc the skyline as the day turns, weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog), and nine themes reskin the office |
+| 🎛️ | **Vibing** | 200West stays on screen while a sun and moon arc the Hudson skyline and weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog) |
 | 🐾 | **Office pets** | A cat or dog (one per floor) roams desks, pantry, sofas; sleeps near idle agents. Click to pet — pixel-art hearts float up |
 | 🗂️ | **Agent tree dashboard** | Tab opens a foldable tree of every floor's agents — badged by CLI, with activity tints and tool-call counts |
 | 🧭 | **Office spaces** | Cubicles, a meeting lounge, and a pantry — the office is laid out in distinct furnished zones, not just a grid of identical desks |
@@ -76,7 +76,7 @@ pocket-office floating
 | <img src="docs/images/pix-icons/shield.png" alt=""> | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block your agent |
 <!-- features:end -->
 
-Pocket Office adds its own recurring visual coworkers, higher-detail character faces, a seven-person ambient baseline, richer office assets and location themes with distinct scenery and office life. `200West` includes Hudson traffic, occasional yachts and a suited paddleboard commuter. Tokyo Night, Succession and New York each use their own local movement and dialogue treatment.
+Pocket Office adds its own recurring visual coworkers, higher-detail character faces, a seven-person ambient baseline and richer office assets. The public build currently shows only `200West`, including Hudson traffic, occasional yachts and a suited paddleboard commuter.
 
 ## Supported tools
 
@@ -95,14 +95,7 @@ _\* experimental — limited testing, unsigned binaries._
 
 ## Configuration
 
-Configuration currently lives at `~/.config/pixtuoid/config.toml`. This inherited path remains stable so existing users and hook integrations do not break. Every key is optional. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for themes, desk capacity, persistent visual names, pets, custom sprite packs and furniture positions.
-
-Examples:
-
-```bash
-pocket-office run --theme 200West
-pocket-office run --theme tokyo-night
-```
+Configuration currently lives at `~/.config/pixtuoid/config.toml`. This inherited path remains stable so existing users and hook integrations do not break. Every key is optional. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for desk capacity, persistent visual names, pets, custom sprite packs and furniture positions. The office theme is fixed to `200West` for now.
 
 ## How it works
 
@@ -116,7 +109,7 @@ Pocket Office is local-only and telemetry-free. It does not send session data to
 
 ## Contributing
 
-Contributions are welcome, especially new themes, sprite and decoration polish and agent CLI adapters. Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) before opening a pull request.
+Contributions are welcome, especially sprite and decoration polish and agent CLI adapters. Read [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) before opening a pull request.
 
 ## License
 

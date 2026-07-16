@@ -726,6 +726,9 @@ import { asset, DIM_RESTING } from '../consts';
           return mod.default().then(function (w) {
             wasm = w;
             office = new mod.Office(SEED);
+            // Keep the page-wide office on the same single public product
+            // theme as the live showcase office.
+            office.set_theme('200West');
             ctx2d = canvas.getContext('2d');
             sizeBuffer();
             start();

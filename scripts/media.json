@@ -181,6 +181,7 @@
   "w": 320,
   "h": 180,
   "t0_ms": 1768498200000,
+  "theme": "200West",
   "advance_ms": 100000
  },
  {
@@ -192,6 +193,7 @@
   "w": 320,
   "h": 180,
   "hour": 18,
+  "theme": "200West",
   "weather": "clear",
   "seed": 11,
   "advance_ms": 100000

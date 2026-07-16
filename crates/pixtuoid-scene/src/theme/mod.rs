@@ -342,12 +342,9 @@ mod tests {
     }
 
     #[test]
-    fn theme_gallery_manifest_matches_all_themes() {
-        // site/src/themes.json drives the site's theme switcher + the gen-media
-        // render loop; ALL_THEMES drives what `--theme` actually accepts. Site CI
-        // never runs the binary, so this test is the bridge (same pattern as
-        // `weather_gallery_manifest_matches_the_weather_enum`). Set equality, not
-        // order: the manifest's order is a site presentation choice (`featured`).
+    fn public_site_exposes_only_two_hundred_west() {
+        // The renderer keeps dormant palettes for a future product decision,
+        // while the public manifest deliberately exposes only 200West.
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../site/src/themes.json");
         let json = match std::fs::read_to_string(path) {
             Ok(s) => s,
@@ -359,17 +356,14 @@ mod tests {
         };
         let manifest: Vec<serde_json::Value> =
             serde_json::from_str(&json).expect("themes.json parses");
-        let mut ids: Vec<&str> = manifest
+        let ids: Vec<&str> = manifest
             .iter()
             .map(|t| t["id"].as_str().expect("themes.json entry has a string id"))
             .collect();
-        let mut names: Vec<&str> = ALL_THEMES.iter().map(|t| t.name).collect();
-        ids.sort_unstable();
-        names.sort_unstable();
         assert_eq!(
-            ids, names,
-            "site/src/themes.json ids must match ALL_THEMES names — update the \
-             manifest + run `just gen-media` when the registry changes"
+            ids,
+            vec!["200West"],
+            "the public site must not expose dormant office palettes"
         );
     }
 

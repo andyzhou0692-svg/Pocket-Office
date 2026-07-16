@@ -9,7 +9,7 @@ use pixtuoid::{config, doctor, floating, init_pack, install, runtime, setup, sou
 
 fn main() -> Result<()> {
     crash::install_crash_hook();
-    let (log_level, cli_theme, cmd) = Cli::parse().cmd_or_default();
+    let (log_level, cmd) = Cli::parse().cmd_or_default();
 
     // The terminal `run` TUI is the only command that paints the pixel-art canvas:
     // --headless is a text summary, `doctor`/`sources` are plain output, and
@@ -103,13 +103,13 @@ fn main() -> Result<()> {
             max_desks: cli_max_desks,
             headless,
         } => {
-            let rc = build_run_config(cli_theme.as_deref(), source, cli_max_desks, headless)?;
+            let rc = build_run_config(source, cli_max_desks, headless)?;
             runtime::run(rc)
         }
         Cmd::Floating { source } => {
             // Floating reuses the TUI run prelude (theme/pack/pets/sources/log) but is
             // never headless and has no desk cap — capacity is seeded from the window.
-            let rc = build_run_config(cli_theme.as_deref(), source, None, false)?;
+            let rc = build_run_config(source, None, false)?;
             floating::run(rc)
         }
         Cmd::ValidatePack { pack_dir } => validate::validate_pack(&pack_dir),
@@ -163,7 +163,6 @@ fn main() -> Result<()> {
 /// launch it also surfaces config warnings + the broken-install preflight to
 /// stderr (visible in the launching terminal / pre-altscreen scrollback, #87/#309).
 fn build_run_config(
-    cli_theme: Option<&str>,
     source: SourceArgs,
     cli_max_desks: Option<usize>,
     headless: bool,
@@ -186,7 +185,7 @@ fn build_run_config(
     // onboarding apply couldn't succeed anyway: update_config refuses to
     // rewrite a malformed config). A missing file warns nothing ⇒ first run.
     let first_run = setup::is_first_run(&cfg, &cfg_path, !cfg_warnings.is_empty());
-    let theme = config::resolve_theme(&cfg, cli_theme, &mut cfg_warnings)?;
+    let theme = config::resolve_theme(&cfg);
     // The config seam's twin of the clap range(1..) guard: a config max-desks = 0
     // is ignored with a collected warning (eager `.or` argument on purpose — the
     // warning must fire even when the CLI flag overrides).

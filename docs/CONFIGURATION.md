@@ -3,12 +3,11 @@
 pixtuoid stores its settings in `~/.config/pixtuoid/config.toml` (respecting
 `$XDG_CONFIG_HOME`). The file is created on first launch. **Every user setting is
 optional** — omit a key to use its default. CLI flags override the file
-(e.g. `pixtuoid run --theme dracula`).
+where documented. The public office theme is fixed to `200West`.
 
 ## Example
 
 ```toml
-theme = "cyberpunk"
 max-desks = 8
 pack-dir = "~/.config/pixtuoid/packs/robot"
 
@@ -46,7 +45,6 @@ kind = "dog"        # name omitted → "Office Dog"
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `theme` | `"normal"` | Color theme: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`, `gruvbox`, `200West`, `succession`, `new-york`. The former `goldman` name remains an alias. |
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
 | `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Other real agents receive stable recurring visual names from the built-in local roster while present. |
@@ -103,11 +101,9 @@ reason. No partial override set is rendered.
 
 ## Themes
 
-Press `t` in the TUI to switch themes with a live preview picker (`j`/`k` or
-`↑`/`↓` to navigate); your choice is written back to `config.toml` and persists
-across sessions. Override for a single run with `--theme <name>`. Nine themes ship
-built-in: `normal`, `cyberpunk`, `dracula`, `tokyo-night`, `catppuccin`,
-`gruvbox`, `200West`, `succession`, `new-york` (`goldman` remains an alias).
+The public build is fixed to `200West`. The `t` theme picker and `--theme` flag
+are disabled. Existing config files may still contain a legacy `theme` key. It
+is preserved for compatibility but ignored for now.
 
 ## Custom sprite packs
 

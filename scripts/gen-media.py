@@ -264,6 +264,8 @@ def run_wasm_still(job, out_dirs, work, intermediates):
         extra += ["--t0-ms", str(job["t0_ms"])]
     if "hour" in job:
         extra += ["--hour", str(job["hour"])]
+    if "theme" in job:
+        extra += ["--theme", str(job["theme"])]
     if "weather" in job:
         extra += ["--weather", str(job["weather"])]
     # Layout seed: match the LIVE canvas this poster falls back for (the VIBING

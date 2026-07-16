@@ -108,13 +108,10 @@ export interface ThemeShot {
   featured?: boolean; // shown first in the switcher
 }
 
-// Single source of truth for the theme switcher → site/src/themes.json. Themes
-// now drive the live VIBING channel's theme chips IN-CANVAS (`Office::set_theme`)
-// — the static theme gallery, the per-id `theme_<id>.png` stills, and
-// astro.config's theme→still existence guard were all retired in #468. The
-// surviving guard is the Rust-side `theme_gallery_manifest_matches_all_themes`
-// set-equality test (pixtuoid-scene), so a live chip's `data-theme` always
-// resolves.
+// Public office-theme manifest. It deliberately contains only 200West while
+// dormant palettes remain in the Rust renderer for a future product decision.
+// The Rust-side `public_site_exposes_only_two_hundred_west` test pins that
+// public contract.
 export const THEMES: ThemeShot[] = themesData as ThemeShot[];
 
 interface WeatherShot {
@@ -176,9 +173,8 @@ export interface ShowcaseChannel {
 }
 
 // Single source of truth for the Studio Wall → site/src/showcase.json.
-// themes.json / weather.json stay untouched (their README-sync + just gen-media
-// loops + Rust enum guard tests are unaffected); variant-set channels reference
-// them via variantsRef and resolve here.
+// Office theme exposure and weather choices remain manifest-backed; variant-set
+// channels reference them via variantsRef and resolve here.
 // The manifest's kind/status/default/asset invariants are enforced at build time by the showcase guard in astro.config.mjs.
 export const SHOWCASE: ShowcaseChannel[] = showcaseData as unknown as ShowcaseChannel[];
 

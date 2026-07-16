@@ -302,7 +302,7 @@ fn status_segments(
         }
         None => String::new(),
     };
-    let quit = format!("{floor_suffix} [?]help [p]ause [t]heme [q]uit ");
+    let quit = format!("{floor_suffix} [?]help [p]ause [q]uit ");
 
     // --- tier builders --------------------------------------------------------
     // An empty office reads as a bare count on every tier (the board owns the

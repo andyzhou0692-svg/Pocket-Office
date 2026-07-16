@@ -1,6 +1,6 @@
 # Contributing to pixtuoid
 
-Thanks for your interest! PRs are welcome — especially **new themes**, sprite and
+Thanks for your interest! PRs are welcome — especially sprite and
 decoration polish, and **`Source` adapters** for agent CLIs we don't support yet
 (the ten already wired up are listed in the README).
 

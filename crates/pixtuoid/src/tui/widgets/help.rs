@@ -12,7 +12,6 @@ const SHORTCUTS: &[(&str, &str)] = &[
     ("q", "quit"),
     ("Ctrl+C", "quit"),
     ("p", "pause / resume"),
-    ("t", "themes"),
     ("Tab", "agent dashboard"),
     ("s", "sources (connect / health)"),
     // Dev-only overlay — hidden from release-build help (see dispatch_key).
@@ -83,5 +82,12 @@ mod tests {
         for (w, h) in [(200, 60), (40, 20), (24, 30), (10, 4), (4, 3), (2, 2)] {
             render_at(w, h);
         }
+    }
+
+    #[test]
+    fn public_help_hides_theme_switching_control() {
+        assert!(!SHORTCUTS
+            .iter()
+            .any(|(key, label)| { *key == "t" || label.to_ascii_lowercase().contains("theme") }));
     }
 }

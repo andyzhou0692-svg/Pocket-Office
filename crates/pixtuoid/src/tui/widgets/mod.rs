@@ -741,7 +741,7 @@ mod tests {
         build_status_summary(scene, &stats, width, floor_info, warning)
     }
 
-    const QUIT_SUFFIX: &str = " [?]help [p]ause [t]heme [q]uit ";
+    const QUIT_SUFFIX: &str = " [?]help [p]ause [q]uit ";
 
     // --- source-death footer warning (#157) -------------------------------
 
@@ -850,11 +850,21 @@ mod tests {
             waiting("b"),
             idle("c"),
         ]);
-        let line = footer_line(&s, 60, None, None);
+        let line = footer_line(&s, 50, None, None);
         // Medium drops the tool tally + separators; compact rungs `●1A ◐1W ○1I`.
         assert!(!line.contains("Edit"), "medium drops tools: {line}");
         assert!(line.contains("\u{25cf}1A"), "compact active rung: {line}");
         insta::assert_snapshot!(line);
+    }
+
+    #[test]
+    fn footer_hides_theme_switching_control() {
+        let line = footer_line(&scene_of(vec![idle("a")]), 120, None, None);
+        assert!(
+            !line.contains("theme"),
+            "theme control must stay hidden: {line}"
+        );
+        assert!(!line.contains("[t]"), "theme key must stay hidden: {line}");
     }
 
     #[test]

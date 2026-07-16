@@ -65,7 +65,7 @@ const RECURRING_AGENT_NAMES: [&str; 24] = [
 /// The startup inputs shared by `run` + `run_async`. Bundled so a new boot
 /// flag is one struct field, not a fourth copy of the arg list to thread
 /// through both signatures + the main.rs call. The `theme` is already resolved
-/// (`config::resolve_theme` validates CLI + config in one place), so an
+/// (`config::resolve_theme` enforces the public 200West product lock), so an
 /// unknown theme can't reach the runtime by construction.
 pub struct RunConfig {
     pub socket: Option<PathBuf>,
