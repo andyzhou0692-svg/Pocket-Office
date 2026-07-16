@@ -16,12 +16,6 @@
     "desc": "`pocket-office floating` opens a frameless, always-on-top desktop window of the office, not just a terminal TUI"
   },
   {
-    "icon": "🦞",
-    "name": "OpenClaw gateway mascot",
-    "desc": "A live OpenClaw gateway shows up as a wandering lobster whose motion tracks gateway health",
-    "channel": "openclaw"
-  },
-  {
     "icon": "🎛️",
     "name": "Vibing",
     "desc": "200West stays on screen while a sun and moon arc the Hudson skyline and weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog)",

@@ -64,7 +64,6 @@ pocket-office floating
 | 🏢 | **Multi-agent office** | Each agent session gets a desk; overflow agents auto-fill new floors |
 | 🛗 | **Multi-floor office** | PageUp/PageDown/↑↓/jk to navigate floors with slide transition |
 | 🪟 | **Floating desktop window** | `pocket-office floating` opens a frameless, always-on-top desktop window of the office, not just a terminal TUI |
-| 🦞 | **OpenClaw gateway mascot** | A live OpenClaw gateway shows up as a wandering lobster whose motion tracks gateway health |
 | 🎛️ | **Vibing** | 200West stays on screen while a sun and moon arc the Hudson skyline and weather rolls past the windows (rain, storm, snow, fog, overcast, windy, smog) |
 | 🐾 | **Office pets** | A cat or dog (one per floor) roams desks, pantry, sofas; sleeps near idle agents. Click to pet — pixel-art hearts float up |
 | 🗂️ | **Agent tree dashboard** | Tab opens a foldable tree of every floor's agents — badged by CLI, with activity tints and tool-call counts |
