@@ -241,6 +241,86 @@ pub(super) fn paint_liquor_bottle(buf: &mut RgbBuffer, anchor: Point) {
     }
 }
 
+const VAPE_BODY: Rgb = Rgb {
+    r: 42,
+    g: 48,
+    b: 58,
+};
+const VAPE_TIP: Rgb = Rgb {
+    r: 196,
+    g: 211,
+    b: 218,
+};
+const VAPE_MIST: Rgb = Rgb {
+    r: 245,
+    g: 248,
+    b: 250,
+};
+
+pub(super) fn paint_vape(buf: &mut RgbBuffer, anchor: Point) {
+    for (dx, color) in [(12, VAPE_BODY), (13, VAPE_BODY), (14, VAPE_TIP)] {
+        let px = anchor.x + dx;
+        let py = anchor.y + 6;
+        if px < buf.width() && py < buf.height() {
+            buf.put(px, py, color);
+        }
+    }
+}
+
+pub(super) fn paint_vape_cloud(buf: &mut RgbBuffer, anchor: Point, elapsed_ms: u64) {
+    const CLOUD_LIFE_MS: u64 = 2_000;
+    if elapsed_ms >= CLOUD_LIFE_MS {
+        return;
+    }
+    let t = elapsed_ms as f32 / CLOUD_LIFE_MS as f32;
+    let fade_in = (elapsed_ms as f32 / 120.0).min(1.0);
+    let alpha_base = fade_in * (1.0 - t) * 0.85;
+    if alpha_base < 0.04 {
+        return;
+    }
+    const PARTICLES: &[(u16, i16, f32)] = &[
+        (1, 0, 1.00),
+        (2, -1, 0.92),
+        (3, 1, 0.88),
+        (4, -2, 0.78),
+        (5, 0, 0.82),
+        (6, 2, 0.68),
+        (7, -1, 0.62),
+        (8, 1, 0.56),
+    ];
+    for &(dx, dy, weight) in PARTICLES {
+        let spread_x = (dx as f32 * (0.7 + t * 1.8)).ceil() as u16 + (t * 4.0) as u16;
+        let spread_y = (dy as f32 * (0.75 + t * 1.25)).round() as i16;
+        let center_x = anchor.x + 14 + spread_x;
+        let Some(center_y) = (anchor.y + 6).checked_add_signed(spread_y) else {
+            continue;
+        };
+        for brush_y in -1_i16..=1 {
+            for brush_x in -1_i16..=1 {
+                let Some(px) = center_x.checked_add_signed(brush_x) else {
+                    continue;
+                };
+                let Some(py) = center_y.checked_add_signed(brush_y) else {
+                    continue;
+                };
+                if px < buf.width() && py < buf.height() {
+                    let edge_weight = if brush_x == 0 && brush_y == 0 {
+                        1.0
+                    } else {
+                        0.72
+                    };
+                    let cur = buf.get(px, py);
+                    buf.put(
+                        px,
+                        py,
+                        blend_rgb(cur, VAPE_MIST, alpha_base * weight * edge_weight),
+                    );
+                }
+            }
+        }
+    }
+}
+
 pub(super) fn paint_suspicious_glance(
     buf: &mut RgbBuffer,
     anchor: Point,
@@ -399,6 +479,54 @@ mod tests {
                 "the glow must not repaint the tabletop or apron"
             );
         }
+    }
+
+    #[test]
+    fn alison_vape_paints_a_small_device_beside_the_mouth() {
+        let background = Rgb { r: 1, g: 2, b: 3 };
+        let anchor = Point { x: 8, y: 8 };
+        let mut buf = RgbBuffer::filled(40, 32, background);
+
+        paint_vape(&mut buf, anchor);
+
+        assert_ne!(buf.get(anchor.x + 12, anchor.y + 6), background);
+        assert_ne!(buf.get(anchor.x + 13, anchor.y + 6), background);
+        assert_ne!(buf.get(anchor.x + 14, anchor.y + 6), background);
+    }
+
+    #[test]
+    fn alison_vape_cloud_expands_from_the_face_and_is_gone_at_two_seconds() {
+        let background = Rgb { r: 1, g: 2, b: 3 };
+        let anchor = Point { x: 8, y: 8 };
+        let render = |elapsed_ms| {
+            let mut buf = RgbBuffer::filled(48, 32, background);
+            paint_vape_cloud(&mut buf, anchor, elapsed_ms);
+            buf
+        };
+
+        let early = render(250);
+        assert_ne!(early.get(anchor.x + 15, anchor.y + 6), background);
+
+        let expanded = render(1_000);
+        let expanded_pixels = expanded
+            .as_slice()
+            .iter()
+            .filter(|pixel| **pixel != background)
+            .count();
+        assert!(
+            expanded_pixels >= 40,
+            "the dramatic cloud should cover roughly five times the original eight-pixel footprint; got {expanded_pixels} pixels"
+        );
+        assert!(
+            (anchor.x + 18..=anchor.x + 23).any(|x| {
+                (anchor.y + 3..=anchor.y + 9).any(|y| expanded.get(x, y) != background)
+            }),
+            "the mid-exhale cloud should spread outward into a cone"
+        );
+
+        let finished = render(2_000);
+        assert_eq!(finished.as_slice(), render(2_500).as_slice());
+        assert!(finished.as_slice().iter().all(|pixel| *pixel == background));
     }
 
     fn render(head: Point, phase_ms: u64) -> RgbBuffer {

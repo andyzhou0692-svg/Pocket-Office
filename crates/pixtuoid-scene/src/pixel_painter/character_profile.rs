@@ -22,13 +22,74 @@ pub(super) enum CharacterProfile {
     Amy,
     Jess,
     Maya,
+    Alison,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum HairComponent {
+    ExecutiveBob,
+    Ponytail,
+    LongHair,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OutfitComponent {
+    NavySuit,
+    IvorySkirt,
+    BurgundyDress,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FaceComponent {
+    SoftMakeup,
+    Glasses,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ComponentLook {
+    pub(super) hair: HairComponent,
+    pub(super) outfit: OutfitComponent,
+    pub(super) face: FaceComponent,
 }
 
 impl CharacterProfile {
+    pub(super) fn component_look(self) -> Option<ComponentLook> {
+        match self {
+            Self::Vivian => Some(ComponentLook {
+                hair: HairComponent::ExecutiveBob,
+                outfit: OutfitComponent::NavySuit,
+                face: FaceComponent::SoftMakeup,
+            }),
+            Self::Amy => Some(ComponentLook {
+                hair: HairComponent::ExecutiveBob,
+                outfit: OutfitComponent::IvorySkirt,
+                face: FaceComponent::Glasses,
+            }),
+            Self::Jess => Some(ComponentLook {
+                hair: HairComponent::Ponytail,
+                outfit: OutfitComponent::BurgundyDress,
+                face: FaceComponent::SoftMakeup,
+            }),
+            Self::Maya => Some(ComponentLook {
+                hair: HairComponent::Ponytail,
+                outfit: OutfitComponent::IvorySkirt,
+                face: FaceComponent::Glasses,
+            }),
+            Self::Alison => Some(ComponentLook {
+                hair: HairComponent::LongHair,
+                outfit: OutfitComponent::BurgundyDress,
+                face: FaceComponent::SoftMakeup,
+            }),
+            Self::Tom | Self::Tristan | Self::Alex => None,
+        }
+    }
+
     pub(super) fn gender(self) -> GenderPresentation {
         match self {
             Self::Tom | Self::Tristan | Self::Alex => GenderPresentation::Masculine,
-            Self::Vivian | Self::Amy | Self::Jess | Self::Maya => GenderPresentation::Feminine,
+            Self::Vivian | Self::Amy | Self::Jess | Self::Maya | Self::Alison => {
+                GenderPresentation::Feminine
+            }
         }
     }
 
@@ -118,6 +179,18 @@ impl CharacterProfile {
                     b: 78,
                 },
             ),
+            Self::Alison => (
+                Rgb {
+                    r: 72,
+                    g: 35,
+                    b: 28,
+                },
+                Rgb {
+                    r: 228,
+                    g: 171,
+                    b: 134,
+                },
+            ),
         }
     }
 
@@ -126,9 +199,26 @@ impl CharacterProfile {
             Self::Tom | Self::Vivian => 0,
             Self::Tristan | Self::Amy => 1,
             Self::Alex | Self::Jess => 2,
-            Self::Maya => 3,
+            Self::Maya | Self::Alison => 3,
         }
     }
+}
+
+fn resolved_component_look(profile: CharacterProfile, agent: &AgentSlot) -> Option<ComponentLook> {
+    let mut look = profile.component_look()?;
+    if profile == CharacterProfile::Vivian {
+        let seed = agent
+            .created_at
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |elapsed| elapsed.as_secs());
+        if seed & 1 != 0 {
+            look.outfit = OutfitComponent::IvorySkirt;
+        }
+        if seed & 2 != 0 {
+            look.face = FaceComponent::Glasses;
+        }
+    }
+    Some(look)
 }
 
 pub(super) fn profile_for(agent: &AgentSlot) -> CharacterProfile {
@@ -148,6 +238,7 @@ pub(super) fn profile_for(agent: &AgentSlot) -> CharacterProfile {
         "amy" => CharacterProfile::Amy,
         "jess" => CharacterProfile::Jess,
         "maya" => CharacterProfile::Maya,
+        "alison" => CharacterProfile::Alison,
         _ => match first_name.as_str() {
             "tom" => CharacterProfile::Tom,
             "tristan" => CharacterProfile::Tristan,
@@ -156,6 +247,7 @@ pub(super) fn profile_for(agent: &AgentSlot) -> CharacterProfile {
             "amy" => CharacterProfile::Amy,
             "jess" => CharacterProfile::Jess,
             "maya" => CharacterProfile::Maya,
+            "alison" => CharacterProfile::Alison,
             "daniel" | "leo" | "marcus" | "owen" | "theo" => CharacterProfile::Tom,
             "ethan" | "ryan" | "julian" | "simon" => CharacterProfile::Alex,
             "noah" | "miles" => CharacterProfile::Tristan,
@@ -204,8 +296,14 @@ pub(super) fn apply_200west_profile(
     let profile = profile_for(agent);
     if FRONT_ANIMS.contains(&anim_name) {
         apply_front_silhouette(&mut frame, profile, hair, palette);
+        if let Some(look) = resolved_component_look(profile, agent) {
+            super::character_components::apply_2dpig_front(&mut frame, palette, look, anim_name);
+        }
     } else if BACK_ANIMS.contains(&anim_name) {
         apply_back_silhouette(&mut frame, profile, hair);
+        if let Some(look) = resolved_component_look(profile, agent) {
+            super::character_components::apply_2dpig_back(&mut frame, palette, look, anim_name);
+        }
     }
     frame
 }
@@ -274,8 +372,6 @@ fn apply_front_silhouette(
             paint(frame, &[(3, 11), (12, 11)], jacket);
         }
         CharacterProfile::Vivian => {
-            paint_vertical(frame, 3, 3, 11, hair);
-            paint_vertical(frame, 12, 3, 11, hair);
             clear(frame, &[(3, 14), (12, 14)]);
             paint(frame, &[(5, 4), (10, 4)], eye);
             paint(frame, &[(8, 7)], mouth);
@@ -308,6 +404,15 @@ fn apply_front_silhouette(
             paint(frame, &[(8, 7)], mouth);
             paint(frame, &[(7, 11), (8, 11)], shirt);
         }
+        CharacterProfile::Alison => {
+            paint_vertical(frame, 3, 3, 10, hair);
+            paint_vertical(frame, 12, 3, 9, hair);
+            paint(frame, &[(2, 7), (4, 2), (5, 1), (6, 1), (11, 2)], hair);
+            clear(frame, &[(3, 14), (12, 14)]);
+            paint(frame, &[(5, 4), (10, 4)], eye);
+            paint(frame, &[(8, 7)], mouth);
+            paint(frame, &[(6, 11), (9, 11)], shirt);
+        }
     }
 
     if profile.gender() == GenderPresentation::Feminine {
@@ -333,10 +438,7 @@ fn apply_back_silhouette(frame: &mut Frame, profile: CharacterProfile, hair: Rgb
         CharacterProfile::Alex => {
             clear(frame, &[(5, 0), (10, 0), (4, 1), (11, 1)]);
         }
-        CharacterProfile::Vivian => {
-            paint_vertical(frame, 3, 3, 11, hair);
-            paint_vertical(frame, 12, 3, 11, hair);
-        }
+        CharacterProfile::Vivian => {}
         CharacterProfile::Amy => {
             paint_vertical(frame, 3, 3, 9, hair);
             paint_vertical(frame, 12, 3, 9, hair);
@@ -350,6 +452,11 @@ fn apply_back_silhouette(frame: &mut Frame, profile: CharacterProfile, hair: Rgb
             paint_vertical(frame, 3, 3, 12, hair);
             paint_vertical(frame, 12, 3, 12, hair);
             paint(frame, &[(2, 6), (2, 8), (13, 7), (13, 9), (13, 11)], hair);
+        }
+        CharacterProfile::Alison => {
+            paint_vertical(frame, 3, 3, 10, hair);
+            paint_vertical(frame, 12, 3, 9, hair);
+            paint(frame, &[(2, 7), (4, 2), (5, 1), (6, 1), (11, 2)], hair);
         }
     }
 }

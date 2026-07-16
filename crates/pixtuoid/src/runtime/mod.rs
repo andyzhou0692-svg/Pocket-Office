@@ -62,6 +62,71 @@ const RECURRING_AGENT_NAMES: [&str; 24] = [
     "Simon",
 ];
 
+#[derive(Clone, Copy)]
+pub(super) struct TaskResident {
+    pub key: &'static str,
+    pub fallback_name: &'static str,
+    keywords: &'static [&'static str],
+}
+
+pub(super) const TASK_RESIDENTS: [TaskResident; 4] = [
+    TaskResident {
+        key: "tom",
+        fallback_name: "Tom (Head of IBD)",
+        keywords: &[
+            "bank",
+            "ibd",
+            "deal",
+            "transaction",
+            "m&a",
+            "valuation",
+            "finance",
+            "spreadsheet",
+            "xlsx",
+        ],
+    },
+    TaskResident {
+        key: "amy",
+        fallback_name: "Amy (Head of IR)",
+        keywords: &[
+            "ir",
+            "investor",
+            "board",
+            "deck",
+            "slides",
+            "email",
+            "communication",
+            "earnings",
+        ],
+    },
+    TaskResident {
+        key: "jess",
+        fallback_name: "Jess (Head of Strategy)",
+        keywords: &[
+            "strategy",
+            "promotion",
+            "career",
+            "research",
+            "script",
+            "conversation",
+            "market",
+        ],
+    },
+    TaskResident {
+        key: "alison",
+        fallback_name: "Alison",
+        keywords: &[
+            "operations",
+            "build",
+            "code",
+            "test",
+            "data",
+            "automation",
+            "system",
+        ],
+    },
+];
+
 /// The startup inputs shared by `run` + `run_async`. Bundled so a new boot
 /// flag is one struct field, not a fourth copy of the arg list to thread
 /// through both signatures + the main.rs call. The `theme` is already resolved
@@ -108,6 +173,8 @@ struct VisualNameResolver {
     configured: BTreeMap<String, String>,
     raw_labels: HashMap<AgentId, String>,
     rendered_labels: HashMap<AgentId, String>,
+    resident_slots: HashMap<AgentId, usize>,
+    decided_children: HashSet<AgentId>,
     roster_slots: HashMap<AgentId, usize>,
     next_roster_slot: usize,
 }
@@ -118,9 +185,51 @@ impl VisualNameResolver {
             configured,
             raw_labels: HashMap::new(),
             rendered_labels: HashMap::new(),
+            resident_slots: HashMap::new(),
+            decided_children: HashSet::new(),
             roster_slots: HashMap::new(),
             next_roster_slot: 0,
         }
+    }
+
+    fn resident_name(&self, resident_index: usize) -> String {
+        let resident = TASK_RESIDENTS[resident_index];
+        self.configured
+            .get(resident.key)
+            .cloned()
+            .unwrap_or_else(|| resident.fallback_name.to_string())
+    }
+
+    fn preferred_resident(
+        &self,
+        id: AgentId,
+        slot: &pixtuoid_core::state::AgentSlot,
+    ) -> Option<usize> {
+        let raw_label = self
+            .raw_labels
+            .get(&id)
+            .map(String::as_str)
+            .unwrap_or(slot.label.as_ref());
+        let detail = match &slot.state {
+            ActivityState::Active {
+                detail: Some(detail),
+                ..
+            } => detail.as_ref(),
+            _ => "",
+        };
+        let classifier =
+            format!("{} {} {}", raw_label, slot.cwd.display(), detail).to_ascii_lowercase();
+        let tokens: Vec<&str> = classifier
+            .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '&')
+            .filter(|token| !token.is_empty())
+            .collect();
+
+        TASK_RESIDENTS.iter().position(|resident| {
+            resident
+                .keywords
+                .iter()
+                .any(|keyword| tokens.contains(keyword))
+        })
     }
 
     fn apply(&mut self, scene: &mut SceneState) {
@@ -128,6 +237,10 @@ impl VisualNameResolver {
             .retain(|id, _| scene.agents.contains_key(id));
         self.rendered_labels
             .retain(|id, _| scene.agents.contains_key(id));
+        self.resident_slots
+            .retain(|id, _| scene.agents.contains_key(id));
+        self.decided_children
+            .retain(|id| scene.agents.contains_key(id));
         self.roster_slots
             .retain(|id, _| scene.agents.contains_key(id));
 
@@ -164,8 +277,46 @@ impl VisualNameResolver {
             }
         }
 
-        for (id, roster_slot) in &self.roster_slots {
+        let mut occupied_residents: HashSet<usize> =
+            self.resident_slots.values().copied().collect();
+        let mut new_children: Vec<_> = scene
+            .agents
+            .iter()
+            .filter(|(id, slot)| slot.parent_id.is_some() && !self.decided_children.contains(id))
+            .map(|(id, slot)| (*id, slot.desk_index))
+            .collect();
+        new_children.sort_by_key(|(id, desk)| (*desk, *id));
+
+        for (id, _) in new_children {
+            self.decided_children.insert(id);
+            let available: Vec<_> = (0..TASK_RESIDENTS.len())
+                .filter(|index| !occupied_residents.contains(index))
+                .collect();
+            if available.is_empty() {
+                continue;
+            }
+            let preferred = self.preferred_resident(id, &scene.agents[&id]);
+            let resident_index = preferred
+                .filter(|index| available.contains(index))
+                .unwrap_or_else(|| available[id.raw() as usize % available.len()]);
+            occupied_residents.insert(resident_index);
+            self.resident_slots.insert(id, resident_index);
+            self.roster_slots.remove(&id);
+        }
+
+        for (id, resident_index) in &self.resident_slots {
             if configured_ids.contains(id) {
+                continue;
+            }
+            if let Some(slot) = scene.agents.get_mut(id) {
+                let label = self.resident_name(*resident_index);
+                self.rendered_labels.insert(*id, label.clone());
+                slot.label = label.into();
+            }
+        }
+
+        for (id, roster_slot) in &self.roster_slots {
+            if configured_ids.contains(id) || self.resident_slots.contains_key(id) {
                 continue;
             }
             if let Some(slot) = scene.agents.get_mut(id) {
@@ -179,7 +330,11 @@ impl VisualNameResolver {
         let mut unnamed: Vec<_> = scene
             .agents
             .iter()
-            .filter(|(id, _)| !configured_ids.contains(id) && !self.roster_slots.contains_key(id))
+            .filter(|(id, _)| {
+                !configured_ids.contains(id)
+                    && !self.resident_slots.contains_key(id)
+                    && !self.roster_slots.contains_key(id)
+            })
             .map(|(id, slot)| (*id, slot.desk_index))
             .collect();
         unnamed.sort_by_key(|(id, desk)| (*desk, *id));
@@ -433,8 +588,23 @@ mod tests {
             .count();
         assert_eq!(vivians, 1, "only the primary agent may be Vivian");
         assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
-        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
-        assert_eq!(scene.agents[&sibling].label.as_ref(), "Tristan Pembroke");
+        assert!(
+            TASK_RESIDENTS
+                .iter()
+                .any(|resident| resident.fallback_name == scene.agents[&child].label.as_ref()),
+            "the first real child must use a persistent resident"
+        );
+        assert!(
+            TASK_RESIDENTS
+                .iter()
+                .any(|resident| resident.fallback_name == scene.agents[&sibling].label.as_ref()),
+            "the second real child must use a persistent resident"
+        );
+        assert_ne!(
+            scene.agents[&child].label.as_ref(),
+            scene.agents[&sibling].label.as_ref(),
+            "simultaneous tasks must not share one resident"
+        );
         assert_eq!(
             first_labels,
             scene
@@ -451,6 +621,144 @@ mod tests {
                 .all(|slot| !slot.label.contains("cx·")),
             "raw Codex labels must never reach the office"
         );
+    }
+
+    #[test]
+    fn resident_keywords_bind_real_subagents_to_the_named_cast() {
+        let now = SystemTime::now();
+        let mut scene = SceneState::uniform(16);
+        let mut reducer = Reducer::new();
+        let root = pixtuoid_core::AgentId::from_parts("codex", "resident-root");
+        reducer.apply(
+            &mut scene,
+            pixtuoid_core::AgentEvent::SessionStart {
+                agent_id: root,
+                source: "codex".into(),
+                session_id: "resident-root".into(),
+                cwd: PathBuf::from("/tmp/secondbrain-os"),
+                parent_id: None,
+            },
+            now,
+            Transport::Jsonl,
+        );
+
+        let children = [
+            ("finance-child", "/tmp/finance-valuation"),
+            ("ir-child", "/tmp/investor-relations"),
+            ("strategy-child", "/tmp/career-strategy"),
+            ("build-child", "/tmp/build-automation"),
+            ("overflow-child", "/tmp/general-work"),
+        ];
+        for (session_id, cwd) in children {
+            reducer.apply(
+                &mut scene,
+                pixtuoid_core::AgentEvent::SessionStart {
+                    agent_id: pixtuoid_core::AgentId::from_parts("codex", session_id),
+                    source: "codex".into(),
+                    session_id: session_id.into(),
+                    cwd: PathBuf::from(cwd),
+                    parent_id: Some(root),
+                },
+                now,
+                Transport::Jsonl,
+            );
+        }
+
+        let names = std::collections::BTreeMap::from([(
+            "cx·secondbrain-os".to_string(),
+            "Vivian".to_string(),
+        )]);
+        let mut resolver = VisualNameResolver::new(names);
+        resolver.apply(&mut scene);
+
+        let label = |session_id: &str| {
+            scene.agents[&pixtuoid_core::AgentId::from_parts("codex", session_id)]
+                .label
+                .to_string()
+        };
+        assert_eq!(label("finance-child"), "Tom (Head of IBD)");
+        assert_eq!(label("ir-child"), "Amy (Head of IR)");
+        assert_eq!(label("strategy-child"), "Jess (Head of Strategy)");
+        assert_eq!(label("build-child"), "Alison");
+        assert!(
+            ![
+                "Tom (Head of IBD)",
+                "Amy (Head of IR)",
+                "Jess (Head of Strategy)",
+                "Alison"
+            ]
+            .contains(&label("overflow-child").as_str()),
+            "a fifth concurrent child must use the recurring roster"
+        );
+
+        let first_labels: std::collections::BTreeMap<_, _> = scene
+            .agents
+            .iter()
+            .map(|(id, slot)| (*id, slot.label.to_string()))
+            .collect();
+        resolver.apply(&mut scene);
+        assert_eq!(
+            first_labels,
+            scene
+                .agents
+                .iter()
+                .map(|(id, slot)| (*id, slot.label.to_string()))
+                .collect(),
+            "a real task must keep one resident identity for its lifetime"
+        );
+    }
+
+    #[test]
+    fn resident_assignment_waits_for_a_late_parent_link_then_stays_sticky() {
+        let now = SystemTime::now();
+        let mut scene = SceneState::uniform(8);
+        let mut reducer = Reducer::new();
+        let root = pixtuoid_core::AgentId::from_parts("codex", "late-root");
+        let child = pixtuoid_core::AgentId::from_parts("codex", "late-child");
+
+        for (agent_id, session_id, parent_id, cwd) in [
+            (root, "late-root", None, "/tmp/secondbrain-os"),
+            (child, "late-child", None, "/tmp/finance-model"),
+        ] {
+            reducer.apply(
+                &mut scene,
+                pixtuoid_core::AgentEvent::SessionStart {
+                    agent_id,
+                    source: "codex".into(),
+                    session_id: session_id.into(),
+                    cwd: PathBuf::from(cwd),
+                    parent_id,
+                },
+                now,
+                Transport::Jsonl,
+            );
+        }
+
+        let names = std::collections::BTreeMap::from([(
+            "cx·secondbrain-os".to_string(),
+            "Vivian".to_string(),
+        )]);
+        let mut resolver = VisualNameResolver::new(names);
+        resolver.apply(&mut scene);
+        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
+
+        reducer.apply(
+            &mut scene,
+            pixtuoid_core::AgentEvent::SessionStart {
+                agent_id: child,
+                source: "codex".into(),
+                session_id: "late-child".into(),
+                cwd: PathBuf::from("/tmp/finance-model"),
+                parent_id: Some(root),
+            },
+            now,
+            Transport::Hook,
+        );
+        resolver.apply(&mut scene);
+
+        assert_eq!(scene.agents[&child].label.as_ref(), "Tom (Head of IBD)");
+        resolver.apply(&mut scene);
+        assert_eq!(scene.agents[&child].label.as_ref(), "Tom (Head of IBD)");
     }
 
     #[test]
@@ -485,7 +793,7 @@ mod tests {
         ]);
         let mut resolver = VisualNameResolver::new(names);
         resolver.apply(&mut scene);
-        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
+        let assigned_resident = scene.agents[&child].label.to_string();
 
         reducer.apply(
             &mut scene,
@@ -499,7 +807,7 @@ mod tests {
         resolver.apply(&mut scene);
 
         assert_eq!(scene.agents[&root].label.as_ref(), "Vivian");
-        assert_eq!(scene.agents[&child].label.as_ref(), "Alex");
+        assert_eq!(scene.agents[&child].label.as_ref(), assigned_resident);
     }
 
     #[test]

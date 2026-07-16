@@ -107,6 +107,59 @@ pub(crate) fn sample_scene(now: SystemTime, max_desks: usize, n_agents: usize) -
     s
 }
 
+/// Deterministic recurring 200West cast for profile-specific visual proof.
+/// Every resident waits at their desk so the crop helper records a stable,
+/// unobscured full-body position instead of a hash-selected demo profile.
+pub(crate) fn named_200west_scene(now: SystemTime, max_desks: usize) -> SceneState {
+    let cast = [
+        ("tom", "Tom (Head of IBD)"),
+        ("tristan-pembroke", "Tristan Pembroke"),
+        ("alex", "Alex"),
+        ("vivian", "Vivian"),
+        ("amy", "Amy (Head of IR)"),
+        ("jess", "Jess (Head of Strategy)"),
+        ("maya", "Maya"),
+        ("alison", "Alison"),
+    ];
+    let mut scene = SceneState::uniform(max_desks);
+    let created_at = now.checked_sub(Duration::from_secs(300)).unwrap_or(now);
+    for (desk_index, (key, label)) in cast.into_iter().enumerate() {
+        let id = AgentId::from_parts("visual-coworker", key);
+        scene.agents.insert(
+            id,
+            AgentSlot {
+                agent_id: id,
+                source: Arc::from("visual-coworker"),
+                session_id: Arc::from(key),
+                cwd: Arc::from(PathBuf::from("/demo/200west").as_path()),
+                label: label.into(),
+                state: if label == "Alison" {
+                    ActivityState::Idle
+                } else {
+                    ActivityState::Waiting {
+                        reason: "visual proof".into(),
+                    }
+                },
+                state_started_at: if label == "Alison" { now } else { created_at },
+                created_at,
+                last_event_at: created_at,
+                exiting_at: None,
+                pending_idle_at: None,
+                desk_index: GlobalDeskIndex(desk_index),
+                floor_idx: scene.floor_of(GlobalDeskIndex(desk_index)),
+                tool_call_count: 0,
+                active_ms: 0,
+                unknown_cwd: false,
+                parent_id: None,
+                pid: None,
+                model: None,
+                effort: None,
+            },
+        );
+    }
+    scene
+}
+
 /// Inject an OpenClaw gateway presence for the beautify visual loop — drives
 /// the wandering lobster mascot. `state` ∈ {idle, busy, down}; off the gen-media
 /// path so baselines hold.

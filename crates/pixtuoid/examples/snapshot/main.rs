@@ -25,7 +25,7 @@ use crate::encode::{
 };
 use crate::scenes::{
     anim_scene, capture_live_scene, dashboard_scene, inject_openclaw_presence, meeting_scene,
-    sample_scene,
+    named_200west_scene, sample_scene,
 };
 
 const COLS: u16 = 192;
@@ -95,6 +95,14 @@ struct SnapshotArgs {
     /// floor-2 multi-floor capture.
     #[arg(long, default_value_t = 12)]
     agents: usize,
+
+    /// Render the eight recurring 200West residents at stable desks.
+    /// Verification-only fixture for profile-specific full office and crops.
+    #[arg(
+        long,
+        conflicts_with_all = ["anim", "meeting", "dashboard", "empty", "live", "pets", "navigate_at"]
+    )]
+    named_200west_cast: bool,
 
     /// Output an animated GIF instead of a static PNG. Renders
     /// `--gif-duration` seconds at `--gif-fps` frames per second,
@@ -446,7 +454,9 @@ fn main() -> Result<()> {
     let cols = args.cols.unwrap_or(COLS);
     let rows = args.rows.unwrap_or(ROWS);
     let mut skip_ms = 0u64;
-    let scene = if let Some(target) = args.anim.as_deref() {
+    let scene = if args.named_200west_cast {
+        named_200west_scene(now, args.max_desks)
+    } else if let Some(target) = args.anim.as_deref() {
         let (s, skip) = anim_scene(
             now,
             target,
@@ -889,6 +899,37 @@ fn due_navigations(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn named_200west_scene_exposes_the_recurring_cast_for_visual_proof() {
+        let scene = scenes::named_200west_scene(SystemTime::UNIX_EPOCH, 12);
+        let mut cast: Vec<_> = scene
+            .agents
+            .values()
+            .map(|slot| {
+                (
+                    slot.desk_index.0,
+                    slot.session_id.to_string(),
+                    slot.label.to_string(),
+                )
+            })
+            .collect();
+        cast.sort_by_key(|row| row.0);
+
+        assert_eq!(
+            cast,
+            vec![
+                (0, "tom".into(), "Tom (Head of IBD)".into()),
+                (1, "tristan-pembroke".into(), "Tristan Pembroke".into(),),
+                (2, "alex".into(), "Alex".into()),
+                (3, "vivian".into(), "Vivian".into()),
+                (4, "amy".into(), "Amy (Head of IR)".into()),
+                (5, "jess".into(), "Jess (Head of Strategy)".into()),
+                (6, "maya".into(), "Maya".into()),
+                (7, "alison".into(), "Alison".into()),
+            ]
+        );
+    }
 
     #[test]
     fn parse_navigations_happy_and_fractional() {

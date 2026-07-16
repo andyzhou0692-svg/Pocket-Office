@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -516,6 +516,11 @@ impl DaemonPresence {
 pub struct SceneState {
     pub agents: BTreeMap<AgentId, AgentSlot>,
     pub floor_capacities: [usize; MAX_FLOORS],
+    /// Process-local proof that this exact slot lifetime emitted a live hook
+    /// event. Transcript scans can replay historical Active states, so visual
+    /// projections use this generation-keyed set instead of arrival timing.
+    #[serde(skip)]
+    live_generations: HashMap<AgentId, SystemTime>,
     /// Daemon-style sources (the OpenClaw gateway is instance #1) rendered as
     /// wandering mascots, keyed on the registry source name. Empty for an
     /// all-agent scene. PRIVATE (with `daemons`/`daemons_mut` accessors) on
@@ -537,6 +542,26 @@ impl SceneState {
     pub fn daemons_mut(&mut self) -> &mut BTreeMap<String, DaemonPresence> {
         &mut self.daemons
     }
+
+    /// Whether the exact slot lifetime was observed through a live hook.
+    pub fn is_live_generation(&self, id: AgentId, generation: SystemTime) -> bool {
+        self.live_generations.get(&id) == Some(&generation)
+    }
+
+    /// Record a live transport observation for the current slot lifetime.
+    pub(crate) fn mark_live_generation(&mut self, id: AgentId) {
+        if let Some(slot) = self.agents.get(&id) {
+            self.live_generations.insert(id, slot.created_at);
+        }
+    }
+
+    pub(crate) fn retain_live_generations(&mut self) {
+        self.live_generations.retain(|id, generation| {
+            self.agents
+                .get(id)
+                .is_some_and(|slot| slot.created_at == *generation)
+        });
+    }
 }
 
 impl Default for SceneState {
@@ -550,6 +575,7 @@ impl SceneState {
         Self {
             agents: BTreeMap::new(),
             floor_capacities,
+            live_generations: HashMap::new(),
             daemons: BTreeMap::new(),
         }
     }

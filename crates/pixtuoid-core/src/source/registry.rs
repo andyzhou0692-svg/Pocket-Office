@@ -80,6 +80,11 @@ pub struct HookDecoding {
 /// can hand back a value (a `Daemon` row has no stored caps to borrow).
 #[derive(Clone, Copy)]
 pub struct SourceCaps {
+    /// Transport that can prove an agent generation is live for visual
+    /// projection. Hybrid and hook-only sources use Hook so an initial
+    /// transcript replay cannot animate history. Transcript-only sources use
+    /// Jsonl because their append stream is their sole lifecycle authority.
+    pub visual_live_transport: VisualLiveTransport,
     /// Does a CLEAN exit leave any end signal at all (a SessionEnd hook
     /// and/or a JSONL end marker — best-effort counts; "none of any kind" is
     /// the bar for `false`)? When false, the stale-sweep is the ONLY reaper a
@@ -108,10 +113,17 @@ pub struct SourceCaps {
     pub delegations_are_hook_silent: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VisualLiveTransport {
+    Hook,
+    Jsonl,
+}
+
 impl SourceCaps {
     /// All-false caps for a `Daemon` source: it creates no `AgentSlot`s, so the
     /// AgentSlot-reaping caps never apply — `short_idle_reap()` is false.
     pub const INERT_DAEMON: SourceCaps = SourceCaps {
+        visual_live_transport: VisualLiveTransport::Hook,
         has_exit_signal: false,
         resurrects_on_prompt: false,
         delegations_are_hook_silent: false,
@@ -371,6 +383,7 @@ const CLAUDE_CODE: SourceDescriptor = SourceDescriptor {
             custom: Some(claude_code::decode_cc_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             has_exit_signal: true,
             // CC has no UserPromptSubmit-class resurrect path (its JSONL
             // SessionStart is first-sight-only, so a swept slot would NOT walk
@@ -401,6 +414,7 @@ const CODEX: SourceDescriptor = SourceDescriptor {
             custom: Some(codex::decode_codex_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             has_exit_signal: false,
             resurrects_on_prompt: true,
             delegations_are_hook_silent: false,
@@ -427,6 +441,7 @@ const ANTIGRAVITY: SourceDescriptor = SourceDescriptor {
             custom: None,
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Jsonl,
             has_exit_signal: false,
             resurrects_on_prompt: false,
             delegations_are_hook_silent: false,
@@ -452,6 +467,7 @@ const REASONIX: SourceDescriptor = SourceDescriptor {
             custom: Some(reasonix::decode_rx_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             // SessionEnd hook fires on clean exit (verified upstream @v1.2.0,
             // internal/hook/hook.go run sites) — best-effort counts.
             has_exit_signal: true,
@@ -488,6 +504,7 @@ const CODEWHALE: SourceDescriptor = SourceDescriptor {
             custom: Some(codewhale::decode_cw_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             // session_end fires on a clean TUI quit carrying DEEPSEEK_WORKSPACE
             // (verified live 2026-06-12) — best-effort counts.
             has_exit_signal: true,
@@ -520,6 +537,7 @@ const OPENCODE: SourceDescriptor = SourceDescriptor {
             custom: Some(opencode::decode_oc_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             // A clean per-session close fires `session.deleted` → SessionEnd, and an
             // abrupt exit / TUI quit kills the opencode process → `hook::HookPidWatch`
             // ends every bound sprite (the plugin stamps `_pid`). So there IS an exit
@@ -583,6 +601,7 @@ const COPILOT: SourceDescriptor = SourceDescriptor {
             custom: None,
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Jsonl,
             // `session.shutdown` is a real persisted exit marker → no short-idle reaper.
             has_exit_signal: true,
             // Sessions are stable + resumable (sessionId constant across --resume); a
@@ -619,6 +638,7 @@ const CURSOR: SourceDescriptor = SourceDescriptor {
             custom: Some(cursor::decode_cursor_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             // `sessionEnd` FIRES on clean completion (capture-verified 2026-06-14:
             // `reason:"completed"`) — best-effort counts, CC/Reasonix class. Abrupt
             // exits (no PID exposed) fall to the generic stale-sweep.
@@ -660,6 +680,7 @@ const HERMES: SourceDescriptor = SourceDescriptor {
             custom: Some(hermes::decode_hermes_hook_custom),
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             // `on_session_end` FIRES on clean completion (best-effort counts,
             // CC/Cursor class). Abrupt exits (no PID in the payload) fall to the
             // generic stale-sweep.
@@ -702,6 +723,7 @@ const OMP: SourceDescriptor = SourceDescriptor {
             custom: None,
         },
         caps: SourceCaps {
+            visual_live_transport: VisualLiveTransport::Jsonl,
             // The `session_exit` custom entry is appended + flushed on every
             // clean teardown incl. SIGINT/SIGTERM (best-effort counts;
             // SIGKILL falls to the stale-sweep) → no short-idle reaper.

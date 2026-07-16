@@ -12,16 +12,18 @@ max-desks = 8
 pack-dir = "~/.config/pixtuoid/packs/robot"
 
 # Display-only aliases. The Codex root alias names Vivian. The reserved tom,
-# amy and jess keys name persistent render-only office residents.
+# amy, jess and alison keys name persistent office residents.
 [agent-names]
 "cx·secondbrain-os" = "Vivian"
 tom = "Tom (Head of IBD)"
 amy = "Amy (Head of IR)"
 jess = "Jess (Head of Strategy)"
+alison = "Alison"
 
-# Real subagents receive stable recurring visual names from a fixed local
-# roster. Resident activity is a local visual rotation and does not classify
-# work or consume model tokens. At most seven idle avatars render at once.
+# Real subagents prefer an available named resident using small local keyword
+# rules, then fall back to the recurring roster. The rules use no model tokens
+# and never change the real task. At most eight idle avatars render at once;
+# active and waiting agents are never capped.
 
 # Optional TUI-only furniture position overrides. Coordinates are scene pixels.
 [[layout.positions]]
@@ -47,7 +49,7 @@ kind = "dog"        # name omitted → "Office Dog"
 |-----|---------|-------------|
 | `max-desks` | auto | Cap desks per floor (≥ 1; `0` is ignored with a warning). If unset, auto-computed from terminal size. Excess agents overflow to additional floors. Applies to the `run` TUI; `pixtuoid floating` sizes its floors from the window. |
 | `pack-dir` | — | Custom sprite pack directory. Supports `~` expansion. See [Custom sprite packs](#custom-sprite-packs). |
-| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, and `jess` keys name persistent render-only residents. Other real agents receive stable recurring visual names from the built-in local roster while present. |
+| `[agent-names]` | none | Display-only aliases from a raw Pixtuoid root label to its shown name. The reserved `tom`, `amy`, `jess`, and `alison` keys name persistent residents. Real subagents can carry one of those names through completion using local zero-token keyword preferences; overflow uses the recurring roster. |
 | `[[layout.positions]]` | procedural layout | Reposition one existing furniture or decor item on one TUI floor. See [Layout positions](#layout-positions). |
 | `[[pets]]` | all kinds, default names | One stanza per pet. `kind` (`"cat"`/`"dog"`) is required; `name` is optional (the hover-tooltip label, default `Office Cat`/`Office Dog`). Omit the section for all pets; `pets = []` for none; an unknown `kind` is skipped without affecting other settings. Keep it last (it's a table section). |
 

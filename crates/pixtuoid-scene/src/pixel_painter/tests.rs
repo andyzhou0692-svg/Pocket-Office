@@ -824,6 +824,7 @@ fn named_200west_cast_has_stable_gender_appropriate_profiles() {
             GenderPresentation::Feminine,
         ),
         ("maya", "Maya", GenderPresentation::Feminine),
+        ("alison", "Alison", GenderPresentation::Feminine),
     ];
 
     let mut variants = std::collections::HashSet::new();
@@ -838,6 +839,70 @@ fn named_200west_cast_has_stable_gender_appropriate_profiles() {
             variants.insert(profile),
             "each recurring resident needs a distinct visual profile: {label}"
         );
+    }
+}
+
+#[test]
+fn feminine_200west_cast_has_approved_2dpig_component_assignments() {
+    use super::character_profile::{profile_for, FaceComponent, HairComponent, OutfitComponent};
+
+    let cases = [
+        (
+            "vivian",
+            "Vivian",
+            Some((
+                HairComponent::ExecutiveBob,
+                OutfitComponent::NavySuit,
+                FaceComponent::SoftMakeup,
+            )),
+        ),
+        (
+            "amy",
+            "Amy (Head of IR)",
+            Some((
+                HairComponent::ExecutiveBob,
+                OutfitComponent::IvorySkirt,
+                FaceComponent::Glasses,
+            )),
+        ),
+        (
+            "jess",
+            "Jess (Head of Strategy)",
+            Some((
+                HairComponent::Ponytail,
+                OutfitComponent::BurgundyDress,
+                FaceComponent::SoftMakeup,
+            )),
+        ),
+        (
+            "maya",
+            "Maya",
+            Some((
+                HairComponent::Ponytail,
+                OutfitComponent::IvorySkirt,
+                FaceComponent::Glasses,
+            )),
+        ),
+        (
+            "alison",
+            "Alison",
+            Some((
+                HairComponent::LongHair,
+                OutfitComponent::BurgundyDress,
+                FaceComponent::SoftMakeup,
+            )),
+        ),
+        ("tom", "Tom (Head of IBD)", None),
+        ("tristan-pembroke", "Tristan Pembroke", None),
+        ("alex", "Alex", None),
+    ];
+
+    for (key, label, expected) in cases {
+        let profile = profile_for(&named_200west_slot(key, label));
+        let actual = profile
+            .component_look()
+            .map(|look| (look.hair, look.outfit, look.face));
+        assert_eq!(actual, expected, "wrong component look for {label}");
     }
 }
 
@@ -892,7 +957,7 @@ fn feminine_200west_face_tapers_to_a_pointed_chin() {
         .animation("standing")
         .and_then(|animation| animation.frames.first())
         .expect("standing pose exists");
-    let slot = named_200west_slot("amy", "Amy (Head of IR)");
+    let slot = named_200west_slot("jess", "Jess (Head of Strategy)");
     let palette = goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
     let hair = palette.get('H').flatten().expect("200West hair color");
     let recolored = recolor_frame(frame, &palette, &pack.palette);
@@ -915,8 +980,206 @@ fn feminine_200west_face_tapers_to_a_pointed_chin() {
     );
 }
 
+fn render_vivian_profile_at_launch_second(second: u64) -> Frame {
+    render_named_200west_profile_at_launch_second("vivian", "Vivian", second)
+}
+
+fn render_named_200west_profile_at_launch_second(key: &str, label: &str, second: u64) -> Frame {
+    use super::character_profile::apply_200west_profile;
+
+    let pack = crate::embedded_pack::test_default_pack();
+    let frame = pack
+        .animation("standing")
+        .and_then(|animation| animation.frames.first())
+        .expect("standing pose exists");
+    let mut slot = named_200west_slot(key, label);
+    slot.created_at = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(second);
+    let palette = goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let recolored = recolor_frame(frame, &palette, &pack.palette);
+    apply_200west_profile(recolored, &palette, &slot, "standing")
+}
+
 #[test]
-fn named_200west_cast_renders_seven_distinct_front_silhouettes() {
+fn approved_2dpig_components_are_visible_in_live_front_frames() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let cases = [
+        (
+            "amy",
+            "Amy (Head of IR)",
+            (3, 10),
+            'H',
+            "Amy's executive bob",
+        ),
+        (
+            "amy",
+            "Amy (Head of IR)",
+            (5, 14),
+            'w',
+            "Amy's ivory outfit",
+        ),
+        (
+            "jess",
+            "Jess (Head of Strategy)",
+            (14, 9),
+            'H',
+            "Jess's ponytail",
+        ),
+        ("maya", "Maya", (14, 9), 'H', "Maya's ponytail"),
+        ("alison", "Alison", (3, 14), 'H', "Alison's long hair"),
+    ];
+
+    for (key, label, point, palette_key, description) in cases {
+        let slot = named_200west_slot(key, label);
+        let palette =
+            goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+        let expected = palette
+            .get(palette_key)
+            .flatten()
+            .expect("component palette role");
+        let frame = render_named_200west_profile_at_launch_second(key, label, 0);
+        assert_eq!(
+            frame.get(point.0, point.1),
+            Some(&Some(expected)),
+            "{description} must be visible in the live frame"
+        );
+    }
+
+    let jess = render_named_200west_profile_at_launch_second("jess", "Jess (Head of Strategy)", 0);
+    assert_eq!(
+        jess.get(5, 15),
+        Some(&Some(Rgb {
+            r: 129,
+            g: 56,
+            b: 77,
+        })),
+        "Jess's burgundy dress must be visible in the live frame"
+    );
+
+    let alison = render_named_200west_profile_at_launch_second("alison", "Alison", 0);
+    assert_eq!(
+        alison.get(2, 4),
+        Some(&None),
+        "Alison must not receive the glasses temple pixels"
+    );
+}
+
+#[test]
+fn vivian_launch_seed_selects_two_stable_component_wardrobes() {
+    let first = render_vivian_profile_at_launch_second(0);
+    let repeated = render_vivian_profile_at_launch_second(0);
+    let next_launch = render_vivian_profile_at_launch_second(1);
+
+    assert_eq!(
+        first.as_slice(),
+        repeated.as_slice(),
+        "one launch must keep one wardrobe"
+    );
+    assert_ne!(
+        first.as_slice(),
+        next_launch.as_slice(),
+        "a later launch must be able to select Vivian's second wardrobe"
+    );
+}
+
+#[test]
+fn vivian_component_glasses_can_rotate_without_changing_her_hair() {
+    let without_glasses = render_vivian_profile_at_launch_second(0);
+    let with_glasses = render_vivian_profile_at_launch_second(2);
+
+    assert!(
+        matches!(with_glasses.get(2, 4), Some(Some(_))),
+        "the glasses component must paint a visible outer temple"
+    );
+    assert_ne!(
+        without_glasses.get(2, 4),
+        with_glasses.get(2, 4),
+        "the accessory choice must be visible"
+    );
+    for point in [(3, 3), (12, 3), (3, 10), (12, 10)] {
+        assert_eq!(
+            without_glasses.get(point.0, point.1),
+            with_glasses.get(point.0, point.1),
+            "Vivian's core hairstyle must not rotate with accessories"
+        );
+    }
+}
+
+#[test]
+fn chloe_glasses_leave_a_clear_skin_row_below_the_full_frame() {
+    let frame = render_named_200west_profile_at_launch_second("chloe", "Chloe", 2);
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = named_200west_slot("chloe", "Chloe");
+    let skin = goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal)
+        .get('S')
+        .flatten()
+        .expect("face skin color");
+
+    for point in [(7, 9), (8, 9)] {
+        assert_eq!(
+            frame.get(point.0, point.1),
+            Some(&Some(skin)),
+            "the complete glasses frame must leave the cheek row clear at {point:?}"
+        );
+    }
+}
+
+#[test]
+fn chloe_glasses_match_the_reference_frame_with_hollow_lenses() {
+    let frame = render_named_200west_profile_at_launch_second("chloe", "Chloe", 2);
+    let pack = crate::embedded_pack::test_default_pack();
+    let slot = named_200west_slot("chloe", "Chloe");
+    let palette = goldman_agent_palette(&pack.palette, &slot, None, crate::burn::BurnTier::Normal);
+    let skin = palette.get('S').flatten().expect("face skin color");
+    let black = Rgb {
+        r: 18,
+        g: 18,
+        b: 20,
+    };
+
+    let frame_points = [
+        (2, 4),
+        (3, 4),
+        (4, 4),
+        (5, 4),
+        (6, 4),
+        (9, 4),
+        (10, 4),
+        (11, 4),
+        (12, 4),
+        (13, 4),
+        (3, 5),
+        (6, 5),
+        (7, 5),
+        (8, 5),
+        (9, 5),
+        (12, 5),
+        (3, 6),
+        (6, 6),
+        (9, 6),
+        (12, 6),
+        (4, 7),
+        (5, 7),
+        (10, 7),
+        (11, 7),
+    ];
+    for point in frame_points {
+        assert_eq!(
+            frame.get(point.0, point.1),
+            Some(&Some(black)),
+            "normal glasses must follow the reference outline at {point:?}"
+        );
+    }
+    for point in [(4, 5), (5, 5), (10, 5), (11, 5), (5, 6), (10, 6)] {
+        assert_eq!(
+            frame.get(point.0, point.1),
+            Some(&Some(skin)),
+            "normal glasses must leave the lens hollow at {point:?}"
+        );
+    }
+}
+
+#[test]
+fn named_200west_cast_renders_eight_distinct_front_silhouettes() {
     use super::character_profile::apply_200west_profile;
 
     let pack = crate::embedded_pack::test_default_pack();
@@ -932,6 +1195,7 @@ fn named_200west_cast_renders_seven_distinct_front_silhouettes() {
         ("amy", "Amy (Head of IR)"),
         ("jess", "Jess (Head of Strategy)"),
         ("maya", "Maya"),
+        ("alison", "Alison"),
     ];
 
     let mut rendered = std::collections::HashSet::new();
@@ -2525,13 +2789,18 @@ fn sim_rig() -> (SceneState, Layout, pixtuoid_core::AgentId, SystemTime, Pack) {
     (scene, layout, id, now0, pack)
 }
 
-fn idle_alex_frame(now_ms: u64, behavior: &'static crate::chitchat::BehaviorPack) -> SimFrame {
+fn named_character_frame(
+    label: &str,
+    state: ActivityState,
+    now_ms: u64,
+    behavior: &'static crate::chitchat::BehaviorPack,
+) -> SimFrame {
     let pack = crate::embedded_pack::test_default_pack();
     let layout = Layout::compute_with_seed(160, 96, None, 0).expect("160x96 lays out");
     let now = SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(now_ms);
-    let id = pixtuoid_core::AgentId::from_transcript_path("/p/alex-liquor.jsonl");
-    let mut slot = make_slot(id, ActivityState::Idle);
-    slot.label = "Alex".into();
+    let id = pixtuoid_core::AgentId::from_parts("habit-test", label);
+    let mut slot = make_slot(id, state);
+    slot.label = label.into();
     slot.created_at = SystemTime::UNIX_EPOCH;
     slot.last_event_at = SystemTime::UNIX_EPOCH;
     slot.state_started_at = now;
@@ -2565,6 +2834,10 @@ fn idle_alex_frame(now_ms: u64, behavior: &'static crate::chitchat::BehaviorPack
     )
 }
 
+fn idle_alex_frame(now_ms: u64, behavior: &'static crate::chitchat::BehaviorPack) -> SimFrame {
+    named_character_frame("Alex", ActivityState::Idle, now_ms, behavior)
+}
+
 #[test]
 fn two_hundred_west_maps_alex_liquor_phases_to_visible_character_placements() {
     use crate::habits::CharacterHabit;
@@ -2586,6 +2859,57 @@ fn two_hundred_west_maps_alex_liquor_phases_to_visible_character_placements() {
     let normal = idle_alex_frame(52_400, &crate::chitchat::DEFAULT_BEHAVIOR);
     assert_eq!(normal.characters[0].habit, CharacterHabit::None);
     assert_ne!(normal.characters[0].anim_name, "holding_coffee");
+}
+
+#[test]
+fn alison_vape_phases_map_only_idle_alison_to_visible_character_placements() {
+    use crate::habits::CharacterHabit;
+
+    let left = named_character_frame(
+        "Alison",
+        ActivityState::Idle,
+        49_000,
+        &crate::chitchat::DEFAULT_BEHAVIOR,
+    );
+    assert_eq!(left.characters[0].habit, CharacterHabit::LookLeft);
+
+    let right = named_character_frame(
+        "Alison",
+        ActivityState::Idle,
+        50_000,
+        &crate::chitchat::DEFAULT_BEHAVIOR,
+    );
+    assert_eq!(right.characters[0].habit, CharacterHabit::LookRight);
+
+    let raised = named_character_frame(
+        "Alison",
+        ActivityState::Idle,
+        51_000,
+        &crate::chitchat::DEFAULT_BEHAVIOR,
+    );
+    assert_eq!(raised.characters[0].habit, CharacterHabit::VapeRaise);
+    assert_eq!(raised.characters[0].anim_name, "holding_coffee");
+
+    let exhale = named_character_frame(
+        "Alison",
+        ActivityState::Idle,
+        52_000,
+        &crate::chitchat::DEFAULT_BEHAVIOR,
+    );
+    assert_eq!(exhale.characters[0].habit, CharacterHabit::VapeExhale);
+    assert_eq!(exhale.characters[0].anim_name, "holding_coffee");
+
+    let active = named_character_frame(
+        "Alison",
+        ActivityState::Active {
+            tool_use_id: None,
+            detail: None,
+            kind: pixtuoid_core::state::ToolKind::Read,
+        },
+        52_000,
+        &crate::chitchat::DEFAULT_BEHAVIOR,
+    );
+    assert_eq!(active.characters[0].habit, CharacterHabit::None);
 }
 
 #[test]
@@ -2686,6 +3010,55 @@ fn suspicious_glance_moves_alexs_eyes_left_then_right() {
     assert_eq!(right.get(anchor.x + 11, anchor.y + 4), eye);
     assert_eq!(right.get(anchor.x + 5, anchor.y + 4), skin);
     assert_eq!(right.get(anchor.x + 10, anchor.y + 4), skin);
+}
+
+#[test]
+fn alison_vape_drawable_attaches_the_device_and_timed_cloud_to_her_face() {
+    let pack = crate::embedded_pack::test_default_pack();
+    let mut agent = make_slot(
+        pixtuoid_core::AgentId::from_parts("codex", "alison-vape-render"),
+        ActivityState::Idle,
+    );
+    agent.label = "Alison".into();
+    let anchor = Point { x: 8, y: 8 };
+    let background = Rgb { r: 1, g: 2, b: 3 };
+    let render = |habit, now_ms| {
+        let drawable = Drawable {
+            anchor_y: anchor.y,
+            kind: DrawableKind::Character {
+                agent: &agent,
+                anim_name: "holding_coffee",
+                frame_idx: 0,
+                anchor,
+                flip_x: false,
+                glow_tint: None,
+                sleep_z_seed: None,
+                waiting_bubble: false,
+                walking_dust_frame: None,
+                habit,
+            },
+        };
+        let mut buf = RgbBuffer::filled(48, 32, background);
+        paint_drawable(
+            &drawable,
+            &mut buf,
+            &pack,
+            &mut FrameCache::new(),
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_millis(now_ms),
+            crate::theme::theme_by_name("normal").expect("normal theme"),
+        );
+        buf
+    };
+
+    let raised = render(crate::habits::CharacterHabit::VapeRaise, 51_500);
+    assert_ne!(raised.get(anchor.x + 12, anchor.y + 6), background);
+
+    let exhale = render(crate::habits::CharacterHabit::VapeExhale, 52_250);
+    assert_ne!(exhale.get(anchor.x + 15, anchor.y + 6), background);
+
+    let boundary = render(crate::habits::CharacterHabit::VapeExhale, 54_000);
+    let raise_at_boundary = render(crate::habits::CharacterHabit::VapeRaise, 54_000);
+    assert_eq!(boundary.as_slice(), raise_at_boundary.as_slice());
 }
 
 #[test]

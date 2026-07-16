@@ -541,6 +541,11 @@ fn oversized_attach_synthesized_task_start_restores_suppression_and_b1() {
         t0 + Duration::from_secs(2),
         Transport::Hook,
     );
+    let generation = scene.agents[&parent].created_at;
+    assert!(
+        scene.is_live_generation(parent, generation),
+        "a suppressed hook must still prove the attached generation is live"
+    );
     assert_delegating(
         &scene,
         parent,

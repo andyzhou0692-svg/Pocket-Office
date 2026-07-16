@@ -382,6 +382,9 @@ fn resolve_characters(
                     CharacterHabit::LookLeft => ("walking", 0, true, None),
                     CharacterHabit::LookRight => ("walking", 1, false, None),
                     CharacterHabit::Swig => ("holding_coffee", 0, false, None),
+                    CharacterHabit::VapeRaise | CharacterHabit::VapeExhale => {
+                        ("holding_coffee", 0, false, None)
+                    }
                 };
                 let mut placement = seated(anim_name, frame_idx, CharacterGlow::None, sleep_z_seed);
                 placement.flip_x = flip_x;

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
+use crate::source::registry::{descriptor_for, VisualLiveTransport};
 use crate::source::{AgentEvent, Transport};
 use crate::state::correlation::{Correlation, ToolEventKind};
 use crate::state::{fsm, scope, ActivityState, AgentSlot, SceneState, ToolKind};
@@ -280,6 +281,7 @@ impl Reducer {
             .retain(|id, _| scene.agents.contains_key(id));
         self.pending_b1_cascades
             .retain(|id, _| scene.agents.contains_key(id));
+        scene.retain_live_generations();
     }
 
     /// Gracefully evict every live agent of `source_id` — mark each exiting and
@@ -328,6 +330,26 @@ impl Reducer {
         self.sweep_exited(scene, now);
         self.expire_pending_idles(scene, now);
         let id = event.agent_id();
+        let source = match &event {
+            AgentEvent::SessionStart { source, .. } => Some(source.as_str()),
+            _ => scene.agents.get(&id).map(|slot| slot.source.as_ref()),
+        };
+        let live_transport = from == Transport::Hook
+            || (from == Transport::Jsonl
+                && source.is_some_and(|source| {
+                    descriptor_for(source).is_some_and(|descriptor| {
+                        descriptor.caps().visual_live_transport == VisualLiveTransport::Jsonl
+                    })
+                }));
+        let live_event = live_transport
+            && matches!(
+                &event,
+                AgentEvent::SessionStart { .. }
+                    | AgentEvent::ActivityStart { .. }
+                    | AgentEvent::ActivityEnd { .. }
+                    | AgentEvent::Waiting { .. }
+                    | AgentEvent::Identity { .. }
+            );
 
         // PRE-PASS 0 — a hook event is PROOF OF LIFE: it can only come from a
         // live process. A hook tool/permission event whose id has no slot means
@@ -351,6 +373,12 @@ impl Reducer {
                 self.corr.recent_hook_session_ends.insert(id, now);
             }
             self.synthesize_hook_registration(scene, &event, id, now);
+        }
+        // Record proof before any reducer suppression or dedup return. A hook
+        // misattributed from a subagent is still proof that the already-known
+        // generation is live even when its activity state must be ignored.
+        if live_event {
+            scene.mark_live_generation(id);
         }
 
         // Liveness flows UP the tree: any activity by a descendant keeps its
@@ -713,6 +741,10 @@ impl Reducer {
                 }
             }
         }
+        if live_event {
+            scene.mark_live_generation(id);
+        }
+        scene.retain_live_generations();
     }
 
     /// The `SessionStart` arm of [`Reducer::apply`], lifted whole so the
@@ -1656,11 +1688,12 @@ mod tests {
     #[test]
     fn delegating_slot_with_hook_silent_caps_gets_waiting_window() {
         use super::{stale_threshold_with_caps, STALE_ACTIVE_TIMEOUT, STALE_WAITING_TIMEOUT};
-        use crate::source::registry::SourceCaps;
+        use crate::source::registry::{SourceCaps, VisualLiveTransport};
         use crate::source::{AgentEvent, ToolDetail, Transport};
         use crate::{AgentId, Reducer, SceneState};
         use std::time::SystemTime;
         let caps = SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             has_exit_signal: true,
             resurrects_on_prompt: true,
             delegations_are_hook_silent: true,
@@ -1732,11 +1765,12 @@ mod tests {
     #[test]
     fn generic_tool_displaying_delegating_keeps_the_active_window() {
         use super::{stale_threshold_with_caps, STALE_ACTIVE_TIMEOUT};
-        use crate::source::registry::SourceCaps;
+        use crate::source::registry::{SourceCaps, VisualLiveTransport};
         use crate::source::{AgentEvent, ToolDetail, Transport};
         use crate::{AgentId, Reducer, SceneState};
         use std::time::SystemTime;
         let caps = SourceCaps {
+            visual_live_transport: VisualLiveTransport::Hook,
             has_exit_signal: true,
             resurrects_on_prompt: true,
             delegations_are_hook_silent: true,

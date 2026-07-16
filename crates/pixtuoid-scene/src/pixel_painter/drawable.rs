@@ -25,7 +25,8 @@ use pixtuoid_core::AgentSlot;
 
 use super::effects::{
     paint_coffee_steam, paint_liquor_bottle, paint_pet_hearts, paint_screen_glow, paint_sleep_z,
-    paint_suspicious_glance, paint_waiting_bubble, paint_walking_dust,
+    paint_suspicious_glance, paint_vape, paint_vape_cloud, paint_waiting_bubble,
+    paint_walking_dust,
 };
 use super::epoch_ms;
 use super::frame_at;
@@ -689,6 +690,18 @@ pub(super) fn paint_drawable(
             }
             if *habit == crate::habits::CharacterHabit::Swig {
                 paint_liquor_bottle(buf, *anchor);
+            }
+            if matches!(
+                habit,
+                crate::habits::CharacterHabit::VapeRaise
+                    | crate::habits::CharacterHabit::VapeExhale
+            ) {
+                paint_vape(buf, *anchor);
+            }
+            if *habit == crate::habits::CharacterHabit::VapeExhale {
+                if let Some(elapsed_ms) = crate::habits::vape_exhale_elapsed_ms(now) {
+                    paint_vape_cloud(buf, *anchor, elapsed_ms);
+                }
             }
         }
         DrawableKind::WaypointCouch { pos } => {
