@@ -22,7 +22,7 @@ Preserve these decisions unless Andy explicitly changes them:
 5. The interactive terminal dashboard and passive floating display remain distinct surfaces.
 6. Reuse current configuration, theme, scene, sprite, layout, and ambient-behavior systems before proposing a new subsystem.
 7. Recommendations are not decisions. Do not implement an unchosen addition because it is convenient or interesting.
-8. Render no more than eight idle avatars at once: Vivian, four persistent residents and three quiet-period coworkers. Active and waiting agents remain visible without this cap.
+8. Keep at least eight avatars visible. Active and waiting agents occupy those eight first; display-only idle coworkers fill only the remaining seats. Above eight working agents, show no idle fillers. Never cap active or waiting agents.
 
 ## Recover the actual request
 

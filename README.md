@@ -75,7 +75,7 @@ pocket-office floating
 | <img src="docs/images/pix-icons/shield.png" alt=""> | **Hook-safe** | The shim always exits 0 — a stuck visualizer can never block your agent |
 <!-- features:end -->
 
-Pocket Office adds five persistent residents, three additional quiet-period coworkers, higher-detail character faces and richer office assets. Vivian represents the real root session. Real subagents can appear as Tom, Jess, Amy or Alison through local zero-token keyword preferences, with recurring roster names for overflow. The eight-avatar limit applies only while idle, so every active or waiting agent remains visible. The public build currently shows only `200West`, including Hudson traffic, occasional yachts and a suited paddleboard commuter.
+Pocket Office adds five persistent residents, three additional quiet-period coworkers, higher-detail character faces and richer office assets. Vivian represents the real root session. Real subagents can appear as Tom, Jess, Amy or Alison through local zero-token keyword preferences, with recurring roster names for overflow. The office shows every active or waiting agent and uses idle coworkers only to reach a minimum population of eight. Completed working avatars walk out before quiet coworkers take their seats. The public build currently shows only `200West`, including Hudson traffic, occasional yachts and a suited paddleboard commuter.
 
 ## Supported tools
 

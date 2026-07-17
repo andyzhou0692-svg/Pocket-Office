@@ -28,6 +28,29 @@ pub use native::{live_codex_rollout_ids, CodexSource};
 
 pub const SOURCE_NAME: &str = "codex";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum CodexTurnBoundary {
+    Started,
+    Ended,
+}
+
+pub(super) const CODEX_TURN_BOUNDARIES: [(&str, CodexTurnBoundary); 5] = [
+    ("task_started", CodexTurnBoundary::Started),
+    ("turn_started", CodexTurnBoundary::Started),
+    ("task_complete", CodexTurnBoundary::Ended),
+    ("turn_complete", CodexTurnBoundary::Ended),
+    ("turn_aborted", CodexTurnBoundary::Ended),
+];
+
+pub(super) fn codex_turn_boundary(outer: &str, inner: &str) -> Option<CodexTurnBoundary> {
+    if outer != "event_msg" {
+        return None;
+    }
+    CODEX_TURN_BOUNDARIES
+        .iter()
+        .find_map(|(name, boundary)| (*name == inner).then_some(*boundary))
+}
+
 /// Trailing canonical UUID (`8-4-4-4-12`) of a `rollout-<ts>-<UUID>.jsonl`
 /// filename. Equals the hook payload's `session_id`, so hook and JSONL events
 /// coalesce. Falls back to the full stem if no trailing UUID is present.
@@ -152,13 +175,19 @@ pub fn decode_codex_line(transcript_path: &str, source: &str, v: Value) -> Resul
         tool_use_id: None,
     };
 
+    if let Some(boundary) = codex_turn_boundary(outer, inner) {
+        return Ok(vec![match boundary {
+            CodexTurnBoundary::Started => start(),
+            CodexTurnBoundary::Ended => end(),
+        }]);
+    }
+
     let out = match (outer, inner) {
         // `task_started`/`task_complete` are what codex serializes TODAY; the v2
         // `turn_started`/`turn_complete` are upstream's OWN serde aliases
         // (`#[serde(rename="task_started", alias="turn_started")]` in codex-rs
         // protocol.rs) — accepted here too so a future serializer flip to the
         // alias form still drives Active/Idle. Mirrors upstream by construction.
-        ("event_msg", "task_started") | ("event_msg", "turn_started") => vec![start()],
         ("response_item", "function_call") => {
             if function_call_needs_approval(payload) {
                 vec![AgentEvent::Waiting {
@@ -192,9 +221,6 @@ pub fn decode_codex_line(transcript_path: &str, source: &str, v: Value) -> Resul
         | ("event_msg", "web_search_end")
         | ("response_item", "tool_search_call")
         | ("response_item", "tool_search_output") => vec![start()],
-        ("event_msg", "task_complete")
-        | ("event_msg", "turn_complete")
-        | ("event_msg", "turn_aborted") => vec![end()],
         // Burn-tier observation: `turn_context` opens every turn carrying the
         // model + (on reasoning turns only) the effort — both RAW verbatim,
         // last-seen-wins downstream, so a mid-session model/effort switch

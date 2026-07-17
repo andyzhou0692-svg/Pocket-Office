@@ -305,7 +305,12 @@ pub(super) async fn refresh_probe_snapshot(
     let Some(probe) = probe else {
         return false;
     };
-    let Some(snap) = probe() else {
+    let probe = Arc::clone(probe);
+    let Some(snap) = tokio::task::spawn_blocking(move || probe())
+        .await
+        .ok()
+        .flatten()
+    else {
         debug!("liveness probe failed; keeping the previous snapshot (failure changes nothing)");
         return false;
     };

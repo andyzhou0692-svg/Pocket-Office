@@ -9,7 +9,7 @@ use pixtuoid_core::{AgentId, SceneState};
 use super::TASK_RESIDENTS;
 
 const SOURCE: &str = "visual-coworker";
-const MAX_VISIBLE_IDLE_AGENTS: usize = 8;
+const MIN_VISIBLE_AGENTS: usize = 8;
 const QUIET_COWORKERS: [(&str, &str); 3] = [
     ("alex", "Alex"),
     ("tristan-pembroke", "Tristan Pembroke"),
@@ -28,6 +28,7 @@ enum IdleDeparture {
     Departing {
         started_at: SystemTime,
         generation: SystemTime,
+        completed_task: bool,
     },
     Hidden {
         generation: SystemTime,
@@ -39,6 +40,49 @@ fn counts_toward_idle_cap(slot: &AgentSlot) -> bool {
     matches!(slot.state, ActivityState::Idle) && slot.exiting_at.is_none()
 }
 
+fn counts_as_working(slot: &AgentSlot) -> bool {
+    matches!(
+        slot.state,
+        ActivityState::Active { .. } | ActivityState::Waiting { .. }
+    ) && slot.exiting_at.is_none()
+}
+
+fn apply_departures(
+    rendered: &mut SceneState,
+    departing_idle: &mut HashMap<AgentId, IdleDeparture>,
+    now: SystemTime,
+) {
+    let ids: Vec<_> = departing_idle.keys().copied().collect();
+    for id in ids {
+        let Some(departure) = departing_idle.get_mut(&id) else {
+            continue;
+        };
+        match *departure {
+            IdleDeparture::Departing {
+                started_at,
+                generation,
+                ..
+            } => {
+                let exit_finished = now.duration_since(started_at).is_ok_and(|elapsed| {
+                    elapsed > pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW
+                });
+                if exit_finished {
+                    *departure = IdleDeparture::Hidden {
+                        generation,
+                        historical: false,
+                    };
+                    rendered.agents.remove(&id);
+                } else if let Some(slot) = rendered.agents.get_mut(&id) {
+                    slot.exiting_at = Some(started_at);
+                }
+            }
+            IdleDeparture::Hidden { .. } => {
+                rendered.agents.remove(&id);
+            }
+        }
+    }
+}
+
 /// Builds a render-only scene containing the persistent office residents.
 /// The reducer's authoritative scene is never mutated, so these residents
 /// cannot enter the dashboard, focus flow, headless output, or agent lifecycle.
@@ -46,6 +90,7 @@ pub(crate) struct VisualCoworkers {
     names: BTreeMap<String, String>,
     started_at: SystemTime,
     departing_idle: HashMap<AgentId, IdleDeparture>,
+    working_generations: HashMap<AgentId, SystemTime>,
 }
 
 impl VisualCoworkers {
@@ -54,6 +99,7 @@ impl VisualCoworkers {
             names,
             started_at: SystemTime::now(),
             departing_idle: HashMap::new(),
+            working_generations: HashMap::new(),
         }
     }
 
@@ -129,6 +175,43 @@ impl VisualCoworkers {
             }
         }
 
+        // The reducer settles a completed task to Idle before removing its
+        // slot. Remember which exact slot generations were working so every
+        // completed avatar walks out before quiet coworkers fill its seat.
+        // Vivian is the persistent root resident and remains in the office.
+        self.working_generations.retain(|id, generation| {
+            scene
+                .agents
+                .get(id)
+                .is_some_and(|slot| slot.created_at == *generation)
+        });
+        let completed_work: Vec<_> = rendered
+            .agents
+            .iter()
+            .filter(|(id, slot)| {
+                slot.label.as_ref() != "Vivian"
+                    && matches!(slot.state, ActivityState::Idle)
+                    && slot.exiting_at.is_none()
+                    && self.working_generations.get(id) == Some(&slot.created_at)
+            })
+            .map(|(id, slot)| (*id, slot.created_at))
+            .collect();
+        for (id, generation) in completed_work {
+            self.departing_idle
+                .entry(id)
+                .or_insert(IdleDeparture::Departing {
+                    started_at: now,
+                    generation,
+                    completed_task: true,
+                });
+        }
+        apply_departures(&mut rendered, &mut self.departing_idle, now);
+        for (id, slot) in &rendered.agents {
+            if counts_as_working(slot) {
+                self.working_generations.insert(*id, slot.created_at);
+            }
+        }
+
         // The default view opens on floor zero. A long transcript history can
         // leave the newest idle sessions on upper floors, so keep the single
         // visual Vivian anchored in the main office without mutating the real
@@ -164,7 +247,21 @@ impl VisualCoworkers {
             }
         }
 
-        if vivian.is_none() {
+        let working_count = rendered
+            .agents
+            .values()
+            .filter(|slot| counts_as_working(slot))
+            .count();
+        let departing_count = rendered
+            .agents
+            .values()
+            .filter(|slot| slot.exiting_at.is_some())
+            .count();
+        let target_idle = MIN_VISIBLE_AGENTS
+            .saturating_sub(working_count)
+            .saturating_sub(departing_count);
+
+        if vivian.is_none() && target_idle > 0 {
             if let Some(desk_index) = rendered.next_free_desk() {
                 let agent_id = AgentId::from_parts(SOURCE, "vivian");
                 rendered.agents.insert(
@@ -197,20 +294,18 @@ impl VisualCoworkers {
 
         // A full desk map must still settle to the eight-person quiet cast.
         // Reserve enough seats by walking generic idle history out first.
-        let baseline_present = baseline_labels
-            .iter()
-            .filter(|label| {
-                rendered
-                    .agents
-                    .values()
-                    .any(|slot| slot.label.as_ref() == label.as_str())
+        let baseline_idle_present = rendered
+            .agents
+            .values()
+            .filter(|slot| {
+                counts_toward_idle_cap(slot) && baseline_labels.contains(slot.label.as_ref())
             })
             .count();
         let free_desks = rendered
             .total_capacity()
             .saturating_sub(rendered.agents.len());
-        let seats_to_reserve = MAX_VISIBLE_IDLE_AGENTS
-            .saturating_sub(baseline_present)
+        let seats_to_reserve = target_idle
+            .saturating_sub(baseline_idle_present)
             .saturating_sub(free_desks);
         let mut reserve_candidates: Vec<_> = rendered
             .agents
@@ -228,6 +323,15 @@ impl VisualCoworkers {
             .collect();
 
         for (key, fallback_name) in resident_rows() {
+            if rendered
+                .agents
+                .values()
+                .filter(|slot| counts_toward_idle_cap(slot))
+                .count()
+                >= target_idle
+            {
+                break;
+            }
             let label = self
                 .names
                 .get(key)
@@ -291,11 +395,7 @@ impl VisualCoworkers {
                 slot.agent_id.raw(),
             )
         });
-        let visible_idle: HashSet<_> = idle_ids
-            .into_iter()
-            .rev()
-            .take(MAX_VISIBLE_IDLE_AGENTS)
-            .collect();
+        let visible_idle: HashSet<_> = idle_ids.into_iter().rev().take(target_idle).collect();
         let mut excess_idle: HashSet<_> = rendered
             .agents
             .iter()
@@ -303,44 +403,26 @@ impl VisualCoworkers {
             .map(|(id, _)| *id)
             .collect();
         excess_idle.extend(forced_excess);
-        self.departing_idle.retain(|id, departure| {
-            matches!(departure, IdleDeparture::Hidden { .. }) || excess_idle.contains(id)
+        self.departing_idle.retain(|id, departure| match departure {
+            IdleDeparture::Hidden { .. } => true,
+            IdleDeparture::Departing { completed_task, .. } => {
+                *completed_task || excess_idle.contains(id)
+            }
         });
 
         for id in excess_idle {
             let Some(generation) = rendered.agents.get(&id).map(|slot| slot.created_at) else {
                 continue;
             };
-            let departure = self
-                .departing_idle
+            self.departing_idle
                 .entry(id)
                 .or_insert(IdleDeparture::Departing {
                     started_at: now,
                     generation,
+                    completed_task: false,
                 });
-            match *departure {
-                IdleDeparture::Departing {
-                    started_at,
-                    generation,
-                } => {
-                    let exit_finished = now.duration_since(started_at).is_ok_and(|elapsed| {
-                        elapsed > pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW
-                    });
-                    if exit_finished {
-                        *departure = IdleDeparture::Hidden {
-                            generation,
-                            historical: false,
-                        };
-                        rendered.agents.remove(&id);
-                    } else if let Some(slot) = rendered.agents.get_mut(&id) {
-                        slot.exiting_at = Some(started_at);
-                    }
-                }
-                IdleDeparture::Hidden { .. } => {
-                    rendered.agents.remove(&id);
-                }
-            }
         }
+        apply_departures(&mut rendered, &mut self.departing_idle, now);
 
         rendered
     }
@@ -745,7 +827,7 @@ mod tests {
     }
 
     #[test]
-    fn render_scene_caps_idle_agents_at_eight_without_hiding_work() {
+    fn render_scene_uses_idle_fillers_only_to_reach_eight_without_hiding_work() {
         let mut capacities = [0; MAX_FLOORS];
         capacities[0] = 16;
         let mut scene = SceneState::new(capacities);
@@ -810,7 +892,16 @@ mod tests {
             .filter(|slot| counts_toward_idle_cap(slot))
             .count();
 
-        assert_eq!(visible_idle, 8);
+        assert_eq!(visible_idle, 6);
+        assert_eq!(
+            rendered
+                .agents
+                .values()
+                .filter(|slot| slot.exiting_at.is_none())
+                .count(),
+            8,
+            "two working agents plus six idle fillers must make eight present avatars"
+        );
         assert!(rendered.agents.contains_key(&active));
         assert!(rendered.agents.contains_key(&waiting));
         assert!(rendered.agents.contains_key(&vivian));
@@ -857,6 +948,186 @@ mod tests {
             30
         );
         assert!(active_ids.iter().all(|id| rendered.agents.contains_key(id)));
+    }
+
+    fn working_scene(count: usize) -> SceneState {
+        let mut scene = SceneState::new([16; MAX_FLOORS]);
+        for desk in 0..count {
+            let id = AgentId::from_parts("codex", &format!("working-{desk}"));
+            let label = if desk == 0 { "Vivian" } else { "Working" };
+            let parent_id = (desk > 0).then_some(AgentId::from_parts("codex", "working-0"));
+            let mut working = slot(
+                id,
+                label,
+                desk,
+                parent_id,
+                ActivityState::Active {
+                    tool_use_id: None,
+                    detail: None,
+                    kind: ToolKind::Other,
+                },
+                1,
+            );
+            working.floor_idx = scene.floor_of(working.desk_index);
+            scene.agents.insert(id, working);
+        }
+        mark_all_live(&mut scene);
+        scene
+    }
+
+    #[test]
+    fn ten_working_agents_render_exactly_ten_people_with_no_idle_fillers() {
+        let scene = working_scene(10);
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+
+        assert_eq!(rendered.agents.len(), 10);
+        assert_eq!(
+            rendered
+                .agents
+                .values()
+                .filter(|slot| matches!(slot.state, ActivityState::Idle))
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn thirty_working_agents_render_exactly_thirty_people_with_no_idle_fillers() {
+        let scene = working_scene(30);
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+
+        assert_eq!(rendered.agents.len(), 30);
+        assert_eq!(
+            rendered
+                .agents
+                .values()
+                .filter(|slot| matches!(slot.state, ActivityState::Idle))
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn five_working_agents_render_with_exactly_three_idle_fillers() {
+        let scene = working_scene(5);
+        let rendered =
+            VisualCoworkers::new(BTreeMap::new()).render_scene(&scene, SystemTime::UNIX_EPOCH);
+
+        assert_eq!(rendered.agents.len(), 8);
+        assert_eq!(
+            rendered
+                .agents
+                .values()
+                .filter(|slot| matches!(slot.state, ActivityState::Idle))
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn thirty_working_then_twenty_complete_settles_to_ten_working_people() {
+        let mut scene = working_scene(30);
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
+        let initial = coworkers.render_scene(&scene, SystemTime::UNIX_EPOCH);
+        assert_eq!(initial.agents.len(), 30);
+        let completed: Vec<_> = scene
+            .agents
+            .iter()
+            .filter(|(_, slot)| slot.desk_index.0 >= 10)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &completed {
+            scene.agents.get_mut(id).unwrap().state = ActivityState::Idle;
+        }
+        let completion_time = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        let departing = coworkers.render_scene(&scene, completion_time);
+        assert_eq!(
+            departing.agents.len(),
+            30,
+            "completed agents walk out first"
+        );
+        assert!(completed
+            .iter()
+            .all(|id| departing.agents[id].exiting_at == Some(completion_time)));
+        let settled = coworkers.render_scene(
+            &scene,
+            completion_time
+                + pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW
+                + Duration::from_millis(1),
+        );
+        assert_eq!(settled.agents.len(), 10);
+        assert!(settled.agents.values().all(counts_as_working));
+    }
+
+    #[test]
+    fn thirty_working_then_twenty_five_complete_settles_to_five_working_plus_three_idle() {
+        let mut scene = working_scene(30);
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
+        let initial = coworkers.render_scene(&scene, SystemTime::UNIX_EPOCH);
+        assert_eq!(initial.agents.len(), 30);
+        let completed: Vec<_> = scene
+            .agents
+            .iter()
+            .filter(|(_, slot)| slot.desk_index.0 >= 5)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in &completed {
+            scene.agents.get_mut(id).unwrap().state = ActivityState::Idle;
+        }
+        let completion_time = SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        let departing = coworkers.render_scene(&scene, completion_time);
+        assert_eq!(
+            departing.agents.len(),
+            30,
+            "completed agents walk out first"
+        );
+        assert!(completed
+            .iter()
+            .all(|id| departing.agents[id].exiting_at == Some(completion_time)));
+        let settled = coworkers.render_scene(
+            &scene,
+            completion_time
+                + pixtuoid_core::state::reducer::EXIT_GRACE_WINDOW
+                + Duration::from_millis(1),
+        );
+        assert_eq!(settled.agents.len(), 8);
+        assert_eq!(
+            settled
+                .agents
+                .values()
+                .filter(|slot| counts_as_working(slot))
+                .count(),
+            5
+        );
+        assert_eq!(
+            settled
+                .agents
+                .values()
+                .filter(|slot| counts_toward_idle_cap(slot))
+                .count(),
+            3
+        );
+    }
+
+    #[test]
+    fn quiet_office_to_ten_working_agents_never_keeps_idle_fillers() {
+        let mut coworkers = VisualCoworkers::new(BTreeMap::new());
+        let quiet = SceneState::new([16; MAX_FLOORS]);
+        assert_eq!(
+            coworkers
+                .render_scene(&quiet, SystemTime::UNIX_EPOCH)
+                .agents
+                .len(),
+            8
+        );
+
+        let working = working_scene(10);
+        let burst =
+            coworkers.render_scene(&working, SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+        assert_eq!(burst.agents.len(), 10);
+        assert!(burst.agents.values().all(counts_as_working));
     }
 
     #[test]

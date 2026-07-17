@@ -22,8 +22,8 @@ alison = "Alison"
 
 # Real subagents prefer an available named resident using small local keyword
 # rules, then fall back to the recurring roster. The rules use no model tokens
-# and never change the real task. At most eight idle avatars render at once;
-# active and waiting agents are never capped.
+# and never change the real task. Every active and waiting agent renders;
+# idle coworkers fill only the seats needed to keep at least eight visible.
 
 # Optional TUI-only furniture position overrides. Coordinates are scene pixels.
 [[layout.positions]]
