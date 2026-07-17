@@ -128,50 +128,27 @@ pub const CHITCHAT_LINES: &[&str] = &[
 ];
 
 const GOLDMAN_DIALOGUE: &[&str] = &[
-    "Don’t stay up all night, but have it to me tomorrow morning.",
-    "No need to burn the midnight oil.",
-    "I don’t want you working weekends, but have it on my desk Monday morning.",
-    "I have a feeling someone might be doing weekend work on this.",
-    "Great page. Let’s move it to the appendix.",
-    "Fill me in when you come up for air.",
-    "Don’t spin your wheels on this too long.",
-    "Work smart, not hard.",
-    "This will be a great learning experience.",
-    "This is a good chance for you to step up.",
-    "I want to be efficient with the team’s time.",
-    "We’re all wearing several hats here.",
-    "There’s an error in your model.",
-    "Don’t boil the ocean.",
-    "Don’t cut the lawn with scissors.",
-    "Don’t recreate the wheel.",
-    "Don’t leave any meat on the bones.",
-    "Don’t throw the baby out with the bathwater.",
-    "Don’t put all your eggs in one basket.",
-    "Don’t get caught with your pants down.",
-    "Don’t drink your own Kool Aid.",
-    "Don’t bring sand to the beach.",
-    "Lots of wood to chop.",
-    "Squeaky wheel gets the grease.",
-    "Run it up the flagpole and see who salutes.",
-    "Dangle the cape in front of the bull.",
-    "Dig the puck out of the corner.",
-    "Fill the room with smoke.",
-    "See if any snakes come out of the woodpile.",
-    "Too many cooks in the kitchen.",
-    "Letting the wolf into the chicken coop.",
-    "The devil is in the details.",
-    "We are preaching to the choir.",
-    "Let’s not milk the cow from the inside.",
-    "That model is the Titanic. It can’t be saved.",
-    "The company is a black box.",
-    "This is Wall Street, not Sesame Street.",
-    "There are a thousand ways to skin a cat.",
-    "This feels like a tallest midget contest.",
-    "Let's massage the numbers",
-    "Give me the 10,000 foot view.",
-    "Eee bit, D, A.",
-    "There’s no need to be caught with our pants down.",
-    "I’ll socialize it with the board.",
+    "Nobody has a monopoly on a good idea. But at Goldman, we certainly have a monopoly on executing them",
+    "Working 3:00 a.m. pitch books is my cardio.",
+    "If I could choose between world peace and a reasonable fortune, my first Lambo would be orange.",
+    "If you can't dazzle them with brilliance, baffle them with bullshit.",
+    "Almost time for children to learn a valuable life lesson. Santa loves rich kids more.",
+    "Getting laid off from Goldman is like being traded by the Yankees. You’ll probably still make millions, but it’s just not the same.",
+    "Money might not buy happiness, but I'll take my chances!",
+    "I never give money to homeless people. I can't reward failure in good conscience.",
+    "Groupon... Food stamps for the middle class.",
+    "I don’t have hobbies. I have interview talking points.",
+    "My bonus is discretionary. My arrogance is guaranteed.",
+    "I’m not toxic. I’m performance-driven.",
+    "You call it alcoholism. I call it relationship management.",
+    "I don’t need work-life balance. I need a bigger bonus.",
+    "My biggest weakness? Sometimes I care too much about shareholder value.",
+    "I don’t gossip. I conduct informal due diligence.",
+    "It’s not nepotism if his dad is accretive.",
+    // The README meeting fixture selects index 17 on its opening turn.
+    "I don’t have a personality. I have a Goldman Sachs email address.",
+    "My MD knows my name. Unfortunately.",
+    "Money can’t buy happiness, but neither can happiness buy a Tribeca apartment.",
 ];
 
 const TOKYO_NIGHT_DIALOGUE: &[&str] = &[
@@ -600,11 +577,39 @@ mod tests {
         assert_ne!(GOLDMAN_BEHAVIOR.dialogue, DEFAULT_BEHAVIOR.dialogue);
         assert!(GOLDMAN_BEHAVIOR
             .dialogue
-            .contains(&"Don’t stay up all night, but have it to me tomorrow morning."));
-        assert!(GOLDMAN_BEHAVIOR
-            .dialogue
-            .contains(&"I’ll socialize it with the board."));
-        assert_eq!(GOLDMAN_BEHAVIOR.dialogue.len(), 44);
+            .contains(&"Working 3:00 a.m. pitch books is my cardio."));
+    }
+
+    #[test]
+    fn two_hundred_west_includes_the_approved_banker_satire_only_in_its_pack() {
+        const APPROVED_LINES: &[&str] = &[
+            "Nobody has a monopoly on a good idea. But at Goldman, we certainly have a monopoly on executing them",
+            "Working 3:00 a.m. pitch books is my cardio.",
+            "If I could choose between world peace and a reasonable fortune, my first Lambo would be orange.",
+            "If you can't dazzle them with brilliance, baffle them with bullshit.",
+            "Almost time for children to learn a valuable life lesson. Santa loves rich kids more.",
+            "Getting laid off from Goldman is like being traded by the Yankees. You’ll probably still make millions, but it’s just not the same.",
+            "Money might not buy happiness, but I'll take my chances!",
+            "I never give money to homeless people. I can't reward failure in good conscience.",
+            "Groupon... Food stamps for the middle class.",
+            "I don’t have a personality. I have a Goldman Sachs email address.",
+            "My bonus is discretionary. My arrogance is guaranteed.",
+            "I’m not toxic. I’m performance-driven.",
+            "You call it alcoholism. I call it relationship management.",
+            "I don’t need work-life balance. I need a bigger bonus.",
+            "My biggest weakness? Sometimes I care too much about shareholder value.",
+            "I don’t gossip. I conduct informal due diligence.",
+            "It’s not nepotism if his dad is accretive.",
+            "I don’t have hobbies. I have interview talking points.",
+            "My MD knows my name. Unfortunately.",
+            "Money can’t buy happiness, but neither can happiness buy a Tribeca apartment.",
+        ];
+
+        assert_eq!(GOLDMAN_BEHAVIOR.dialogue.len(), APPROVED_LINES.len());
+        for line in APPROVED_LINES {
+            assert!(GOLDMAN_BEHAVIOR.dialogue.contains(line));
+            assert!(!DEFAULT_BEHAVIOR.dialogue.contains(line));
+        }
     }
 
     #[test]

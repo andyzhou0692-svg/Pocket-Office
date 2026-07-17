@@ -340,6 +340,17 @@ const MEETING_DWELL_SPREAD_MS: u64 = 3_000;
 /// Encoded clip starts this long before the earliest staged rise.
 const MEETING_WARMUP_LEAD_MS: u64 = 1_500;
 
+const MEETING_MIN_HORIZONTAL_SEPARATION_PX: u16 = 14;
+const MEETING_MIN_VERTICAL_SEPARATION_PX: u16 = 24;
+
+fn meeting_slots_visually_separated(
+    a: pixtuoid_scene::layout::Point,
+    b: pixtuoid_scene::layout::Point,
+) -> bool {
+    a.x.abs_diff(b.x) >= MEETING_MIN_HORIZONTAL_SEPARATION_PX
+        || a.y.abs_diff(b.y) >= MEETING_MIN_VERTICAL_SEPARATION_PX
+}
+
 /// Build a scene where `n` agents (desks 0..n) are staged to converge on ONE
 /// meeting room: each agent's `state_started_at` is back-dated by
 /// `cycle_n * est_wander_cycle_ms + ε` so motion's bootstrap fast-forward
@@ -430,7 +441,10 @@ pub(crate) fn meeting_scene(
     // Lowest-dwell window of n candidates with: same room, distinct slots,
     // dwell spread ≤ 3s. Prefer windows seating ≥2 on sofas (reads "meeting"
     // far better than a stand-up cluster); fall back without that bias.
-    let pick = |need_sofas: usize, avoid_south: bool| -> Option<Vec<MeetingCandidate>> {
+    let pick = |need_sofas: usize,
+                avoid_south: bool,
+                require_visual_separation: bool|
+     -> Option<Vec<MeetingCandidate>> {
         for (i, base) in cands.iter().enumerate() {
             if avoid_south && base.is_south_seat {
                 continue;
@@ -443,6 +457,13 @@ pub(crate) fn meeting_scene(
                 if (avoid_south && c.is_south_seat)
                     || c.room_id != base.room_id
                     || sel.iter().any(|s| s.wp_idx == c.wp_idx)
+                    || (require_visual_separation
+                        && sel.iter().any(|s| {
+                            !meeting_slots_visually_separated(
+                                l.waypoints[s.wp_idx].pos,
+                                l.waypoints[c.wp_idx].pos,
+                            )
+                        }))
                 {
                     continue;
                 }
@@ -457,9 +478,12 @@ pub(crate) fn meeting_scene(
         }
         None
     };
-    let staged = pick(2.min(n), true)
-        .or_else(|| pick(2.min(n), false))
-        .or_else(|| pick(0, false))
+    let staged = pick(2.min(n), true, true)
+        .or_else(|| pick(2.min(n), false, true))
+        .or_else(|| pick(0, false, true))
+        .or_else(|| pick(2.min(n), true, false))
+        .or_else(|| pick(2.min(n), false, false))
+        .or_else(|| pick(0, false, false))
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "--meeting {n}: no candidate group found ({} meeting-bound candidates at \
@@ -845,5 +869,38 @@ mod tests {
             MEETING_DWELL_SPREAD_MS
         );
         assert_eq!(warmup_ms, min_d.saturating_sub(MEETING_WARMUP_LEAD_MS));
+    }
+
+    #[test]
+    fn readme_meeting_pair_uses_visually_separated_seats() {
+        use pixtuoid_scene::layout::SceneLayout;
+        use pixtuoid_scene::pose::{est_wander_cycle_ms, waypoint_index_for_cycle};
+
+        let now = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let (cols, rows, max_desks) = (192u16, 64u16, 12);
+        let (scene, _) = meeting_scene(now, 2, cols, rows, 0, max_desks, 12).unwrap();
+        let layout =
+            SceneLayout::compute_with_seed(cols, (rows - 1) * 2, Some(max_desks), 0).unwrap();
+        let destinations: Vec<_> = scene
+            .agents
+            .values()
+            .filter(|slot| slot.label.starts_with("meet-"))
+            .map(|slot| {
+                let elapsed_ms = now
+                    .duration_since(slot.state_started_at)
+                    .unwrap()
+                    .as_millis() as u64;
+                let cycle_n = elapsed_ms / est_wander_cycle_ms(slot.agent_id);
+                let wp_idx =
+                    waypoint_index_for_cycle(slot.agent_id, cycle_n, layout.waypoints.len());
+                layout.waypoints[wp_idx].pos
+            })
+            .collect();
+
+        assert_eq!(destinations.len(), 2);
+        assert!(meeting_slots_visually_separated(
+            destinations[0],
+            destinations[1]
+        ));
     }
 }
