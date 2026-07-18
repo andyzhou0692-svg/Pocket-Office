@@ -8,7 +8,7 @@ pub mod welcome;
 pub mod widgets;
 
 use std::collections::BTreeMap;
-use std::io::{stdout, Stdout};
+use std::io::{stdout, Stdout, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -424,6 +424,27 @@ fn dispatch_key(
 
 pub type Term = Terminal<CrosstermBackend<Stdout>>;
 
+const MAX_TERMINAL_SIZE_REQUEST: &[u8] = b"\x1b[8;999;999t";
+
+fn request_max_terminal_size(mut out: impl Write) -> std::io::Result<()> {
+    out.write_all(MAX_TERMINAL_SIZE_REQUEST)?;
+    out.flush()
+}
+
+#[cfg(test)]
+mod terminal_lifecycle_tests {
+    use super::*;
+
+    #[test]
+    fn maximize_request_asks_for_largest_terminal_window() {
+        let mut output = Vec::new();
+
+        request_max_terminal_size(&mut output).unwrap();
+
+        assert_eq!(output, b"\x1b[8;999;999t");
+    }
+}
+
 pub fn setup_terminal() -> Result<Term> {
     // On the WinAPI fallback (no VT), crossterm maps Color::Rgb to console
     // attribute 0 — the office renders black-on-black invisible. Gate, don't
@@ -435,8 +456,9 @@ pub fn setup_terminal() -> Result<Term> {
              (or Windows 10 1703+ with VT processing enabled)"
         );
     }
-    enable_raw_mode()?;
     let mut out = stdout();
+    request_max_terminal_size(&mut out)?;
+    enable_raw_mode()?;
     // EnableMouseCapture turns on the terminal's mouse-event reporting.
     // Modern terminals emit MouseEventKind::Moved on cursor motion (no
     // button required), which is how we drive the hover tooltip.
