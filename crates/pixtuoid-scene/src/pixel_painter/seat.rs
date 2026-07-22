@@ -79,6 +79,7 @@ pub(super) fn paint_character_at(
     );
     let sprite_w = cached.width();
     blit_frame(cached, anchor.x, anchor.y, buf);
+    super::face_overlay::paint_hires_front_details(buf, cached, anchor, anim_name);
     if burn == crate::burn::BurnTier::Top {
         super::effects::paint_flame_crown(buf, anchor, sprite_w, now);
     }

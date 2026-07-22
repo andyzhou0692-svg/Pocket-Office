@@ -33,47 +33,41 @@ fn coffee_persists_through_floor_transition() {
     let p = pack();
     let step = Duration::from_millis(500);
     let cap = 16;
-    // Several floor-0 wanderers (the pantry is 1 of ~10 waypoints, so one
-    // agent reaches it far sooner than any single one would) + a floor-1
-    // occupant so navigate_floor(1) has a destination.
-    let n_f0 = 10usize;
-    let mut agents: Vec<_> = (0..n_f0)
+    // Several 200West wanderers (the pantry is 1 of ~10 waypoints, so one
+    // agent reaches it far sooner than any single one would).
+    let n_standard = 10usize;
+    let agents: Vec<_> = (0..n_standard)
         .map(|i| {
-            idle(
-                &format!("/cof/f0_{i}.jsonl"),
-                i,
+            slot(
+                AgentId::from_transcript_path(&format!("/cof/f1_{i}.jsonl")),
+                1,
+                cap + i,
                 t0() - Duration::from_secs(120),
             )
         })
         .collect();
-    agents.push(slot(
-        AgentId::from_transcript_path("/cof/f1.jsonl"),
-        1,
-        cap,
-        t0(),
-    ));
     let scene = scene_with(agents, cap);
-    let f0_ids: Vec<AgentId> = (0..n_f0)
-        .map(|i| AgentId::from_transcript_path(&format!("/cof/f0_{i}.jsonl")))
+    let standard_ids: Vec<AgentId> = (0..n_standard)
+        .map(|i| AgentId::from_transcript_path(&format!("/cof/f1_{i}.jsonl")))
         .collect();
 
     // Pass 1 (scratch): find the first frame where the NORMAL render path
     // detects ANY floor-0 wanderer walking back from the pantry, and which one.
     let mut scratch = build(100, 40, vec![]);
     let mut now = t0();
-    scratch.render(&scene, &p, now).unwrap();
+    render_standard_floor(&mut scratch, &scene, &p, &mut now);
     let mut hit = None;
     'outer: for _ in 0..400 {
         now += step;
         scratch.render(&scene, &p, now).unwrap();
-        for &id in &f0_ids {
+        for &id in &standard_ids {
             if scratch.coffee_contains(id) {
                 hit = Some((id, now));
                 break 'outer;
             }
         }
     }
-    let (agent, detect_at) = hit.expect("a floor-0 wanderer should fetch coffee while wandering");
+    let (agent, detect_at) = hit.expect("a 200West wanderer should fetch coffee while wandering");
 
     // Pass 2 (real): advance to one step BEFORE detection (no coffee yet),
     // begin a transition, then render AT detect_at — so the carrier is first
@@ -81,7 +75,7 @@ fn coffee_persists_through_floor_transition() {
     // < the wander stale-resume trigger, so the timeline matches the scratch).
     let mut r = build(100, 40, vec![]);
     let mut t = t0();
-    r.render(&scene, &p, t).unwrap();
+    render_standard_floor(&mut r, &scene, &p, &mut t);
     while t + step < detect_at {
         t += step;
         r.render(&scene, &p, t).unwrap();
@@ -90,7 +84,7 @@ fn coffee_persists_through_floor_transition() {
         !r.coffee_contains(agent),
         "agent must not yet hold coffee before the transition"
     );
-    r.navigate_floor(1, t);
+    r.navigate_floor(2, t);
     assert!(r.transition().is_some(), "navigation begins a transition");
     r.render(&scene, &p, detect_at).unwrap();
     assert!(
@@ -245,14 +239,19 @@ fn pet_walk_never_clips_through_furniture() {
 
 #[test]
 fn pet_rest_pos_is_walkable() {
-    let scene = scene_with(vec![active("/prest/0.jsonl", 0, "Edit", t0())], 16);
+    let mut resident = active("/prest/0.jsonl", 0, "Edit", t0());
+    resident.floor_idx = 1;
+    resident.desk_index = GlobalDeskIndex(16);
+    let scene = scene_with(vec![resident], 16);
     let mut r = build(160, 80, vec![PetKind::Cat]);
-    r.render(&scene, &pack(), t0()).unwrap();
+    let sprite_pack = pack();
+    let mut prime_at = t0();
+    render_standard_floor(&mut r, &scene, &sprite_pack, &mut prime_at);
     let layout = r.cached_layout().expect("layout after prime").clone();
     for cycle in 0u64..4 {
         for step in 0..10u64 {
             let now = t0() + Duration::from_millis(cycle * 40_000 + 14_200 + step * 2_600);
-            r.render(&scene, &pack(), now).unwrap();
+            r.render(&scene, &sprite_pack, now).unwrap();
             if let Some(PetFrame { pos, anim, .. }) = r.cached_pet_pos() {
                 if anim != PetKind::Cat.walk_anim() {
                     // Rest pose is a snapped cell center, so it should satisfy the

@@ -27,6 +27,7 @@ version = "1"
 "D" = "#8b5a2b"   # desk wood
 "d" = "#5a3818"   # desk shadow
 "n" = "#3a2a1c"   # outline / nose shadow
+"h" = "#46301f"   # subdued parquet grain for Vivian's private office
 "f" = "#6a4a26"   # floor mat warm
 "F" = "#5a3a20"   # floor mat dark
 "l" = "#4a8f3a"   # plant leaf
@@ -223,6 +224,66 @@ frame_ms = 600
 
 [animations.standing_desk]
 frames   = ["standing_desk.sprite"]
+frame_ms = 600
+
+[animations.trading_command_wall]
+frames   = ["trading_command_wall.sprite"]
+frame_ms = 600
+
+[animations.trading_ticker]
+frames   = ["trading_ticker.sprite"]
+frame_ms = 600
+
+[animations.trading_desk_rig]
+frames   = ["trading_desk_rig.sprite"]
+frame_ms = 600
+
+[animations.trading_clutter]
+frames   = ["trading_clutter.sprite"]
+frame_ms = 600
+
+[animations.trading_bonus_board]
+frames   = ["trading_bonus_board.sprite"]
+frame_ms = 600
+
+[animations.trading_phone_bank]
+frames   = ["trading_phone_bank.sprite"]
+frame_ms = 600
+
+[animations.trading_velcro_target]
+frames   = ["trading_velcro_target.sprite"]
+frame_ms = 600
+
+[animations.executive_runner]
+frames   = ["executive_runner.sprite"]
+frame_ms = 600
+
+[animations.executive_art_wall]
+frames   = ["executive_art_wall.sprite"]
+frame_ms = 600
+
+[animations.executive_money_painting]
+frames   = ["executive_money_painting.sprite"]
+frame_ms = 600
+
+[animations.executive_marble_floor]
+frames   = ["executive_marble_floor.sprite"]
+frame_ms = 600
+
+[animations.executive_board_table]
+frames   = ["executive_board_table.sprite"]
+frame_ms = 600
+
+[animations.executive_bar]
+frames   = ["executive_bar.sprite"]
+frame_ms = 600
+
+[animations.executive_sculpture]
+frames   = ["executive_sculpture.sprite"]
+frame_ms = 600
+
+[animations.executive_chandelier]
+frames   = ["executive_chandelier.sprite"]
 frame_ms = 600
 
 [animations.back_couch]

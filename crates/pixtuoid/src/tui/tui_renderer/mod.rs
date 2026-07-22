@@ -9,7 +9,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use pixtuoid_core::sprite::format::Pack;
-use pixtuoid_core::sprite::RgbBuffer;
+use pixtuoid_core::sprite::{Rgb, RgbBuffer};
 use pixtuoid_core::state::SceneState;
 #[cfg(test)]
 use pixtuoid_core::AgentId;
@@ -21,8 +21,8 @@ use ratatui::layout::Rect;
 
 use crate::tui::renderer::{draw_scene, flush_buffer_to_term_at_offset, DrawCtx, PetState};
 use pixtuoid_scene::floor::{
-    num_floors, project_floor_scene, render_floor, FloorMeta, FloorTransition, FrameInputs,
-    PerFloor, PerOffice,
+    display_floor_count, display_floor_role, num_floors, project_display_floor_scene, render_floor,
+    FloorMeta, FloorTransition, FrameInputs, PerFloor, PerOffice,
 };
 use pixtuoid_scene::layout::{Layout, Size};
 use pixtuoid_scene::pathfind::Router;
@@ -41,6 +41,12 @@ fn floor_info_for(
         total_floors: nf,
         total_agents,
     })
+}
+
+fn new_tui_floor() -> PerFloor {
+    let mut floor = PerFloor::new();
+    floor.buf = RgbBuffer::filled_x2(0, 0, Rgb { r: 0, g: 0, b: 0 });
+    floor
 }
 
 /// The version popup's animation state machine — the four values move as a unit
@@ -123,7 +129,7 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
     ) -> Self {
         Self {
             terminal,
-            floors: vec![PerFloor::new()],
+            floors: vec![new_tui_floor()],
             current_floor: 0,
             transition: None,
             mouse_pos: None,
@@ -283,8 +289,8 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
     }
 
     pub fn current_floor_seed(&self) -> u64 {
-        let nf = self.floors.len();
-        FloorMeta::for_floor(self.current_floor, nf).floor_seed
+        let operational_floors = self.floors.len().saturating_sub(1).max(1);
+        FloorMeta::for_display_floor(self.current_floor, operational_floors).floor_seed
     }
 
     pub fn transition(&self) -> Option<&FloorTransition> {
@@ -437,6 +443,7 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         now: SystemTime,
         nf: usize,
     ) -> Result<()> {
+        let operational_floors = num_floors(scene);
         let Some((from_floor, to_floor, t, going_down)) = self.transition.as_ref().map(|tr| {
             (
                 tr.from_floor,
@@ -448,8 +455,10 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
             return Ok(());
         };
         // Build floor-scoped scenes for both floors.
-        let from_scene = project_floor_scene(scene, from_floor);
-        let to_scene = project_floor_scene(scene, to_floor);
+        let from_scene =
+            project_display_floor_scene(scene, display_floor_role(from_floor, operational_floors));
+        let to_scene =
+            project_display_floor_scene(scene, display_floor_role(to_floor, operational_floors));
 
         let term_size = self.terminal.size()?;
         let full_rect = Rect {
@@ -534,8 +543,8 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
             buf: to_buf,
         } = to_floor_half;
 
-        let from_meta = FloorMeta::for_floor(from_floor, nf);
-        let to_meta = FloorMeta::for_floor(to_floor, nf);
+        let from_meta = FloorMeta::for_display_floor(from_floor, operational_floors);
+        let to_meta = FloorMeta::for_display_floor(to_floor, operational_floors);
 
         // Transitions hide *text* overlays (tooltips, chitchat bubbles,
         // labels) but keep all pixel-level visuals — including pets,
@@ -700,12 +709,13 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         }
 
         // Compute how many floors the current scene needs.
-        let nf = num_floors(scene).min(pixtuoid_scene::floor::MAX_FLOORS);
+        let operational_floors = num_floors(scene);
+        let nf = display_floor_count(scene);
 
         // Grow the per-floor sessions if needed.
         while self.floors.len() < nf {
             let floor = self.floors.len();
-            let mut per_floor = PerFloor::new();
+            let mut per_floor = new_tui_floor();
             per_floor.ctx.set_layout_overrides(
                 self.layout_overrides
                     .get(&floor)
@@ -744,7 +754,10 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         }
 
         // --- Normal path: single floor ------------------------------------
-        let floor_scene = project_floor_scene(scene, self.current_floor);
+        let floor_scene = project_display_floor_scene(
+            scene,
+            display_floor_role(self.current_floor, operational_floors),
+        );
 
         // Evict coffee state for agents no longer in the scene (the office
         // half of the session split). (History, motion, and frame-cache
@@ -752,7 +765,7 @@ impl<B: Backend<Error: Send + Sync + 'static>> TuiRenderer<B> {
         // the live snapshot before every render.)
         self.office.evict_missing(scene);
 
-        let floor_meta = FloorMeta::for_floor(self.current_floor, nf);
+        let floor_meta = FloorMeta::for_display_floor(self.current_floor, operational_floors);
         // Compute popup scale before the mutable borrows below.
         let popup_scale = self.version_popup_scale(now);
         let pf = &mut self.floors[self.current_floor];

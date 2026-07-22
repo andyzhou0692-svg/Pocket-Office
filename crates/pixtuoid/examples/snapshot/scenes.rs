@@ -160,6 +160,42 @@ pub(crate) fn named_200west_scene(now: SystemTime, max_desks: usize) -> SceneSta
     scene
 }
 
+pub(crate) fn vivian_office_scene(now: SystemTime, max_desks: usize) -> SceneState {
+    let mut scene = SceneState::uniform(max_desks);
+    let created_at = now.checked_sub(Duration::from_secs(300)).unwrap_or(now);
+    let id = AgentId::from_parts("visual-coworker", "vivian");
+    scene.agents.insert(
+        id,
+        AgentSlot {
+            agent_id: id,
+            source: Arc::from("visual-coworker"),
+            session_id: Arc::from("vivian"),
+            cwd: Arc::from(PathBuf::from("/demo/200west").as_path()),
+            label: "Vivian".into(),
+            state: ActivityState::Active {
+                tool_use_id: Some("vivian-office-proof".into()),
+                detail: Some("Reviewing the firm".into()),
+                kind: ToolKind::Read,
+            },
+            state_started_at: created_at,
+            created_at,
+            last_event_at: now,
+            exiting_at: None,
+            pending_idle_at: None,
+            desk_index: GlobalDeskIndex(0),
+            floor_idx: scene.floor_of(GlobalDeskIndex(0)),
+            tool_call_count: 1,
+            active_ms: 300_000,
+            unknown_cwd: false,
+            parent_id: None,
+            pid: None,
+            model: None,
+            effort: None,
+        },
+    );
+    scene
+}
+
 /// Inject an OpenClaw gateway presence for the beautify visual loop — drives
 /// the wandering lobster mascot. `state` ∈ {idle, busy, down}; off the gen-media
 /// path so baselines hold.

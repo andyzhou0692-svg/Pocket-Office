@@ -61,6 +61,17 @@ pub(super) fn render_until_settled<B: Backend<Error: Send + Sync + 'static>>(
     panic!("floor transition to {target_floor} did not settle");
 }
 
+pub(super) fn render_standard_floor<B: Backend<Error: Send + Sync + 'static>>(
+    renderer: &mut TuiRenderer<B>,
+    scene: &SceneState,
+    pack: &Pack,
+    now: &mut SystemTime,
+) {
+    renderer.render(scene, pack, *now).expect("initial render");
+    renderer.navigate_floor(1, *now);
+    render_until_settled(renderer, scene, pack, now, 1);
+}
+
 // ---- shared helpers -------------------------------------------------
 
 pub(super) fn pack() -> Pack {

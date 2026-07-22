@@ -53,7 +53,7 @@ fn local_hour_frac(now: std::time::SystemTime) -> f32 {
 }
 
 use crate::layout::{Layout, ELEVATOR_W};
-use crate::theme::Theme;
+use crate::theme::{Theme, VisualProfile};
 
 /// Floor-to-ceiling window stride. Mirrors `paint_floor_and_walls` —
 /// kept in sync so `window_spill_columns` returns the same x positions
@@ -581,8 +581,10 @@ pub(super) fn paint_floor_and_walls(
     look: &TimeOfDayLook,
     top_wall_h: u16,
     skip_window_x_range: Option<(u16, u16)>,
+    continuous_window_start: Option<u16>,
     theme: &Theme,
     altitude: f32,
+    visual_profile: VisualProfile,
 ) {
     let window_frame = theme.surface.window_frame;
     let carpet_base = theme.surface.carpet_base;
@@ -629,65 +631,108 @@ pub(super) fn paint_floor_and_walls(
     // `compute_disc`'s doc comment for why `cx` is absolute across the wall.
     let disc = compute_disc(now, weather, buf_w, top_wall_h, theme);
     let star_strength = night_star_strength(now, look.darkness, weather);
-    let mut x = 3u16;
-    let mut idx: u32 = 0;
-    while x + WINDOW_W + 2 <= buf_w {
-        // Skip any window whose x-range overlaps the elevator door —
-        // the elevator sits in the wall and would otherwise show the
-        // window's glass + skyline behind its frame.
-        let overlaps_door =
-            skip_window_x_range.is_some_and(|(dx0, dx1)| x < dx1 && x + WINDOW_W > dx0);
-        if !overlaps_door {
-            // The disc paints ONLY in the window its centre currently sits over.
-            // Without this gate, a disc whose `cx` lands near an inter-window gap
-            // is wide enough (radius+glow) to reach the glass of BOTH neighbours,
-            // so the same sun/moon rendered in two panes at once — bleeding
-            // through the solid wall pillar (frame + WINDOW_GAP + frame) between
-            // them. Restricting to the containing window makes that pillar occlude
-            // the body correctly: it hides behind the pillar between panes and
-            // re-emerges in the next window, "one disc across the wall".
-            let win_disc = disc.filter(|d| d.cx >= x as f32 && d.cx < (x + WINDOW_W) as f32);
-            paint_floor_to_ceiling_window(
-                buf,
-                x,
-                window_y,
-                WINDOW_W,
-                window_h,
-                window_frame,
-                idx as u16,
-                now,
-                weather,
-                altitude,
-                &lit_colors,
-                building,
-                &sky_row,
-                win_disc,
-                star_strength,
-                theme.visual_profile(),
-            );
-            let inner_sill_y = window_y + window_h - 2;
-            if inner_sill_y < buf_h {
-                for sill_x in (x + 1)..(x + WINDOW_W - 1).min(buf_w) {
-                    buf.put(sill_x, inner_sill_y, window_frame);
-                }
-            }
-            // look.spill_strength already includes atmospheric attenuation
-            // (time_of_day_look multiplies by atmo.intensity), so heavy
-            // weather automatically dims the spill below windows.
-            if look.spill_strength > 0.0 {
-                paint_window_light_spill(
-                    buf,
-                    x,
-                    WINDOW_W,
-                    top_wall_h,
-                    look.spill_strength,
-                    look.spill_slant,
-                    theme,
-                );
+    if let Some((x, window_w)) = continuous_window_start
+        .and_then(|start| continuous_window_run(buf_w, skip_window_x_range, start))
+    {
+        let win_disc = disc.filter(|d| d.cx >= x as f32 && d.cx < (x + window_w) as f32);
+        paint_floor_to_ceiling_window(
+            buf,
+            x,
+            window_y,
+            window_w,
+            window_h,
+            window_frame,
+            0,
+            now,
+            weather,
+            altitude,
+            &lit_colors,
+            building,
+            &sky_row,
+            win_disc,
+            star_strength,
+            visual_profile,
+            false,
+        );
+        let inner_sill_y = window_y + window_h - 2;
+        if inner_sill_y < buf_h {
+            for sill_x in (x + 1)..(x + window_w - 1).min(buf_w) {
+                buf.put(sill_x, inner_sill_y, window_frame);
             }
         }
-        x += WINDOW_W + WINDOW_GAP;
-        idx += 1;
+        if look.spill_strength > 0.0 {
+            paint_window_light_spill(
+                buf,
+                x,
+                window_w,
+                top_wall_h,
+                look.spill_strength,
+                look.spill_slant,
+                theme,
+            );
+        }
+    } else if continuous_window_start.is_none() {
+        let mut x = 3u16;
+        let mut idx: u32 = 0;
+        while x + WINDOW_W + 2 <= buf_w {
+            // Skip any window whose x-range overlaps the elevator door —
+            // the elevator sits in the wall and would otherwise show the
+            // window's glass + skyline behind its frame.
+            let overlaps_door =
+                skip_window_x_range.is_some_and(|(dx0, dx1)| x < dx1 && x + WINDOW_W > dx0);
+            if !overlaps_door {
+                // The disc paints ONLY in the window its centre currently sits over.
+                // Without this gate, a disc whose `cx` lands near an inter-window gap
+                // is wide enough (radius+glow) to reach the glass of BOTH neighbours,
+                // so the same sun/moon rendered in two panes at once — bleeding
+                // through the solid wall pillar (frame + WINDOW_GAP + frame) between
+                // them. Restricting to the containing window makes that pillar occlude
+                // the body correctly: it hides behind the pillar between panes and
+                // re-emerges in the next window, "one disc across the wall".
+                let win_disc = disc.filter(|d| d.cx >= x as f32 && d.cx < (x + WINDOW_W) as f32);
+                paint_floor_to_ceiling_window(
+                    buf,
+                    x,
+                    window_y,
+                    WINDOW_W,
+                    window_h,
+                    window_frame,
+                    idx as u16,
+                    now,
+                    weather,
+                    altitude,
+                    &lit_colors,
+                    building,
+                    &sky_row,
+                    win_disc,
+                    star_strength,
+                    visual_profile,
+                    true,
+                );
+                let inner_sill_y = window_y + window_h - 2;
+                if inner_sill_y < buf_h {
+                    for sill_x in (x + 1)..(x + WINDOW_W - 1).min(buf_w) {
+                        buf.put(sill_x, inner_sill_y, window_frame);
+                    }
+                }
+                // look.spill_strength already includes atmospheric attenuation
+                // (time_of_day_look multiplies by atmo.intensity), so heavy
+                // weather automatically dims the spill below windows.
+                if look.spill_strength > 0.0 {
+                    paint_window_light_spill(
+                        buf,
+                        x,
+                        WINDOW_W,
+                        top_wall_h,
+                        look.spill_strength,
+                        look.spill_slant,
+                        theme,
+                    );
+                }
+            }
+            x += WINDOW_W + WINDOW_GAP;
+            idx += 1;
+        }
     }
 
     // Wall trim line at the bottom of the wall band.
@@ -702,6 +747,15 @@ pub(super) fn paint_floor_and_walls(
             buf.put(x, top_wall_h, theme.office.room_wall_trim_dark);
         }
     }
+}
+
+fn continuous_window_run(
+    buf_w: u16,
+    skip_window_x_range: Option<(u16, u16)>,
+    start: u16,
+) -> Option<(u16, u16)> {
+    let end = skip_window_x_range.map_or(buf_w, |(x0, _)| x0).min(buf_w);
+    (end > start + 2).then_some((start, end - start))
 }
 
 fn floor_material_variant(x: u16, y: u16) -> i8 {
@@ -982,6 +1036,7 @@ fn paint_floor_to_ceiling_window(
     disc: Option<Disc>,
     star_strength: f32,
     visual_profile: crate::theme::VisualProfile,
+    internal_mullions: bool,
 ) {
     // Skyline silhouette as a 0..15 PATTERN; the actual pixel height is
     // computed per-window so the skyline auto-scales with the glass
@@ -1005,7 +1060,7 @@ fn paint_floor_to_ceiling_window(
                 continue;
             }
             let on_edge = dx == 0 || dx == w - 1 || dy == 0 || dy == h - 1;
-            let on_mullion = dx == w / 2 || dy == h * 7 / 10;
+            let on_mullion = internal_mullions && (dx == w / 2 || dy == h * 7 / 10);
             if on_edge || on_mullion {
                 buf.put(px, py, frame);
                 continue;
@@ -1345,6 +1400,14 @@ mod tests {
     use super::*;
 
     #[test]
+    fn vivian_window_is_one_run_from_painting_to_elevator() {
+        assert_eq!(
+            continuous_window_run(160, Some((146, 158)), 75),
+            Some((75, 71))
+        );
+    }
+
+    #[test]
     fn floor_material_pattern_is_sparse_deterministic_and_bounded() {
         let variants: Vec<i8> = (0..128)
             .flat_map(|y| (0..192).map(move |x| floor_material_variant(x, y)))
@@ -1376,7 +1439,17 @@ mod tests {
         let mut buf = RgbBuffer::filled(buf_w, buf_h, Rgb { r: 0, g: 0, b: 0 });
 
         paint_floor_and_walls(
-            &mut buf, buf_w, buf_h, now, &look, top_wall_h, None, theme, 1.0,
+            &mut buf,
+            buf_w,
+            buf_h,
+            now,
+            &look,
+            top_wall_h,
+            None,
+            None,
+            theme,
+            1.0,
+            theme.visual_profile(),
         );
 
         assert_eq!(
@@ -1615,6 +1688,7 @@ mod tests {
                 None,
                 0.0,
                 theme.visual_profile(),
+                true,
             );
             // Sum luminance over the glass interior (inside the 1px frame).
             let mut sum = 0u64;
@@ -1659,7 +1733,17 @@ mod tests {
         };
         let mut buf = RgbBuffer::filled(buf_w, buf_h, Rgb { r: 5, g: 5, b: 5 });
         paint_floor_and_walls(
-            &mut buf, buf_w, buf_h, now, &look, top_wall_h, None, theme, 0.0,
+            &mut buf,
+            buf_w,
+            buf_h,
+            now,
+            &look,
+            top_wall_h,
+            None,
+            None,
+            theme,
+            0.0,
+            theme.visual_profile(),
         );
         // No panic reaching here is the primary assertion (RgbBuffer::put has no
         // bounds guard). The wall band's in-bounds rows must still be painted.
@@ -1694,6 +1778,7 @@ mod tests {
             None,
             0.0,
             theme.visual_profile(),
+            true,
         );
         let river_pixels = (1..29)
             .flat_map(|y| (1..(WINDOW_W - 1)).map(move |x| (x, y)))
@@ -1799,6 +1884,7 @@ mod tests {
             None,
             0.0,
             theme.visual_profile(),
+            true,
         );
         buf
     }
@@ -1896,7 +1982,17 @@ mod tests {
         let buf_h = top_wall_h + 4;
         let mut buf = RgbBuffer::filled(buf_w, buf_h, Rgb { r: 4, g: 4, b: 6 });
         paint_floor_and_walls(
-            &mut buf, buf_w, buf_h, now, &look, top_wall_h, None, theme, 0.0,
+            &mut buf,
+            buf_w,
+            buf_h,
+            now,
+            &look,
+            top_wall_h,
+            None,
+            None,
+            theme,
+            0.0,
+            theme.visual_profile(),
         );
         buf
     }

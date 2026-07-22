@@ -43,6 +43,17 @@ pub fn floor_seed(floor_idx: usize) -> u64 {
     (floor_idx as u64).wrapping_mul(FLOOR_SEED_MULTIPLIER)
 }
 
+/// Layout seed for reducer-owned floors in the permanent Pocket Office stack.
+/// Floor zero is the trading floor. Higher operational floors retain the
+/// procedural 200West sequence, starting with its original ground-floor seed.
+pub fn operational_floor_seed(floor_idx: usize) -> u64 {
+    if floor_idx == 0 {
+        crate::layout::PREVIEW_LAYOUT_TRADING_FLOOR_SEED
+    } else {
+        floor_seed(floor_idx - 1)
+    }
+}
+
 /// How many home desks a floor of buffer size `buf_w × buf_h` with `floor_seed`
 /// fits — the auto-capacity the boot seeding + `fetch_max` growth read. Returns
 /// `0` when the buffer is too small for even one cubicle (`compute_with_seed`
@@ -80,6 +91,22 @@ impl FloorMeta {
 
     pub fn ground() -> Self {
         Self::for_floor(0, 1)
+    }
+
+    pub fn for_display_floor(display_floor: usize, operational_floors: usize) -> Self {
+        let total_floors = operational_floors.max(2) + 1;
+        let altitude = display_floor as f32 / (total_floors - 1) as f32;
+        let role = display_floor_role(display_floor, operational_floors);
+        let floor_seed = match role {
+            DisplayFloorRole::Trading => crate::layout::PREVIEW_LAYOUT_TRADING_FLOOR_SEED,
+            DisplayFloorRole::Standard { operational_floor } => floor_seed(operational_floor - 1),
+            DisplayFloorRole::Vivian => crate::layout::PREVIEW_LAYOUT_EXECUTIVE_GALLERY_SEED,
+        };
+        Self {
+            floor_idx: display_floor,
+            altitude,
+            floor_seed,
+        }
     }
 }
 
@@ -750,6 +777,33 @@ pub fn num_floors(scene: &SceneState) -> usize {
         .unwrap_or(1)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayFloorRole {
+    Trading,
+    Standard { operational_floor: usize },
+    Vivian,
+}
+
+/// The permanent visible stack always has trading below at least one 200West
+/// floor and Vivian above. Additional operational floors remain 200West floors
+/// between the two dedicated floors.
+pub fn display_floor_count(scene: &SceneState) -> usize {
+    num_floors(scene).max(2) + 1
+}
+
+pub fn display_floor_role(display_floor: usize, operational_floors: usize) -> DisplayFloorRole {
+    let top = operational_floors.max(2);
+    if display_floor == 0 {
+        DisplayFloorRole::Trading
+    } else if display_floor >= top {
+        DisplayFloorRole::Vivian
+    } else {
+        DisplayFloorRole::Standard {
+            operational_floor: display_floor,
+        }
+    }
+}
+
 /// One agent projected onto a floor by [`build_floor_scene`]: the slot — its
 /// `desk_index` still the ORIGINAL global allocation — paired with its desk in
 /// the floor's OWN local space, typed as such (`FloorLocalDeskIndex`, the #209
@@ -812,6 +866,38 @@ pub fn project_floor_scene(scene: &SceneState, floor_idx: usize) -> SceneState {
         *s.daemons_mut() = scene.daemons().clone();
     }
     s
+}
+
+fn is_vivian(slot: &AgentSlot) -> bool {
+    slot.label
+        .split_whitespace()
+        .next()
+        .is_some_and(|name| name.eq_ignore_ascii_case("vivian"))
+}
+
+pub fn project_display_floor_scene(scene: &SceneState, role: DisplayFloorRole) -> SceneState {
+    match role {
+        DisplayFloorRole::Trading => {
+            let mut projected = project_floor_scene(scene, 0);
+            projected.agents.retain(|_, slot| !is_vivian(slot));
+            projected
+        }
+        DisplayFloorRole::Standard { operational_floor } => {
+            let mut projected = project_floor_scene(scene, operational_floor);
+            projected.agents.retain(|_, slot| !is_vivian(slot));
+            projected
+        }
+        DisplayFloorRole::Vivian => {
+            let mut projected = SceneState::uniform(1);
+            if let Some(vivian) = scene.agents.values().find(|slot| is_vivian(slot)) {
+                let mut slot = vivian.clone();
+                slot.desk_index = GlobalDeskIndex(0);
+                slot.floor_idx = 0;
+                projected.agents.insert(slot.agent_id, slot);
+            }
+            projected
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1060,6 +1146,51 @@ mod tests {
     fn num_floors_empty() {
         let scene = make_scene(0, 16);
         assert_eq!(num_floors(&scene), 1);
+    }
+
+    #[test]
+    fn display_floor_stack_is_trading_standard_vivian() {
+        let scene = make_scene(1, 8);
+
+        assert_eq!(display_floor_count(&scene), 3);
+        assert_eq!(
+            display_floor_role(0, num_floors(&scene)),
+            DisplayFloorRole::Trading
+        );
+        assert_eq!(
+            display_floor_role(1, num_floors(&scene)),
+            DisplayFloorRole::Standard {
+                operational_floor: 1,
+            }
+        );
+        assert_eq!(
+            display_floor_role(2, num_floors(&scene)),
+            DisplayFloorRole::Vivian
+        );
+    }
+
+    #[test]
+    fn display_floor_projection_never_duplicates_vivian_or_real_agents() {
+        let mut scene = make_scene(20, 16);
+        let vivian_id = *scene.agents.keys().next().unwrap();
+        scene.agents.get_mut(&vivian_id).unwrap().label = "Vivian".into();
+        let display_floors = display_floor_count(&scene);
+        let operational_floors = num_floors(&scene);
+        let mut counts = HashMap::<AgentId, usize>::new();
+
+        for display_floor in 0..display_floors {
+            let role = display_floor_role(display_floor, operational_floors);
+            let projected = project_display_floor_scene(&scene, role);
+            for id in projected.agents.keys() {
+                *counts.entry(*id).or_default() += 1;
+            }
+        }
+
+        assert_eq!(counts.len(), scene.agents.len());
+        assert!(counts.values().all(|count| *count == 1));
+        let top = project_display_floor_scene(&scene, DisplayFloorRole::Vivian);
+        assert_eq!(top.agents.len(), 1);
+        assert!(top.agents.contains_key(&vivian_id));
     }
 
     #[test]

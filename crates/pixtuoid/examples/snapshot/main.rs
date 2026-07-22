@@ -25,7 +25,7 @@ use crate::encode::{
 };
 use crate::scenes::{
     anim_scene, capture_live_scene, dashboard_scene, inject_openclaw_presence, meeting_scene,
-    named_200west_scene, sample_scene,
+    named_200west_scene, sample_scene, vivian_office_scene,
 };
 
 const COLS: u16 = 192;
@@ -103,6 +103,13 @@ struct SnapshotArgs {
         conflicts_with_all = ["anim", "meeting", "dashboard", "empty", "live", "pets", "navigate_at"]
     )]
     named_200west_cast: bool,
+
+    /// Render only Vivian, settled at desk zero, for her private-office proof.
+    #[arg(
+        long,
+        conflicts_with_all = ["named_200west_cast", "anim", "meeting", "dashboard", "empty", "live", "pets", "navigate_at"]
+    )]
+    vivian_office: bool,
 
     /// Output an animated GIF instead of a static PNG. Renders
     /// `--gif-duration` seconds at `--gif-fps` frames per second,
@@ -454,7 +461,9 @@ fn main() -> Result<()> {
     let cols = args.cols.unwrap_or(COLS);
     let rows = args.rows.unwrap_or(ROWS);
     let mut skip_ms = 0u64;
-    let scene = if args.named_200west_cast {
+    let scene = if args.vivian_office {
+        vivian_office_scene(now, 1)
+    } else if args.named_200west_cast {
         named_200west_scene(now, args.max_desks)
     } else if let Some(target) = args.anim.as_deref() {
         let (s, skip) = anim_scene(
@@ -929,6 +938,15 @@ mod tests {
                 (7, "alison".into(), "Alison".into()),
             ]
         );
+    }
+
+    #[test]
+    fn vivian_office_scene_contains_only_vivian_at_desk_zero() {
+        let scene = scenes::vivian_office_scene(SystemTime::UNIX_EPOCH, 1);
+        assert_eq!(scene.agents.len(), 1);
+        let slot = scene.agents.values().next().expect("Vivian is present");
+        assert_eq!(slot.label.as_ref(), "Vivian");
+        assert_eq!(slot.desk_index.0, 0);
     }
 
     #[test]

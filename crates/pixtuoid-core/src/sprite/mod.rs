@@ -115,29 +115,76 @@ pub struct Sprite {
 /// A flat RGB buffer used as a blit target. Alpha is ignored — transparent
 /// pixels leave the underlying buffer unchanged.
 #[derive(Debug, Clone)]
-pub struct RgbBuffer(Grid<Rgb>);
+pub struct RgbBuffer {
+    pixels: Grid<Rgb>,
+    logical_width: u16,
+    horizontal_scale: u16,
+}
 
 impl std::ops::Deref for RgbBuffer {
     type Target = Grid<Rgb>;
     fn deref(&self) -> &Grid<Rgb> {
-        &self.0
+        &self.pixels
     }
 }
 
 impl std::ops::DerefMut for RgbBuffer {
     fn deref_mut(&mut self) -> &mut Grid<Rgb> {
-        &mut self.0
+        &mut self.pixels
     }
 }
 
 impl RgbBuffer {
     pub fn filled(width: u16, height: u16, fill: Rgb) -> Self {
-        RgbBuffer(Grid::filled(width, height, fill))
+        Self {
+            pixels: Grid::filled(width, height, fill),
+            logical_width: width,
+            horizontal_scale: 1,
+        }
+    }
+
+    pub fn filled_x2(width: u16, height: u16, fill: Rgb) -> Self {
+        Self {
+            pixels: Grid::filled(width.saturating_mul(2), height, fill),
+            logical_width: width,
+            horizontal_scale: 2,
+        }
     }
 
     /// Build from a row-major `Vec<Rgb>` (length = `width * height`).
     pub fn from_pixels(width: u16, height: u16, pixels: Vec<Rgb>) -> Self {
-        RgbBuffer(Grid::from_vec(width, height, pixels))
+        Self {
+            pixels: Grid::from_vec(width, height, pixels),
+            logical_width: width,
+            horizontal_scale: 1,
+        }
+    }
+
+    pub fn width(&self) -> u16 {
+        self.logical_width
+    }
+
+    pub fn height(&self) -> u16 {
+        self.pixels.height
+    }
+
+    pub fn physical_width(&self) -> u16 {
+        self.pixels.width
+    }
+
+    pub fn horizontal_scale(&self) -> u16 {
+        self.horizontal_scale
+    }
+
+    pub fn physical_get(&self, x: u16, y: u16) -> Rgb {
+        debug_assert!(x < self.pixels.width && y < self.pixels.height);
+        self.pixels.as_slice()[(y as usize) * (self.pixels.width as usize) + (x as usize)]
+    }
+
+    pub fn physical_put(&mut self, x: u16, y: u16, rgb: Rgb) {
+        debug_assert!(x < self.pixels.width && y < self.pixels.height);
+        let index = (y as usize) * (self.pixels.width as usize) + (x as usize);
+        self.pixels.as_mut_slice()[index] = rgb;
     }
 
     pub fn get(&self, x: u16, y: u16) -> Rgb {
@@ -146,30 +193,33 @@ impl RgbBuffer {
         // it in debug/tests. (This is a public primitive the v2 PNG/web renderers
         // are meant to reuse.)
         debug_assert!(
-            x < self.0.width && y < self.0.height,
+            x < self.logical_width && y < self.pixels.height,
             "RgbBuffer::get out of bounds: ({x},{y}) in {}x{}",
-            self.0.width,
-            self.0.height
+            self.logical_width,
+            self.pixels.height
         );
-        self.0.as_slice()[(y as usize) * (self.0.width as usize) + (x as usize)]
+        self.physical_get(x.saturating_mul(self.horizontal_scale), y)
     }
 
     pub fn put(&mut self, x: u16, y: u16, rgb: Rgb) {
         debug_assert!(
-            x < self.0.width && y < self.0.height,
+            x < self.logical_width && y < self.pixels.height,
             "RgbBuffer::put out of bounds: ({x},{y}) in {}x{}",
-            self.0.width,
-            self.0.height
+            self.logical_width,
+            self.pixels.height
         );
-        let w = self.0.width as usize;
-        let i = (y as usize) * w + (x as usize);
-        self.0.as_mut_slice()[i] = rgb;
+        let physical_x = x.saturating_mul(self.horizontal_scale);
+        for offset in 0..self.horizontal_scale {
+            self.physical_put(physical_x + offset, y, rgb);
+        }
     }
 
     /// Resize and fill in one shot, reusing the existing allocation when
     /// possible. Cheaper than `RgbBuffer::filled(...)` once per frame.
     pub fn ensure_size(&mut self, width: u16, height: u16, fill: Rgb) {
-        self.0.resize_fill(width, height, fill)
+        self.logical_width = width;
+        self.pixels
+            .resize_fill(width.saturating_mul(self.horizontal_scale), height, fill)
     }
 }
 
@@ -185,6 +235,21 @@ mod tests {
         let p2 = p.with_override('B', Some(Rgb { r: 255, g: 0, b: 0 }));
         assert_eq!(p2.get('B'), Some(Some(Rgb { r: 255, g: 0, b: 0 })));
         assert_eq!(p.get('B'), Some(Some(Rgb { r: 0, g: 0, b: 255 })));
+    }
+
+    #[test]
+    fn x2_buffer_keeps_logical_dimensions_and_duplicates_logical_puts() {
+        let base = Rgb { r: 1, g: 2, b: 3 };
+        let accent = Rgb { r: 9, g: 8, b: 7 };
+        let mut buf = RgbBuffer::filled_x2(3, 2, base);
+
+        buf.put(1, 0, accent);
+
+        assert_eq!((buf.width(), buf.height()), (3, 2));
+        assert_eq!(buf.physical_width(), 6);
+        assert_eq!(buf.physical_get(2, 0), accent);
+        assert_eq!(buf.physical_get(3, 0), accent);
+        assert_eq!(buf.get(1, 0), accent);
     }
 
     // The unchecked get/put index would silently read/write the WRONG row on a

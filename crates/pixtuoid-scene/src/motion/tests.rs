@@ -255,6 +255,28 @@ fn fresh_idle_inits_to_seated_phase() {
     assert_eq!(ms.wander.cycle_n, 0);
 }
 
+#[test]
+fn fresh_idle_agents_receive_stable_distinct_wander_delays() {
+    let ids: Vec<_> = (0..8)
+        .map(|i| AgentId::from_transcript_path(&format!("/p/stagger-{i}.jsonl")))
+        .collect();
+    let delays: std::collections::HashSet<_> = ids
+        .iter()
+        .map(|&agent_id| initial_wander_stagger_ms(agent_id))
+        .collect();
+
+    assert!(
+        delays.len() >= 6,
+        "idle departures must not start in lockstep"
+    );
+    assert!(
+        delays
+            .iter()
+            .all(|&delay| delay < INITIAL_WANDER_STAGGER_MS),
+        "every delay stays inside the configured stagger window"
+    );
+}
+
 // -----------------------------------------------------------------------
 // T2: Seated phase transitions to WalkingOut after the seated dwell elapses
 //     on a trip cycle.

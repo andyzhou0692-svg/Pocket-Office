@@ -304,6 +304,21 @@ pub enum Furniture {
     /// Snack shelf against the pantry's west wall — an approachable obstacle
     /// (vending-machine class): tall shelf sprite, shallow walk-behind base.
     SnackShelf,
+    TradingCommandWall,
+    TradingTicker,
+    TradingDeskRig,
+    TradingClutter,
+    TradingBonusBoard,
+    TradingPhoneBank,
+    TradingVelcroTarget,
+    ExecutiveRunner,
+    ExecutiveArtWall,
+    ExecutiveMoneyPainting,
+    ExecutiveMarbleFloor,
+    ExecutiveBoardTable,
+    ExecutiveBar,
+    ExecutiveSculpture,
+    ExecutiveChandelier,
     /// The agent's OWNED home workstation. Not a [`WaypointKind`] (N per-agent
     /// desks, forced-seat when Active, never a wander destination) — but a
     /// first-class geometry row so desk and couch share ONE table and the same
@@ -343,6 +358,21 @@ impl Furniture {
         Furniture::KitchenIsland,
         Furniture::IslandStand,
         Furniture::SnackShelf,
+        Furniture::TradingCommandWall,
+        Furniture::TradingTicker,
+        Furniture::TradingDeskRig,
+        Furniture::TradingClutter,
+        Furniture::TradingBonusBoard,
+        Furniture::TradingPhoneBank,
+        Furniture::TradingVelcroTarget,
+        Furniture::ExecutiveRunner,
+        Furniture::ExecutiveArtWall,
+        Furniture::ExecutiveMoneyPainting,
+        Furniture::ExecutiveMarbleFloor,
+        Furniture::ExecutiveBoardTable,
+        Furniture::ExecutiveBar,
+        Furniture::ExecutiveSculpture,
+        Furniture::ExecutiveChandelier,
         Furniture::Desk,
     ];
 }
@@ -638,6 +668,71 @@ pub const fn furniture_def(kind: Furniture) -> FurnitureDef {
             approach: ApproachSides::ALL,
             ground_x: GroundAlign::Center,
             ground_y: GroundAlign::End,
+        },
+        Furniture::TradingCommandWall => FurnitureDef {
+            footprint: Some(Size { w: 18, h: 3 }),
+            visual: Size { w: 20, h: 20 },
+            ..DECOR
+        },
+        Furniture::TradingTicker => FurnitureDef {
+            visual: Size { w: 32, h: 5 },
+            ..DECOR
+        },
+        Furniture::TradingDeskRig => FurnitureDef {
+            visual: Size { w: 18, h: 9 },
+            ..DECOR
+        },
+        Furniture::TradingClutter => FurnitureDef {
+            footprint: Some(Size { w: 10, h: 2 }),
+            visual: Size { w: 12, h: 7 },
+            ..DECOR
+        },
+        Furniture::TradingBonusBoard => FurnitureDef {
+            visual: Size { w: 22, h: 10 },
+            ..DECOR
+        },
+        Furniture::TradingPhoneBank => FurnitureDef {
+            footprint: Some(Size { w: 14, h: 2 }),
+            visual: Size { w: 16, h: 8 },
+            ..DECOR
+        },
+        Furniture::TradingVelcroTarget => FurnitureDef {
+            footprint: Some(Size { w: 12, h: 2 }),
+            visual: Size { w: 14, h: 18 },
+            ..DECOR
+        },
+        Furniture::ExecutiveRunner => FurnitureDef {
+            visual: Size { w: 24, h: 30 },
+            ..DECOR
+        },
+        Furniture::ExecutiveArtWall => FurnitureDef {
+            visual: Size { w: 48, h: 22 },
+            ..DECOR
+        },
+        Furniture::ExecutiveMoneyPainting => FurnitureDef {
+            visual: Size { w: 75, h: 22 },
+            ..DECOR
+        },
+        Furniture::ExecutiveMarbleFloor => FurnitureDef {
+            visual: Size { w: 48, h: 30 },
+            ..DECOR
+        },
+        Furniture::ExecutiveBoardTable => FurnitureDef {
+            visual: Size { w: 64, h: 20 },
+            ..DECOR
+        },
+        Furniture::ExecutiveBar => FurnitureDef {
+            footprint: Some(Size { w: 20, h: 4 }),
+            visual: Size { w: 24, h: 12 },
+            ..DECOR
+        },
+        Furniture::ExecutiveSculpture => FurnitureDef {
+            visual: Size { w: 10, h: 16 },
+            ..DECOR
+        },
+        Furniture::ExecutiveChandelier => FurnitureDef {
+            visual: Size { w: 26, h: 12 },
+            ..DECOR
         },
         // Width 2 = the 2px base disc (was 4, over-blocking the 1px pole + empty
         // margins). Height 7 is deliberate, NOT the disc's 1px: the disc sits at
@@ -942,6 +1037,21 @@ pub enum PodDecor {
     Tv,
     PhoneBooth,
     StandingDesk,
+    TradingCommandWall,
+    TradingTicker,
+    TradingDeskRig,
+    TradingClutter,
+    TradingBonusBoard,
+    TradingPhoneBank,
+    TradingVelcroTarget,
+    ExecutiveRunner,
+    ExecutiveArtWall,
+    ExecutiveMoneyPainting,
+    ExecutiveMarbleFloor,
+    ExecutiveBoardTable,
+    ExecutiveBar,
+    ExecutiveSculpture,
+    ExecutiveChandelier,
 }
 
 impl PodDecor {
@@ -970,6 +1080,21 @@ impl PodDecor {
             PodDecor::Tv => Furniture::Tv,
             PodDecor::PhoneBooth => Furniture::PhoneBooth,
             PodDecor::StandingDesk => Furniture::StandingDesk,
+            PodDecor::TradingCommandWall => Furniture::TradingCommandWall,
+            PodDecor::TradingTicker => Furniture::TradingTicker,
+            PodDecor::TradingDeskRig => Furniture::TradingDeskRig,
+            PodDecor::TradingClutter => Furniture::TradingClutter,
+            PodDecor::TradingBonusBoard => Furniture::TradingBonusBoard,
+            PodDecor::TradingPhoneBank => Furniture::TradingPhoneBank,
+            PodDecor::TradingVelcroTarget => Furniture::TradingVelcroTarget,
+            PodDecor::ExecutiveRunner => Furniture::ExecutiveRunner,
+            PodDecor::ExecutiveArtWall => Furniture::ExecutiveArtWall,
+            PodDecor::ExecutiveMoneyPainting => Furniture::ExecutiveMoneyPainting,
+            PodDecor::ExecutiveMarbleFloor => Furniture::ExecutiveMarbleFloor,
+            PodDecor::ExecutiveBoardTable => Furniture::ExecutiveBoardTable,
+            PodDecor::ExecutiveBar => Furniture::ExecutiveBar,
+            PodDecor::ExecutiveSculpture => Furniture::ExecutiveSculpture,
+            PodDecor::ExecutiveChandelier => Furniture::ExecutiveChandelier,
         }
     }
 
@@ -981,6 +1106,21 @@ impl PodDecor {
             PodDecor::Tv => "tv_stand",
             PodDecor::PhoneBooth => "phone_booth",
             PodDecor::StandingDesk => "standing_desk",
+            PodDecor::TradingCommandWall => "trading_command_wall",
+            PodDecor::TradingTicker => "trading_ticker",
+            PodDecor::TradingDeskRig => "trading_desk_rig",
+            PodDecor::TradingClutter => "trading_clutter",
+            PodDecor::TradingBonusBoard => "trading_bonus_board",
+            PodDecor::TradingPhoneBank => "trading_phone_bank",
+            PodDecor::TradingVelcroTarget => "trading_velcro_target",
+            PodDecor::ExecutiveRunner => "executive_runner",
+            PodDecor::ExecutiveArtWall => "executive_art_wall",
+            PodDecor::ExecutiveMoneyPainting => "executive_money_painting",
+            PodDecor::ExecutiveMarbleFloor => "executive_marble_floor",
+            PodDecor::ExecutiveBoardTable => "executive_board_table",
+            PodDecor::ExecutiveBar => "executive_bar",
+            PodDecor::ExecutiveSculpture => "executive_sculpture",
+            PodDecor::ExecutiveChandelier => "executive_chandelier",
         }
     }
 }
@@ -1138,12 +1278,12 @@ mod tests {
     #[test]
     fn furniture_def_invariants_hold_for_every_row() {
         // The singleton/decor rows have no other test (unlike WaypointKind::ALL),
-        // so a typo in any of the 26 rows — wrong dwell sentinel, an accidental
+        // so a typo in any of the 41 rows — wrong dwell sentinel, an accidental
         // occupies_pos, a wrong plant footprint — is caught HERE rather than as a
         // silent wrong-mask/wrong-render at runtime.
         assert_eq!(
             Furniture::ALL.len(),
-            26,
+            41,
             "Furniture variant added/removed — update ALL (and this count)"
         );
         for &f in Furniture::ALL {

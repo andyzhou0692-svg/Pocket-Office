@@ -24,6 +24,12 @@ use crate::pose::{
     IdleBehavior, DEFAULT_IDLE_BEHAVIOR, WANDER_DWELL_EST_MS,
 };
 
+const INITIAL_WANDER_STAGGER_MS: u64 = 15_000;
+
+fn initial_wander_stagger_ms(id: AgentId) -> u64 {
+    pixtuoid_core::id::splitmix64(id.raw()) % INITIAL_WANDER_STAGGER_MS
+}
+
 /// Frozen A* polyline for one in-flight walk leg.
 ///
 /// Snapshotted the first frame a walk leg's `(from, to)` endpoints appear and
@@ -314,7 +320,19 @@ pub(crate) fn advance_wander_with_behavior(
         ms.wander.phase = WanderPhase::Seated;
         ms.wander.profile = None;
         ms.wander.cycle_n = elapsed_idle / cycle;
-        ms.wander.phase_started_at = now;
+        // Idle residents often enter the reconstructed scene in the same
+        // frame. Starting every desk clock at exactly `now` sends the whole
+        // roster through the same corridor together after one dwell, visually
+        // stacking their sprites. A stable per-agent delay keeps the same
+        // behavior while separating those departures.
+        let stagger_ms = if is_fresh {
+            initial_wander_stagger_ms(id)
+        } else {
+            0
+        };
+        ms.wander.phase_started_at = now
+            .checked_add(Duration::from_millis(stagger_ms))
+            .unwrap_or(now);
     }
 
     // ---- IDEMPOTENCY CHECK (Correction F) ----------------------------------

@@ -1,0 +1,9 @@
+# 12x7 floor clutter: paper stacks, food cartons and an overflowing bin.
+@frame 0
+. w w w . . . V V . . .
+w w w w . . V V V V . .
+. w w w . . . V V . . .
+. . . . . K K K K . . .
+. r y . . K w w K . c .
+r r y . . K w w K c c c
+r y y . . M M M M . c .

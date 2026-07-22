@@ -27,8 +27,8 @@ use crate::chitchat::{ActiveChitchat, ChitchatBubble};
 use crate::floor::LightingState;
 use crate::frame_cache::FrameCache;
 use crate::layout::{
-    z_sort_row, Anchor, Layout, PlantItem, PodDecorItem, Point, Size, WallDecorItem, WallSegment,
-    ELEVATOR_H, ELEVATOR_W,
+    furniture_def, z_sort_row, Anchor, Layout, PlantItem, PodDecorItem, Point, Size, WallDecorItem,
+    WallSegment, ELEVATOR_H, ELEVATOR_W,
 };
 use crate::motion::MotionState;
 use crate::pet::PetFrame;
@@ -89,6 +89,7 @@ mod glass;
 mod palette;
 mod seat;
 mod sim;
+mod trading_event;
 
 pub use anchors::character_anchor;
 // The ToolKind→glow-hue seam the binary's footer tints tool segments with, so a
@@ -367,6 +368,8 @@ fn paint_frame(
     // so `paint_floor_and_walls` skips drawing a window that would
     // otherwise bleed through behind the elevator frame.
     let door_x_range = ctx.layout.door.map(|d| (d.x, d.x + ELEVATOR_W));
+    let continuous_window_start = vivian_continuous_window_start(ctx.layout);
+    let window_profile = window_visual_profile(ctx.layout, ctx.theme);
     paint_floor_and_walls(
         ctx.buf,
         buf_w,
@@ -375,8 +378,10 @@ fn paint_frame(
         &look,
         top_wall_h,
         door_x_range,
+        continuous_window_start,
         ctx.theme,
         ctx.floor.altitude,
+        window_profile,
     );
 
     // Per-floor lighting: `sim_step` already ticked the fade state with the
@@ -472,10 +477,12 @@ fn paint_frame(
     // but before wall decor — the bookshelf etc. shouldn't cover it.
     // 7x7 sprite, center at clock_x+3; clamp so it never collides with
     // the neon panel on the left (its right edge + a 1px gap).
-    let clock_x = (buf_w / 2)
-        .saturating_sub(3)
-        .max(NEON_PANEL_X + NEON_PANEL_W + 1);
-    paint_clock(ctx.buf, clock_x, 1, ctx.now, ctx.theme);
+    if continuous_window_start.is_none() {
+        let clock_x = (buf_w / 2)
+            .saturating_sub(3)
+            .max(NEON_PANEL_X + NEON_PANEL_W + 1);
+        paint_clock(ctx.buf, clock_x, 1, ctx.now, ctx.theme);
+    }
     // Corridor runner — painted over the floor but BEFORE walls/decor
     // so walls cleanly overlap it where they cross.
     if let Some(corridor) = ctx.layout.corridor {
@@ -707,6 +714,8 @@ fn paint_frame(
         paint_drawable(d, ctx.buf, ctx.pack, ctx.cache, ctx.now, ctx.theme);
     }
 
+    trading_event::paint_trading_event(ctx.buf, ctx.layout, ctx.now);
+
     // Room-wide lightning bounce — LAST, so a Storm strike briefly flares the
     // whole interior (floor, walls, furniture, characters), not just the window
     // strip. No-op outside a strike / non-storm weather.
@@ -719,6 +728,35 @@ fn paint_frame(
     }
 
     (resolved_pet_pos, resolved_mascot_pos)
+}
+
+fn window_visual_profile(
+    layout: &Layout,
+    theme: &crate::theme::Theme,
+) -> crate::theme::VisualProfile {
+    if layout
+        .pod_decor
+        .iter()
+        .any(|item| item.kind == crate::layout::PodDecor::ExecutiveMoneyPainting)
+    {
+        crate::theme::VisualProfile::CentralPark
+    } else {
+        theme.visual_profile()
+    }
+}
+
+fn vivian_continuous_window_start(layout: &Layout) -> Option<u16> {
+    layout
+        .pod_decor
+        .iter()
+        .find(|item| item.kind == crate::layout::PodDecor::ExecutiveMoneyPainting)
+        .map(|item| {
+            let painting_w = furniture_def(item.kind.furniture()).visual.w;
+            item.pos
+                .x
+                .saturating_sub(painting_w / 2)
+                .saturating_add(painting_w)
+        })
 }
 
 /// Map the sim's resolved [`sim::CharacterPlacement`]s 1:1 onto y-sorted
@@ -1137,7 +1175,15 @@ fn enqueue_pod_decor_and_plants<'a>(layout: &'a Layout, drawables: &mut Vec<Draw
     for &PodDecorItem { kind, pos } in &layout.pod_decor {
         let Size { h, .. } = crate::layout::furniture_def(kind.furniture()).visual;
         drawables.push(Drawable {
-            anchor_y: z_sort_row(Anchor::Center, pos, h),
+            anchor_y: if matches!(
+                kind,
+                crate::layout::PodDecor::ExecutiveRunner
+                    | crate::layout::PodDecor::ExecutiveMarbleFloor
+            ) {
+                pos.y.saturating_sub(h / 2)
+            } else {
+                z_sort_row(Anchor::Center, pos, h)
+            },
             kind: DrawableKind::PodDecorItem { kind, pos },
         });
     }

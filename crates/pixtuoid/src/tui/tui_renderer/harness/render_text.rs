@@ -67,10 +67,9 @@ fn footer_shows_agent_count() {
     let mut r = build(140, 44, vec![]);
     r.render(&scene, &pack(), t0()).unwrap();
     let text = frame_text(r.frame_buffer());
-    // Redesigned footer: bare count + vocabulary rungs (glyph+count+letter).
-    // 1 active (Edit) + 2 idle: ` 3 · ●1 A · ○2 I · Edit×1 `.
+    // The permanent stack makes the floor count explicit even on floor zero.
     assert!(
-        text.contains(" 3 \u{b7} \u{25cf}1 A") && text.contains("\u{25cb}2 I"),
+        text.contains(" 3/3 \u{b7} \u{25cf}1 A") && text.contains("\u{25cb}2 I"),
         "full-width footer shows the count + state rungs; frame footer area:\n{}",
         text.lines().last().unwrap_or("")
     );
@@ -188,24 +187,25 @@ fn meeting_room_fills_and_hosts_group_chitchat() {
         // Stagger start times so wander cycles desync and the room sees a mix
         // of arrivals/departures.
         let started = now - Duration::from_secs(5 + (i as u64 * 11) % 80);
-        scene.agents.insert(id, slot(id, 0, i, started));
+        scene.agents.insert(id, slot(id, 1, cap + i, started));
     }
 
     // Keep enough usable desks for a genuinely occupied meeting room. The
     // higher-detail workstation grid needs more vertical room than the old
     // compact fixture, otherwise only six agents can render and wander.
     let mut r = build(160, 72, vec![]);
-    r.render(&scene, &pack, now).expect("render");
+    render_standard_floor(&mut r, &scene, &pack, &mut now);
     let layout = r.cached_layout().expect("layout").clone();
     let mr = layout
         .meeting_room_bounds(0)
-        .expect("floor 0 must have a meeting room at this size");
+        .expect("200West floor must have a meeting room at this size");
 
     // Empty-room pixel baseline (same furniture, no agents) so the region diff
     // isolates the characters.
     let mut r0 = build(160, 72, vec![]);
-    r0.render(&SceneState::uniform(cap), &pack, now)
-        .expect("render");
+    let empty = SceneState::uniform(cap);
+    let mut baseline_now = t0();
+    render_standard_floor(&mut r0, &empty, &pack, &mut baseline_now);
     let baseline = r0.buf().clone();
 
     // The layout must actually carry meeting slots (otherwise the test is
@@ -290,7 +290,9 @@ fn meeting_glass_partition_connects_at_window_and_corner() {
     // check is immune to time-of-day dim / weather tint applied globally.
     let mut r = build(192, 80, vec![]);
     let scene = scene_with(vec![idle("/h/glass.jsonl", 0, t0())], 16);
-    r.render(&scene, &pack(), t0()).expect("render");
+    let sprite_pack = pack();
+    let mut now = t0();
+    render_standard_floor(&mut r, &scene, &sprite_pack, &mut now);
 
     let layout = r.cached_layout().expect("layout").clone();
     let v_x = layout

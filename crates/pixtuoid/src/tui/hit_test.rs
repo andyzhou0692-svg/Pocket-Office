@@ -296,6 +296,21 @@ pub fn hit_test_furniture(layout: &Layout, mx: u16, my: u16) -> Option<&'static 
                 PodDecor::Tv => "TV Stand",
                 PodDecor::PhoneBooth => "Phone Booth",
                 PodDecor::StandingDesk => "Standing Desk",
+                PodDecor::TradingCommandWall => "Market Command Wall",
+                PodDecor::TradingTicker => "Market Ticker",
+                PodDecor::TradingDeskRig => "Trading Desk Rig",
+                PodDecor::TradingClutter => "Trading Floor Clutter",
+                PodDecor::TradingBonusBoard => "Bonus Leaderboard",
+                PodDecor::TradingPhoneBank => "Phone Bank",
+                PodDecor::TradingVelcroTarget => "Velcro Target",
+                PodDecor::ExecutiveRunner => "Executive Gallery Runner",
+                PodDecor::ExecutiveArtWall => "Monumental Art",
+                PodDecor::ExecutiveMoneyPainting => "One Hundred Dollar Oil Painting",
+                PodDecor::ExecutiveMarbleFloor => "Dark Parquet Floor",
+                PodDecor::ExecutiveBoardTable => "Vivian's Executive Desk",
+                PodDecor::ExecutiveBar => "Mahogany Drinks Cabinet",
+                PodDecor::ExecutiveSculpture => "Old Master Portrait",
+                PodDecor::ExecutiveChandelier => "Executive Chandelier",
             });
         }
     }

@@ -165,26 +165,26 @@ fn paint_face(
             point(frame, 8, 8, mouth);
         }
         FaceComponent::Glasses => {
-            line(frame, 2, 6, 4, GLASSES_BLACK);
-            line(frame, 9, 13, 4, GLASSES_BLACK);
+            // Two compact hollow frames. The old 12-pixel brow bar and outer
+            // temples dominated the entire face once rendered with quadrants.
+            line(frame, 4, 6, 4, GLASSES_BLACK);
+            line(frame, 9, 11, 4, GLASSES_BLACK);
             for (x, y) in [
-                (3, 5),
+                (4, 5),
                 (6, 5),
                 (7, 5),
                 (8, 5),
                 (9, 5),
-                (12, 5),
-                (3, 6),
+                (11, 5),
+                (4, 6),
                 (6, 6),
                 (9, 6),
-                (12, 6),
+                (11, 6),
             ] {
                 point(frame, x, y, GLASSES_BLACK);
             }
-            line(frame, 4, 5, 7, GLASSES_BLACK);
-            line(frame, 10, 11, 7, GLASSES_BLACK);
-            point(frame, 4, 6, eye);
-            point(frame, 11, 6, eye);
+            point(frame, 5, 5, eye);
+            point(frame, 10, 5, eye);
             point(frame, 7, 7, shadow);
             point(frame, 7, 8, mouth);
             point(frame, 8, 8, mouth);
@@ -215,6 +215,8 @@ fn paint_outfit(frame: &mut Frame, palette: &Palette, component: OutfitComponent
             recolor_opaque(frame, 3, 11, 12, 14, ivory);
             recolor_opaque(frame, 3, 15, 12, 16, SKIRT_BLUE);
             if !walking {
+                frame.set(3, 16, None);
+                frame.set(12, 16, None);
                 line(frame, 4, 11, 16, SKIRT_BLUE);
             }
             point(frame, 7, 11, BURGUNDY_DRESS);
@@ -223,7 +225,9 @@ fn paint_outfit(frame: &mut Frame, palette: &Palette, component: OutfitComponent
         OutfitComponent::BurgundyDress => {
             recolor_opaque(frame, 3, 11, 12, 16, BURGUNDY_DRESS);
             if !walking {
-                line(frame, 3, 12, 16, BURGUNDY_DRESS);
+                frame.set(3, 16, None);
+                frame.set(12, 16, None);
+                line(frame, 4, 11, 16, BURGUNDY_DRESS);
             }
             point(frame, 7, 11, ivory);
             point(frame, 8, 11, ivory);

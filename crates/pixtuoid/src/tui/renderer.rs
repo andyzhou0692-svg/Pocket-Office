@@ -500,7 +500,6 @@ pub(super) fn flush_buffer_to_term_at_offset(
 ) {
     let term_buf = f.buffer_mut();
     let term_area = term_buf.area;
-    let w = buf.width() as usize;
     let cell_rows = (buf.height() / 2) as usize;
     for cy in 0..cell_rows {
         let target_y = cy as i32 + y_offset;
@@ -518,19 +517,85 @@ pub(super) fn flush_buffer_to_term_at_offset(
             }
             let py_top = cy * 2;
             let py_bot = cy * 2 + 1;
-            let fg = buf.as_slice()[py_top * w + cx];
-            let bg = buf.as_slice()[py_bot * w + cx];
+            let paint = terminal_cell_paint(buf, cx, py_top, py_bot);
             let cell = &mut term_buf[(x, y)];
-            // SF Mono renders U+2580 (upper half block) as a centered stripe,
-            // letting the lower-pixel background leak above and below it. That
-            // slices every sprite into horizontal bands in Apple Terminal.
-            // U+2584 anchors to the bottom edge, so keep the logical top pixel
-            // as the full-cell background and overlay the logical bottom pixel
-            // as the lower-half foreground.
-            cell.set_symbol("\u{2584}");
-            cell.fg = Color::Rgb(bg.r, bg.g, bg.b);
-            cell.bg = Color::Rgb(fg.r, fg.g, fg.b);
+            cell.set_symbol(paint.symbol);
+            cell.fg = Color::Rgb(paint.fg.r, paint.fg.g, paint.fg.b);
+            cell.bg = Color::Rgb(paint.bg.r, paint.bg.g, paint.bg.b);
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TerminalCellPaint {
+    symbol: &'static str,
+    fg: pixtuoid_core::sprite::Rgb,
+    bg: pixtuoid_core::sprite::Rgb,
+}
+
+fn terminal_cell_paint(
+    buf: &RgbBuffer,
+    cx: usize,
+    py_top: usize,
+    py_bot: usize,
+) -> TerminalCellPaint {
+    let top = source_pair(buf, cx, py_top);
+    let bottom = source_pair(buf, cx, py_bot);
+    quadrant_paint([top[0], top[1], bottom[0], bottom[1]])
+}
+
+fn source_pair(buf: &RgbBuffer, x: usize, y: usize) -> [pixtuoid_core::sprite::Rgb; 2] {
+    let physical_x = x * buf.horizontal_scale() as usize;
+    let left = buf.physical_get(physical_x as u16, y as u16);
+    let right = if buf.horizontal_scale() == 2 {
+        buf.physical_get((physical_x + 1) as u16, y as u16)
+    } else {
+        left
+    };
+    [left, right]
+}
+
+fn quadrant_paint(pixels: [pixtuoid_core::sprite::Rgb; 4]) -> TerminalCellPaint {
+    const GLYPHS: [&str; 16] = [
+        " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█",
+    ];
+    let mut colors: Vec<(pixtuoid_core::sprite::Rgb, usize)> = Vec::new();
+    for pixel in pixels {
+        if let Some((_, count)) = colors.iter_mut().find(|(color, _)| *color == pixel) {
+            *count += 1;
+        } else {
+            colors.push((pixel, 1));
+        }
+    }
+    colors.sort_by(|a, b| b.1.cmp(&a.1));
+    let bg = colors[0].0;
+    if colors.len() == 1 {
+        return TerminalCellPaint {
+            symbol: "\u{2584}",
+            fg: bg,
+            bg,
+        };
+    }
+    let distance = |a: pixtuoid_core::sprite::Rgb, b: pixtuoid_core::sprite::Rgb| {
+        (a.r as i32 - b.r as i32).pow(2)
+            + (a.g as i32 - b.g as i32).pow(2)
+            + (a.b as i32 - b.b as i32).pow(2)
+    };
+    let fg = colors[1..]
+        .iter()
+        .max_by_key(|(color, count)| (distance(*color, bg), *count))
+        .map(|(color, _)| *color)
+        .unwrap_or(bg);
+    let mut mask = 0usize;
+    for (idx, pixel) in pixels.into_iter().enumerate() {
+        if distance(pixel, fg) < distance(pixel, bg) {
+            mask |= 1 << idx;
+        }
+    }
+    TerminalCellPaint {
+        symbol: GLYPHS[mask],
+        fg,
+        bg,
     }
 }
 
@@ -693,6 +758,73 @@ mod tests {
         assert_eq!(cell.symbol(), HALF_BLOCK);
         assert_eq!(cell.bg, Color::Rgb(top.r, top.g, top.b));
         assert_eq!(cell.fg, Color::Rgb(bottom.r, bottom.g, bottom.b));
+    }
+
+    #[test]
+    fn terminal_cell_reads_two_horizontal_source_pixels() {
+        let light = rgb(220, 210, 190);
+        let dark = rgb(30, 40, 55);
+        let mut buf = RgbBuffer::filled_x2(1, 2, light);
+        buf.physical_put(1, 1, dark);
+
+        let paint = terminal_cell_paint(&buf, 0, 0, 1);
+
+        assert_eq!(paint.symbol, "\u{2597}");
+        assert_eq!(paint.fg, dark);
+        assert_eq!(paint.bg, light);
+    }
+
+    #[test]
+    fn cell_paint_keeps_structural_edges_on_full_cell_boundaries() {
+        let wall = rgb(50, 65, 85);
+        let desk = rgb(180, 135, 75);
+        let mut buf = RgbBuffer::filled(2, 2, wall);
+        buf.put(1, 0, desk);
+        buf.put(1, 1, desk);
+
+        let wall_cell = terminal_cell_paint(&buf, 0, 0, 1);
+        let desk_cell = terminal_cell_paint(&buf, 1, 0, 1);
+
+        assert_eq!(wall_cell.symbol, HALF_BLOCK);
+        assert_eq!(wall_cell.fg, wall);
+        assert_eq!(wall_cell.bg, wall);
+        assert_eq!(desk_cell.symbol, HALF_BLOCK);
+        assert_eq!(desk_cell.fg, desk);
+        assert_eq!(desk_cell.bg, desk);
+    }
+
+    #[test]
+    fn cell_paint_does_not_invent_a_third_colour() {
+        let top = rgb(210, 170, 120);
+        let bottom = rgb(30, 45, 70);
+        let unrelated = rgb(5, 5, 5);
+        let mut buf = RgbBuffer::filled(3, 2, unrelated);
+        buf.put(1, 0, top);
+        buf.put(1, 1, bottom);
+
+        let paint = terminal_cell_paint(&buf, 1, 0, 1);
+
+        assert_eq!(paint.symbol, HALF_BLOCK);
+        assert_eq!(paint.fg, bottom);
+        assert_eq!(paint.bg, top);
+    }
+
+    #[test]
+    fn cell_paint_keeps_low_contrast_background_texture_on_half_blocks() {
+        let wall = rgb(58, 74, 96);
+        let wall_highlight = rgb(68, 84, 106);
+        let mut buf = RgbBuffer::filled(3, 2, wall);
+        buf.put(1, 0, wall_highlight);
+        buf.put(2, 0, wall);
+        buf.put(2, 1, wall);
+        buf.put(0, 0, wall_highlight);
+        buf.put(0, 1, wall_highlight);
+
+        let paint = terminal_cell_paint(&buf, 1, 0, 1);
+
+        assert_eq!(paint.symbol, HALF_BLOCK);
+        assert_eq!(paint.fg, wall);
+        assert_eq!(paint.bg, wall_highlight);
     }
 
     // Lines 499-500: columns whose terminal x falls past the scene rect's right

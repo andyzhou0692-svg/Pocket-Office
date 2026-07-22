@@ -161,7 +161,11 @@ fn focus_clicked_agent<B: ratatui::backend::Backend<Error: Send + Sync + 'static
     // single-floor scene matching `cached_layout` (a raw multi-floor
     // snapshot would test other floors' agents against this floor's
     // desks — the global/local desk-index confusion, see its doc).
-    let floor_scene = floor::project_floor_scene(&snap, renderer.current_floor());
+    let operational_floors = floor::num_floors(&snap);
+    let floor_scene = floor::project_display_floor_scene(
+        &snap,
+        floor::display_floor_role(renderer.current_floor(), operational_floors),
+    );
     let hit = renderer
         .cached_layout()
         .and_then(|layout| renderer::hit_test_from_tui(&floor_scene, layout, col, row));
@@ -688,7 +692,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                 let buf_w = layout.buf_w;
                 let buf_h = layout.buf_h;
                 for floor_idx in 0..MAX_FLOORS {
-                    let seed = pixtuoid_scene::floor::floor_seed(floor_idx);
+                    let seed = pixtuoid_scene::floor::operational_floor_seed(floor_idx);
                     let mut capacity = pixtuoid_scene::floor::floor_capacity(buf_w, buf_h, seed);
                     if let Some(cap) = desk_cap {
                         capacity = capacity.min(cap);
@@ -710,7 +714,7 @@ pub(crate) async fn run_tui(session: TuiSession) -> Result<()> {
                     // there (e.g. `p` pauses then instantly unpauses).
                     Event::Key(k) if should_dispatch_key(k.kind) => {
                         let floor = FloorNav {
-                            n_floors: pixtuoid_scene::floor::num_floors(&snapshot),
+                            n_floors: pixtuoid_scene::floor::display_floor_count(&snapshot),
                             current_floor: renderer.current_floor(),
                             in_transition: renderer.transition().is_some(),
                         };

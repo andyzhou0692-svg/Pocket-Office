@@ -25,6 +25,7 @@ mod decor;
 mod mask;
 mod overrides;
 mod placement;
+mod prototypes;
 mod reach;
 mod rooms;
 
@@ -283,6 +284,12 @@ pub const DESK_GAP_X: u16 = 11;
 pub const DESK_GAP_Y: u16 = 14;
 pub const MIN_TOP_MARGIN: u16 = 20;
 const MIN_DUAL_MEETING_H: u16 = 80;
+
+// Reserved only for local design snapshots. Normal floors never reach these
+// seeds, so the installed office keeps its existing layout behavior.
+pub(crate) const PREVIEW_LAYOUT_TRADING_FLOOR_SEED: u64 = u64::MAX;
+pub(crate) const PREVIEW_LAYOUT_NEIGHBORHOODS_SEED: u64 = u64::MAX - 1;
+pub(crate) const PREVIEW_LAYOUT_EXECUTIVE_GALLERY_SEED: u64 = u64::MAX - 2;
 
 /// Number of desks per side in a pod (`POD_SIDE * POD_SIDE` total).
 pub const POD_SIDE: u16 = 2;

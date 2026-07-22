@@ -1,0 +1,22 @@
+# 20x20 market video wall and Hoot console.
+@frame 0
+M M M M M M M M M M M M M M M M M M M M
+M j j j j j M j j j j j M j j j j j j M
+M j c c j j M j r r j j M j y y y j j M
+M j c j j j M j r j j j M j y j y j j M
+M j j j j j M j j j j j M j j j j j j M
+M M M M M M M M M M M M M M M M M M M M
+M j j j j j M j j j j j M j j j j j j M
+M j b b j j M j c c c j M j r r r j j M
+M j b j j j M j c j c j M j r j j j j M
+M j j j j j M j j j j j M j j j j j j M
+M M M M M M M M M M M M M M M M M M M M
+. . . . M M M M M M M M M M M M . . . .
+. . . . M U U U U U U U U U U M . . . .
+. . . . M U c U r U y U c U U M . . . .
+. . . . M U U U U U U U U U U M . . . .
+. . . . M M M M M M M M M M M M . . . .
+. . . . . . D D D D D D D D . . . . . .
+. . . . . . d d . . . . d d . . . . . .
+. . . . . . d d . . . . d d . . . . . .
+. . . . . d d d . . . . d d d . . . . .

@@ -170,7 +170,7 @@ pub(crate) fn boot_capacities_for_window(
 ) -> [usize; pixtuoid_core::state::MAX_FLOORS] {
     let (_scale, buf_w, buf_h) = window_buffer_geometry(win_w, win_h);
     std::array::from_fn(|i| {
-        let seed = pixtuoid_scene::floor::floor_seed(i);
+        let seed = pixtuoid_scene::floor::operational_floor_seed(i);
         let cap = pixtuoid_scene::floor::floor_capacity(buf_w, buf_h, seed);
         if cap == 0 {
             crate::runtime::FALLBACK_DESKS
@@ -437,7 +437,7 @@ mod tests {
             let cap = pixtuoid_scene::floor::floor_capacity(
                 buf_w,
                 buf_h,
-                pixtuoid_scene::floor::floor_seed(i),
+                pixtuoid_scene::floor::operational_floor_seed(i),
             );
             let want = if cap == 0 {
                 crate::runtime::FALLBACK_DESKS

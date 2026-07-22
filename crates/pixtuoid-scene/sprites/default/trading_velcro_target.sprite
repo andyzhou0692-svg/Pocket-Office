@@ -1,0 +1,20 @@
+# 14x18 striped Velcro target for the rare trading-floor stunt.
+@frame 0
+. . . M M M M M M M M . . .
+. . M r r r r r r r r M . .
+. M r r w w w w w w r r M .
+. M r w w c c c c w w r M .
+M r w w c y y y c w w r r M
+M r w c y y r r y y c w r M
+M r w c y r w w r y c w r M
+M r w c y r w w r y c w r M
+M r w c y y r r y y c w r M
+M r w w c y y y y c w w r M
+M r r w c c c c c c w r r M
+. M r w w w w w w w r M . .
+. M r r r r r r r r r r M .
+. . M M M M M M M M M M . .
+. . . . . d d d d . . . . .
+. . . . . d d d d . . . . .
+. . . . d d . . d d . . . .
+. . . d d d . . d d d . . .

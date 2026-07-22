@@ -14,6 +14,29 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 #[test]
+fn vivian_office_routes_one_continuous_central_park_window_after_the_painting() {
+    let layout = Layout::compute_with_seed(
+        160,
+        94,
+        Some(1),
+        crate::layout::PREVIEW_LAYOUT_EXECUTIVE_GALLERY_SEED,
+    )
+    .expect("Vivian office fits");
+    let theme = crate::theme::theme_by_name("200West").expect("200West theme");
+
+    assert_eq!(
+        window_visual_profile(&layout, theme),
+        crate::theme::VisualProfile::CentralPark,
+        "Vivian's private office keeps the real window painter but routes Central Park scenery through it"
+    );
+    assert_eq!(
+        vivian_continuous_window_start(&layout),
+        Some(75),
+        "the continuous window begins exactly after the $100 painting"
+    );
+}
+
+#[test]
 fn stitch_vertical_wall_connects_each_joint() {
     let top_margin = 48u16;
     let top_wall_h = top_margin - 4; // 44
@@ -1087,12 +1110,12 @@ fn vivian_component_glasses_can_rotate_without_changing_her_hair() {
     let with_glasses = render_vivian_profile_at_launch_second(2);
 
     assert!(
-        matches!(with_glasses.get(2, 4), Some(Some(_))),
-        "the glasses component must paint a visible outer temple"
+        matches!(with_glasses.get(4, 4), Some(Some(_))),
+        "the glasses component must paint a visible frame"
     );
     assert_ne!(
-        without_glasses.get(2, 4),
-        with_glasses.get(2, 4),
+        without_glasses.get(4, 4),
+        with_glasses.get(4, 4),
         "the accessory choice must be visible"
     );
     for point in [(3, 3), (12, 3), (3, 10), (12, 10)] {
@@ -1137,30 +1160,22 @@ fn chloe_glasses_match_the_reference_frame_with_hollow_lenses() {
     };
 
     let frame_points = [
-        (2, 4),
-        (3, 4),
         (4, 4),
         (5, 4),
         (6, 4),
         (9, 4),
         (10, 4),
         (11, 4),
-        (12, 4),
-        (13, 4),
-        (3, 5),
+        (4, 5),
         (6, 5),
         (7, 5),
         (8, 5),
         (9, 5),
-        (12, 5),
-        (3, 6),
+        (11, 5),
+        (4, 6),
         (6, 6),
         (9, 6),
-        (12, 6),
-        (4, 7),
-        (5, 7),
-        (10, 7),
-        (11, 7),
+        (11, 6),
     ];
     for point in frame_points {
         assert_eq!(
@@ -1169,12 +1184,8 @@ fn chloe_glasses_match_the_reference_frame_with_hollow_lenses() {
             "normal glasses must follow the reference outline at {point:?}"
         );
     }
-    for point in [(4, 5), (5, 5), (10, 5), (11, 5), (5, 6), (10, 6)] {
-        assert_eq!(
-            frame.get(point.0, point.1),
-            Some(&Some(skin)),
-            "normal glasses must leave the lens hollow at {point:?}"
-        );
+    for point in [(5, 6), (10, 6)] {
+        assert_eq!(frame.get(point.0, point.1), Some(&Some(skin)));
     }
 }
 

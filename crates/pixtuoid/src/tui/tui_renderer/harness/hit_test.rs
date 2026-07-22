@@ -25,7 +25,9 @@ fn coffee_machine_hit_test_resolves_on_pantry() {
     use pixtuoid_scene::layout::WaypointKind;
     let scene = scene_with(vec![idle("/cm/0.jsonl", 0, t0())], 16);
     let mut r = build(140, 48, vec![]);
-    r.render(&scene, &pack(), t0()).unwrap();
+    let sprite_pack = pack();
+    let mut now = t0();
+    render_standard_floor(&mut r, &scene, &sprite_pack, &mut now);
     let layout = r.cached_layout().expect("layout");
     let pantry = layout
         .waypoints
@@ -181,6 +183,21 @@ fn furniture_hit_test_covers_every_kind_on_real_layouts() {
                 PodDecor::Tv => "TV Stand",
                 PodDecor::PhoneBooth => "Phone Booth",
                 PodDecor::StandingDesk => "Standing Desk",
+                PodDecor::TradingCommandWall => "Market Command Wall",
+                PodDecor::TradingTicker => "Market Ticker",
+                PodDecor::TradingDeskRig => "Trading Desk Rig",
+                PodDecor::TradingClutter => "Trading Floor Clutter",
+                PodDecor::TradingBonusBoard => "Bonus Leaderboard",
+                PodDecor::TradingPhoneBank => "Phone Bank",
+                PodDecor::TradingVelcroTarget => "Velcro Target",
+                PodDecor::ExecutiveRunner => "Executive Gallery Runner",
+                PodDecor::ExecutiveArtWall => "Monumental Art",
+                PodDecor::ExecutiveMoneyPainting => "One Hundred Dollar Oil Painting",
+                PodDecor::ExecutiveMarbleFloor => "Dark Parquet Floor",
+                PodDecor::ExecutiveBoardTable => "Vivian's Executive Desk",
+                PodDecor::ExecutiveBar => "Mahogany Drinks Cabinet",
+                PodDecor::ExecutiveSculpture => "Old Master Portrait",
+                PodDecor::ExecutiveChandelier => "Executive Chandelier",
             };
             assert!(
                 labels.contains(label),

@@ -250,7 +250,9 @@ fn onboarding_dims_both_sliding_buffers_on_the_transition_path() {
 fn coffee_machine_tooltip_on_hover() {
     let scene = scene_with(vec![idle("/tt/c.jsonl", 0, t0())], 16);
     let mut r = build(140, 48, vec![]);
-    r.render(&scene, &pack(), t0()).unwrap();
+    let sprite_pack = pack();
+    let mut now = t0();
+    render_standard_floor(&mut r, &scene, &sprite_pack, &mut now);
     let layout = r.cached_layout().expect("layout");
     // Find a cell that hits the coffee machine.
     let mut hover = None;
@@ -264,7 +266,7 @@ fn coffee_machine_tooltip_on_hover() {
     }
     let hover = hover.expect("coffee machine should be hit-testable");
     r.set_mouse_pos(Some(hover));
-    r.render(&scene, &pack(), t0()).unwrap();
+    r.render(&scene, &sprite_pack, now).unwrap();
     let text = frame_text(r.frame_buffer());
     assert!(
         text.contains("Coffee machine"),

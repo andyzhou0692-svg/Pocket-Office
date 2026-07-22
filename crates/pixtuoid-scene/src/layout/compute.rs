@@ -46,6 +46,12 @@ pub(super) fn compute_with_seed(
         return None;
     }
 
+    if let Some(profile) = super::prototypes::PreviewLayout::from_seed(floor_seed) {
+        if let Some(layout) = super::prototypes::compute(profile, buf_w, buf_h, max_desks) {
+            return Some(layout);
+        }
+    }
+
     let top_margin = pct(buf_h, 30).max(MIN_TOP_MARGIN);
     let usable_h = buf_h - top_margin;
 
@@ -1197,7 +1203,24 @@ pub(super) fn compute_waypoints(
         let wp_kind = match kind {
             PodDecor::PhoneBooth => Some(WaypointKind::PhoneBooth),
             PodDecor::StandingDesk => Some(WaypointKind::StandingDesk),
-            PodDecor::PlantTall | PodDecor::Whiteboard | PodDecor::Tv => None,
+            PodDecor::PlantTall
+            | PodDecor::Whiteboard
+            | PodDecor::Tv
+            | PodDecor::TradingCommandWall
+            | PodDecor::TradingTicker
+            | PodDecor::TradingDeskRig
+            | PodDecor::TradingClutter
+            | PodDecor::TradingBonusBoard
+            | PodDecor::TradingPhoneBank
+            | PodDecor::TradingVelcroTarget
+            | PodDecor::ExecutiveRunner
+            | PodDecor::ExecutiveArtWall
+            | PodDecor::ExecutiveMoneyPainting
+            | PodDecor::ExecutiveMarbleFloor
+            | PodDecor::ExecutiveBoardTable
+            | PodDecor::ExecutiveBar
+            | PodDecor::ExecutiveSculpture
+            | PodDecor::ExecutiveChandelier => None,
         };
         if let Some(wp_kind) = wp_kind {
             waypoints.push(Waypoint {

@@ -1,6 +1,180 @@
 use super::*;
 
 #[test]
+fn approved_preview_layouts_are_structural_remakes() {
+    let trading =
+        SceneLayout::compute_with_seed(160, 94, Some(8), PREVIEW_LAYOUT_TRADING_FLOOR_SEED)
+            .expect("trading floor fits");
+    let neighborhoods =
+        SceneLayout::compute_with_seed(160, 94, Some(8), PREVIEW_LAYOUT_NEIGHBORHOODS_SEED)
+            .expect("neighborhood floor fits");
+    let gallery =
+        SceneLayout::compute_with_seed(160, 94, Some(8), PREVIEW_LAYOUT_EXECUTIVE_GALLERY_SEED)
+            .expect("executive gallery fits");
+
+    assert_eq!(trading.home_desks.len(), 8);
+    assert_eq!(neighborhoods.home_desks.len(), 8);
+    assert_eq!(gallery.home_desks.len(), 1);
+
+    assert!(trading.meeting_rooms.is_empty());
+    assert!(trading.pantry.is_none());
+    assert!(trading.room_walls.is_empty());
+    for required in [
+        PodDecor::TradingBonusBoard,
+        PodDecor::TradingPhoneBank,
+        PodDecor::TradingVelcroTarget,
+    ] {
+        assert!(
+            trading.pod_decor.iter().any(|item| item.kind == required),
+            "trading floor includes {required:?}"
+        );
+    }
+    assert_eq!(
+        trading
+            .pod_decor
+            .iter()
+            .filter(|item| item.kind == PodDecor::TradingDeskRig)
+            .count(),
+        8,
+        "each real desk has a trading rig"
+    );
+    assert!(
+        trading
+            .pod_decor
+            .iter()
+            .filter(|item| item.kind == PodDecor::TradingTicker)
+            .count()
+            >= 4,
+        "the back wall carries a continuous ticker run"
+    );
+    assert!(
+        trading
+            .pod_decor
+            .iter()
+            .filter(|item| item.kind == PodDecor::TradingClutter)
+            .count()
+            >= 8,
+        "paper, takeout and bins fill the old empty zones"
+    );
+
+    assert_eq!(neighborhoods.meeting_rooms.len(), 1);
+    assert!(neighborhoods.room_walls.len() >= 8);
+    assert!(
+        neighborhoods
+            .wall_decor
+            .iter()
+            .any(|item| item.kind == WallDecor::MeetingScreen),
+        "the shared executive conference room has a presentation screen"
+    );
+    assert!(
+        neighborhoods
+            .pantry
+            .and_then(|pantry| pantry.kitchen_island)
+            .is_some(),
+        "the neighborhood remake has a central collaboration island"
+    );
+
+    assert!(gallery.meeting_rooms.is_empty());
+    assert!(gallery.room_walls.is_empty());
+    assert!(gallery.pantry.is_none());
+    assert!(gallery.couch_sprite_center.is_some());
+    assert!(
+        !gallery
+            .pod_decor
+            .iter()
+            .any(|item| item.kind.sprite_name() == "executive_runner"),
+        "Vivian's private office replaces the shared executive runner"
+    );
+    for required in [
+        "executive_money_painting",
+        "executive_marble_floor",
+        "executive_board_table",
+        "executive_bar",
+        "executive_sculpture",
+        "executive_chandelier",
+    ] {
+        assert!(
+            gallery
+                .pod_decor
+                .iter()
+                .any(|item| item.kind.sprite_name() == required),
+            "Vivian's private office includes {required}"
+        );
+    }
+    assert_eq!(
+        gallery
+            .pod_decor
+            .iter()
+            .filter(|item| item.kind.sprite_name() == "executive_money_painting")
+            .count(),
+        1,
+        "one money painting shares the real window wall"
+    );
+    assert!(
+        !gallery
+            .pod_decor
+            .iter()
+            .any(|item| item.kind.sprite_name() == "executive_art_wall"),
+        "the old repeated window bays are removed from Vivian's office"
+    );
+    let money = gallery
+        .pod_decor
+        .iter()
+        .find(|item| item.kind.sprite_name() == "executive_money_painting")
+        .expect("money painting");
+    let money_w = furniture_def(money.kind.furniture()).visual.w;
+    let money_left = money.pos.x - money_w / 2;
+    let money_right = money_left + money_w;
+    assert_eq!(
+        money_left, 0,
+        "the painting covers the old left window grid"
+    );
+    assert_eq!(
+        money_right, 75,
+        "the painting stops before the next complete pane of the real window grid"
+    );
+    assert!(
+        !gallery
+            .pod_decor
+            .iter()
+            .any(|item| item.kind.sprite_name() == "executive_park_window"),
+        "Central Park is scenery through the real windows, not a framed decor sprite"
+    );
+    assert!(
+        gallery
+            .wall_decor
+            .iter()
+            .any(|item| item.kind == WallDecor::Bookshelf),
+        "Vivian's old money office replaces the presentation screen with a library"
+    );
+    assert!(
+        !gallery
+            .wall_decor
+            .iter()
+            .any(|item| item.kind == WallDecor::MeetingScreen),
+        "Vivian's old money office has no modern presentation screen"
+    );
+
+    assert_ne!(trading.home_desks, neighborhoods.home_desks);
+    assert_ne!(neighborhoods.home_desks, gallery.home_desks);
+    assert_ne!(trading.room_walls, neighborhoods.room_walls);
+    assert_ne!(neighborhoods.room_walls, gallery.room_walls);
+}
+
+#[test]
+fn approved_layout_seeds_still_render_after_a_terminal_resize() {
+    for seed in [
+        PREVIEW_LAYOUT_TRADING_FLOOR_SEED,
+        PREVIEW_LAYOUT_EXECUTIVE_GALLERY_SEED,
+    ] {
+        assert!(
+            SceneLayout::compute_with_seed(120, 78, Some(8), seed).is_some(),
+            "special floor seed {seed} must not blank a resized terminal"
+        );
+    }
+}
+
+#[test]
 fn layout_override_moves_lounge_lamp_and_rebuilds_walkability() {
     let base = SceneLayout::compute_with_seed(240, 160, Some(8), 0).expect("fits");
     let target = Point {

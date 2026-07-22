@@ -1,0 +1,7 @@
+# 32x5 continuous market ticker with alternating price blocks.
+@frame 0
+M M M M M M M M M M M M M M M M M M M M M M M M M M M M M M M M
+M j j c c j r r j y y j c c j r r j y y j c c j r r j y y j j M
+M j c c j j r j j y j j c j j r r j y j j c c j r j j y y j j M
+M j j j j j j j j j j j j j j j j j j j j j j j j j j j j j j M
+M M M M M M M M M M M M M M M M M M M M M M M M M M M M M M M M

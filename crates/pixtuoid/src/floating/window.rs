@@ -33,7 +33,7 @@ use winit::window::{ResizeDirection, Window, WindowId, WindowLevel};
 
 use super::offscreen::OfficeRenderer;
 use crate::config::{self, FloatingConfig};
-use pixtuoid_scene::floor::FloorMeta;
+use pixtuoid_scene::floor::{project_display_floor_scene, DisplayFloorRole, FloorMeta};
 use pixtuoid_scene::theme::Theme;
 
 /// Wake reasons delivered to the winit loop from the background tokio pipeline.
@@ -154,11 +154,13 @@ impl FloatingApp {
         let scene = self.scene_rx.borrow().clone();
         let now = SystemTime::now();
         let render_scene = self.visual_coworkers.render_scene(&scene, now);
-        let floor_meta = FloorMeta::ground();
+        let projected_scene = project_display_floor_scene(&render_scene, DisplayFloorRole::Trading);
+        let floor_meta =
+            FloorMeta::for_display_floor(0, pixtuoid_scene::floor::num_floors(&render_scene));
         let floor_pet =
             pixtuoid_scene::pet::select_pet_for_floor(floor_meta.floor_seed, &self.pets);
         let office = self.renderer.render(
-            &render_scene,
+            &projected_scene,
             &self.pack,
             self.theme,
             now,
@@ -200,7 +202,7 @@ impl FloatingApp {
         // Name badges + the neon wall board, drawn POST-upscale at native surface res
         // (crisp anti-aliased Monaspace Neon) using the same layout/route state the office
         // pass just used. Badges are a fixed caption height; the board scales with the panel.
-        let labels = self.renderer.labels(&render_scene, now);
+        let labels = self.renderer.labels(&projected_scene, now);
         super::offscreen::paint_labels_into_surface(
             &mut sb,
             win_w,
@@ -229,7 +231,7 @@ impl FloatingApp {
 /// lowers capacity (excess agents become invisible-but-alive, like the TUI on shrink).
 fn sync_floor_caps(floor_caps: &[AtomicUsize; MAX_FLOORS], buf_w: u16, buf_h: u16) {
     for (floor_idx, cap) in floor_caps.iter().enumerate() {
-        let seed = pixtuoid_scene::floor::floor_seed(floor_idx);
+        let seed = pixtuoid_scene::floor::operational_floor_seed(floor_idx);
         let capacity = pixtuoid_scene::floor::floor_capacity(buf_w, buf_h, seed);
         cap.store(capacity, Ordering::Relaxed);
     }

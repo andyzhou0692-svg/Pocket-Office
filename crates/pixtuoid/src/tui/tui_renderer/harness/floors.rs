@@ -15,15 +15,16 @@ fn terminal_renderer_consumes_floor_scoped_layout_overrides() {
     };
     let mut overrides = std::collections::BTreeMap::new();
     overrides.insert(
-        0,
+        1,
         LayoutOverrides::new([LayoutPosition::new("lounge.floor-lamp", target)]),
     );
 
     let mut renderer = build(cols, rows, vec![]);
     renderer.set_layout_overrides(overrides);
-    renderer
-        .render(&SceneState::uniform(16), &pack(), t0())
-        .unwrap();
+    let scene = SceneState::uniform(16);
+    let sprite_pack = pack();
+    let mut now = t0();
+    render_standard_floor(&mut renderer, &scene, &sprite_pack, &mut now);
 
     assert_eq!(renderer.cached_layout().unwrap().floor_lamp, Some(target));
 }
@@ -109,6 +110,60 @@ fn offscreen_floor_freezes_and_resyncs_on_return() {
 // Floor navigation
 // ===================================================================
 #[test]
+fn renderer_allocates_the_permanent_three_floor_stack() {
+    let scene = scene_with(vec![idle("/stack/a.jsonl", 0, t0())], 8);
+    let mut renderer = build(160, 48, vec![]);
+
+    renderer.render(&scene, &pack(), t0()).unwrap();
+
+    assert!(renderer.floor_buf(0).is_some(), "trading floor allocated");
+    assert!(renderer.floor_buf(1).is_some(), "200West floor allocated");
+    assert!(renderer.floor_buf(2).is_some(), "Vivian floor allocated");
+}
+
+#[test]
+fn permanent_three_floor_stack_renders_three_distinct_offices_at_live_size() {
+    let mut agents = (0..8)
+        .map(|i| idle(&format!("/stack/{i}.jsonl"), i, t0()))
+        .collect::<Vec<_>>();
+    agents[0].label = "Vivian".into();
+    let scene = scene_with(agents, 8);
+    let mut renderer = build(120, 36, vec![]);
+    let sprite_pack = pack();
+    let mut now = t0();
+
+    renderer.render(&scene, &sprite_pack, now).unwrap();
+    let trading = renderer.buf().clone();
+    renderer.navigate_floor(1, now);
+    render_until_settled(&mut renderer, &scene, &sprite_pack, &mut now, 1);
+    let west = renderer.buf().clone();
+    renderer.navigate_floor(2, now);
+    render_until_settled(&mut renderer, &scene, &sprite_pack, &mut now, 2);
+    let vivian = renderer.buf().clone();
+
+    for (name, floor) in [
+        ("trading", &trading),
+        ("200West", &west),
+        ("Vivian", &vivian),
+    ] {
+        assert!(
+            avg_lum(floor, 0, 0, floor.width(), floor.height()) > 10.0,
+            "{name} floor must paint a visible office"
+        );
+    }
+    for (left_name, left, right_name, right) in [
+        ("trading", &trading, "200West", &west),
+        ("200West", &west, "Vivian", &vivian),
+        ("trading", &trading, "Vivian", &vivian),
+    ] {
+        assert!(
+            region_diff(left, right, 0, 0, left.width(), left.height()) > 100_000,
+            "{left_name} and {right_name} must render visibly different offices"
+        );
+    }
+}
+
+#[test]
 fn floor_transition_completes_and_lands() {
     let p = pack();
     let scene = two_floor_scene();
@@ -173,15 +228,21 @@ fn navigation_blocked_during_active_transition() {
 fn transition_cancelled_when_target_floor_disappears() {
     let cap = 16;
     let f1 = slot(AgentId::from_transcript_path("/c/1.jsonl"), 1, cap, t0());
-    let mut scene = scene_with(vec![idle("/c/0.jsonl", 0, t0()), f1.clone()], cap);
+    let f2 = slot(
+        AgentId::from_transcript_path("/c/2.jsonl"),
+        2,
+        cap * 2,
+        t0(),
+    );
+    let mut scene = scene_with(vec![idle("/c/0.jsonl", 0, t0()), f1, f2.clone()], cap);
     let mut r = build(100, 40, vec![]);
     let mut now = t0();
     r.render(&scene, &pack(), now).unwrap();
-    r.navigate_floor(1, now);
+    r.navigate_floor(3, now);
     assert!(r.transition().is_some());
 
-    // Floor-1 agent leaves ⇒ num_floors drops to 1 ⇒ transition target gone.
-    scene.agents.remove(&f1.agent_id);
+    // The highest operational floor leaves, so its former top display index vanishes.
+    scene.agents.remove(&f2.agent_id);
     now += Duration::from_millis(100);
     r.render(&scene, &pack(), now).unwrap();
     assert!(
@@ -198,19 +259,29 @@ fn floor_buffers_grow_on_overflow() {
     let now = t0();
     let one = scene_with(vec![idle("/g/0.jsonl", 0, t0())], cap);
     r.render(&one, &pack(), now).unwrap();
-    assert!(r.floor_buf(1).is_none(), "only one floor allocated");
+    assert!(
+        r.floor_buf(2).is_some(),
+        "the permanent three floors are allocated"
+    );
+    assert!(r.floor_buf(3).is_none(), "no overflow display floor yet");
 
-    let two = scene_with(
+    let overflow = scene_with(
         vec![
             idle("/g/0.jsonl", 0, t0()),
             slot(AgentId::from_transcript_path("/g/1.jsonl"), 1, cap, t0()),
+            slot(
+                AgentId::from_transcript_path("/g/2.jsonl"),
+                2,
+                cap * 2,
+                t0(),
+            ),
         ],
         cap,
     );
-    r.render(&two, &pack(), now).unwrap();
+    r.render(&overflow, &pack(), now).unwrap();
     assert!(
-        r.floor_buf(1).is_some(),
-        "floor-1 buffer allocated after overflow"
+        r.floor_buf(3).is_some(),
+        "another display floor is allocated for genuine operational overflow"
     );
 }
 
@@ -243,9 +314,10 @@ fn invalidate_routes_clears_every_floor_router_cache() {
     // before its first walk-out).
     let agents = (0..8)
         .map(|i| {
-            idle(
-                &format!("/inv/{i}.jsonl"),
-                i,
+            slot(
+                AgentId::from_transcript_path(&format!("/inv/{i}.jsonl")),
+                1,
+                16 + i,
                 t0() - Duration::from_secs(120),
             )
         })
@@ -253,26 +325,28 @@ fn invalidate_routes_clears_every_floor_router_cache() {
     let scene = scene_with(agents, 16);
     let mut r = build(120, 60, vec![]);
     let mut now = t0();
+    let sprite_pack = pack();
+    render_standard_floor(&mut r, &scene, &sprite_pack, &mut now);
     // Advance up to ~60s of render time; bail out as soon as the router caches.
     for _ in 0..120 {
-        r.render(&scene, &pack(), now).expect("render");
-        if !r.floors[0].ctx.router.is_empty() {
+        r.render(&scene, &sprite_pack, now).expect("render");
+        if !r.floors[1].ctx.router.is_empty() {
             break;
         }
         now += Duration::from_millis(500);
     }
     assert!(
-        !r.floors[0].ctx.router.is_empty(),
+        !r.floors[1].ctx.router.is_empty(),
         "a warmed-up wandering agent should have populated the A* path cache"
     );
 
     r.invalidate_routes();
     assert!(
-        r.floors[0].ctx.router.is_empty(),
+        r.floors[1].ctx.router.is_empty(),
         "invalidate_routes must drop every floor's cached A* paths"
     );
     assert_eq!(
-        r.floors[0].ctx.router.len(),
+        r.floors[1].ctx.router.len(),
         0,
         "cache is empty after invalidate"
     );
@@ -487,22 +561,37 @@ fn already_expired_active_pet_clears_on_render() {
 
 #[test]
 fn current_floor_clamps_when_floor_count_drops() {
-    // Land on floor 1, then re-render a scene with only floor 0 ⇒ current_floor
-    // must clamp back into range (the nf-shrink clamp).
+    // Land on the fourth display floor, then drop back to the permanent stack.
     let cap = 16;
-    let two = two_floor_scene();
+    let three = scene_with(
+        vec![
+            idle("/clamp/0.jsonl", 0, t0()),
+            slot(
+                AgentId::from_transcript_path("/clamp/1.jsonl"),
+                1,
+                cap,
+                t0(),
+            ),
+            slot(
+                AgentId::from_transcript_path("/clamp/2.jsonl"),
+                2,
+                cap * 2,
+                t0(),
+            ),
+        ],
+        cap,
+    );
     let mut r = build(100, 40, vec![]);
     let mut now = t0();
-    r.render(&two, &pack(), now).unwrap();
-    r.navigate_floor(1, now);
-    render_until_settled(&mut r, &two, &pack(), &mut now, 1);
-    assert_eq!(r.current_floor(), 1);
-    // Drop to a single-floor scene.
+    r.render(&three, &pack(), now).unwrap();
+    r.navigate_floor(3, now);
+    render_until_settled(&mut r, &three, &pack(), &mut now, 3);
+    assert_eq!(r.current_floor(), 3);
     let one = scene_with(vec![idle("/clamp/0.jsonl", 0, t0())], cap);
     r.render(&one, &pack(), now).unwrap();
     assert_eq!(
         r.current_floor(),
-        0,
+        2,
         "current_floor clamps when floors shrink"
     );
 }
